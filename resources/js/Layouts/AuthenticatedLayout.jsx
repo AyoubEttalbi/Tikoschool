@@ -15,7 +15,7 @@ export default function AuthenticatedDashboardLayout({children}) {
       <div className="w-[14%] md:w-[8%] lg:w-[16%] xl:w-[14%] p-4 bg-white border-r border-gray-200">
         <Link href="/admin" className="flex items-center justify-center lg:justify-start gap-2">
           <img src="/logo.png" alt="logo" width={32} height={32} />
-          <span className="hidden lg:block font-bold">TEKO SCHOOL</span>
+          <span className="hidden lg:block font-bold">TikoSchool</span>
         </Link>
         <Menu />
       </div>

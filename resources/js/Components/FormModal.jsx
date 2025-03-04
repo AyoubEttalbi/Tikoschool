@@ -3,11 +3,13 @@ import React, { lazy, Suspense, useState } from 'react';
 const OfferForm = lazy(() => import('./forms/OfferForm'));
 const TeacherForm = lazy(() => import('./forms/TeacherForm'));
 const StudentForm = lazy(() => import('./forms/StudentForm'));
+const ClasseForm = lazy(() => import('./forms/ClasseForm'));
 
 const forms = {
   offer: OfferForm,
   teacher: TeacherForm,
   student: StudentForm,
+  class: ClasseForm,
 };
 
 const FormModal = ({ table, type, data, id }) => {
