@@ -103,6 +103,11 @@ Route::get('/teachers/{id}', function ($id) use ($teachersData) {
     ]);
 });
 
+
 Route::get('/offers', function () {
     return Inertia::render('Menu/OffersPage');
+});
+
+Route::get('/classes', function () {    
+    return Inertia::render('Menu/ClassesPage');
 });
