@@ -1,22 +1,11 @@
-"use client";
+import React, { lazy, Suspense, useState } from 'react';
 
-import dynamic from "next/dynamic";
-import Image from "next/image";
-import { useState } from "react";
-
-// USE LAZY LOADING
-
-// import TeacherForm from "./forms/TeacherForm";
-// import StudentForm from "./forms/StudentForm";
-
-const TeacherForm = dynamic(() => import("./forms/TeacherForm"), {
-  loading: () => <h1>Loading...</h1>,
-});
-const StudentForm = dynamic(() => import("./forms/StudentForm"), {
-  loading: () => <h1>Loading...</h1>,
-});
+const OfferForm = lazy(() => import('./forms/OfferForm'));
+const TeacherForm = lazy(() => import('./forms/TeacherForm'));
+const StudentForm = lazy(() => import('./forms/StudentForm'));
 
 const forms = {
+  offer: OfferForm,
   teacher: TeacherForm,
   student: StudentForm,
 };
@@ -33,21 +22,16 @@ const FormModal = ({ table, type, data, id }) => {
   const [open, setOpen] = useState(false);
 
   const Form = () => {
-    return type === "delete" && id ? (
-      <form action="" className="p-4 flex flex-col gap-4">
-        <span className="text-center font-medium">
-          All data will be lost. Are you sure you want to delete this {table}?
-        </span>
-        <button className="bg-red-700 text-white py-2 px-4 rounded-md border-none w-max self-center">
-          Delete
-        </button>
-      </form>
-    ) : type === "create" || type === "update" ? (
-      // Check if the table exists in the forms object
-      forms[table] ? forms[table](type, data) : <p>Form not found!</p>
-    ) : (
-      "Form not found!"
-    );
+    if (type === "create" || type === "update") {
+      const FormComponent = forms[table];
+      return FormComponent ? (
+        <Suspense fallback={<h1>Loading...</h1>}>
+          <FormComponent type={type} data={data} />
+        </Suspense>
+      ) : (
+        <p>Form not found!</p>
+      );
+    }
   };
 
   return (
@@ -56,7 +40,7 @@ const FormModal = ({ table, type, data, id }) => {
         className={`${size} flex items-center justify-center rounded-full ${bgColor}`}
         onClick={() => setOpen(true)}
       >
-        <Image src={`/${type}.png`} alt="" width={16} height={16} />
+        <img src={`/${type}.png`} alt="" width={16} height={16} />
       </button>
       {open && (
         <div className="w-screen h-screen absolute left-0 top-0 bg-black bg-opacity-60 z-50 flex items-center justify-center">
@@ -66,7 +50,7 @@ const FormModal = ({ table, type, data, id }) => {
               className="absolute top-4 right-4 cursor-pointer"
               onClick={() => setOpen(false)}
             >
-              <Image src="/close.png" alt="" width={14} height={14} />
+              <img src="/close.png" alt="" width={14} height={14} />
             </div>
           </div>
         </div>
