@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link } from '@inertiajs/react'; // Use Inertia's Link component
+import { Link } from '@inertiajs/react'; 
 import Announcements from "@/Components/Announcements";
 import BigCalendar from "@/Components/BigCalender";
 import Performance from "@/Components/Performance";
@@ -15,13 +15,13 @@ const SingleStudentPage = ({ student }) => {
           {/* USER INFO CARD */}
           <div className="bg-lamaSky py-6 px-4 rounded-md flex-1 flex gap-4">
             <div className="w-1/3">
-            <img
-  src={student.photo}
-  alt={student.name}
-  width={144}
-  height={144}
-  className="w-36 h-36 rounded-full object-cover"
-/>
+              <img
+                src={student.photo}
+                alt={student.name}
+                width={144}
+                height={144}
+                className="w-36 h-36 rounded-full object-cover"
+              />
 
             </div>
             <div className="w-2/3 flex flex-col justify-between gap-4">

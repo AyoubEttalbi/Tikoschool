@@ -43,7 +43,7 @@ const menuItems = [
       },
       {
         icon: "/offer.png",
-        label: "offers",
+        label: "Offers",
         href: "/offers",
         visible: ["admin", "teacher"],
       },
