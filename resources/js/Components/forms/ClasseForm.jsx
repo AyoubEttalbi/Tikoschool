@@ -65,5 +65,6 @@ const ClasseForm = ({ onSubmit }) => {
     </form>
   );
 };
-ClasseForm.layout = (page) => <DashboardLayout>{page}</DashboardLayout>;
+
 export default ClasseForm;
+
