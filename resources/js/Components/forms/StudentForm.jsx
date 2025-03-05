@@ -48,9 +48,9 @@ const StudentForm = ({ type, data }) => {
   <span className="text-xs text-gray-400 font-medium">Student Information</span>
 
   <div className="flex justify-between flex-wrap gap-4">
-    <InputField label="First Name" name="firstName" defaultValue={data?.first_name} register={register} error={errors.firstName} />
-    <InputField label="Last Name" name="lastName" defaultValue={data?.last_name} register={register} error={errors.lastName} />
-    <InputField label="Date of Birth" name="dateOfBirth" defaultValue={data?.date_of_birth} register={register} error={errors.dateOfBirth} type="date" />
+    <InputField label="First Name" name="firstName" defaultValue={data?.firstName} register={register} error={errors.firstName} />
+    <InputField label="Last Name" name="lastName" defaultValue={data?.lastName} register={register} error={errors.lastName} />
+    <InputField label="Date of Birth" name="dateOfBirth" defaultValue={data?.dateOfBirth} register={register} error={errors.dateOfBirth} type="date" />
   </div>
 
   <span className="text-xs text-gray-400 font-medium">Additional Information</span>
@@ -58,22 +58,22 @@ const StudentForm = ({ type, data }) => {
   <div className="flex justify-between flex-wrap gap-4">
     <InputField label="Billing Date" name="billingDate" defaultValue={defaultBillingDate} register={register} error={errors.billingDate} type="date" />
     <InputField label="Address" name="address" defaultValue={data?.address} register={register} error={errors.address} />
-    <InputField label="Guardian Name" name="guardianName" defaultValue={data?.guardian_name} register={register} error={errors.guardianName} />
+    <InputField label="Guardian Name" name="guardianName" defaultValue={data?.guardianName} register={register} error={errors.guardianName} />
   </div>
 
   <span className="text-xs text-gray-400 font-medium">Contact Information</span>
 
   <div className="flex justify-between flex-wrap gap-4">
     <InputField label="CIN" name="CIN" defaultValue={data?.CIN} register={register} error={errors.CIN} />
-    <InputField label="Phone Number" name="phoneNumber" defaultValue={data?.phone_number} register={register} error={errors.phoneNumber} />
+    <InputField label="Phone Number" name="phoneNumber" defaultValue={data?.phoneNumber} register={register} error={errors.phoneNumber} />
     <InputField label="Email" name="email" defaultValue={data?.email} register={register} error={errors.email} />
   </div>
 
   <span className="text-xs text-gray-400 font-medium">Enrollment Information</span>
 
   <div className="flex justify-between flex-wrap gap-4">
-    <InputField label="Massar Code" name="massarCode" defaultValue={data?.massar_code} register={register} error={errors.massarCode} />
-    <InputField label="Level ID" name="levelId" defaultValue={data?.level_id} register={register} error={errors.levelId} />
+    <InputField label="Massar Code" name="massarCode" defaultValue={data?.massarCode} register={register} error={errors.massarCode} />
+    <InputField label="Level ID" name="levelId" defaultValue={data?.levelId} register={register} error={errors.levelId} />
 
     <div className="flex flex-col gap-2 w-full md:w-1/4">
       <label className="text-xs text-gray-600">Status</label>

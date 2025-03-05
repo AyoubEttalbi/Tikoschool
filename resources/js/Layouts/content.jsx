@@ -4,7 +4,7 @@ import CountChart from "@/Components/CountChart";
 import FinanceChart from "@/Components/FinanceChart";
 import UserCard from "@/Components/UserCard";
 import React from "react";
-
+import EventCalendar from "@/Components/EventCalendar";
 
 const Content = () => {
   return (
@@ -35,7 +35,8 @@ const Content = () => {
         </div>
       </div>
       {/* RIGHT */}
-      <div className="w-full bg-white lg:w-1/3 flex flex-col gap-8">
+      <div className="w-full lg:w-1/3 flex flex-col gap-8">
+        <EventCalendar />
         <Announcements/>
       </div>
     </div>

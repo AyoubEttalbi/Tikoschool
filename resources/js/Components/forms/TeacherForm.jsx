@@ -24,15 +24,15 @@ const TeacherForm = ({ type, data }) => {
   } = useForm({
     resolver: zodResolver(schema),
     defaultValues: {
-      firstName: data?.first_name || "",
-      lastName: data?.last_name || "",
+      firstName: data?.firstName || "",
+      lastName: data?.lastName || "",
       address: data?.address || "",
-      phoneNumber: data?.phone_number || "",
+      phoneNumber: data?.phoneNumber || "",
       email: data?.email || "",
       status: data?.status || "active",
       subjects: data?.subjects ? JSON.stringify(data.subjects) : "",
       wallet: data?.wallet || 0,
-      groupName: data?.group_name || "",
+      groupName: data?.groupName || "",
     },
   });
 
@@ -50,11 +50,41 @@ const TeacherForm = ({ type, data }) => {
       {/* Personal Information */}
       <span className="text-xs text-gray-400 font-medium">Personal Information</span>
       <div className="flex flex-wrap gap-4">
-        <InputField label="First Name" name="firstName" register={register} error={errors.firstName} />
-        <InputField label="Last Name" name="lastName" register={register} error={errors.lastName} />
-        <InputField label="Address" name="address" register={register} error={errors.address} />
-        <InputField label="Phone Number" name="phoneNumber" register={register} error={errors.phoneNumber} />
-        <InputField label="Email" name="email" register={register} error={errors.email} />
+        <InputField
+          label="First Name"
+          name="firstName"
+          register={register}
+          error={errors.firstName}
+          defaultValue={data?.firstName}
+        />
+        <InputField
+          label="Last Name"
+          name="lastName"
+          register={register}
+          error={errors.lastName}
+          defaultValue={data?.lastName}
+        />
+        <InputField
+          label="Address"
+          name="address"
+          register={register}
+          error={errors.address}
+          defaultValue={data?.address}
+        />
+        <InputField
+          label="Phone Number"
+          name="phoneNumber"
+          register={register}
+          error={errors.phoneNumber}
+          defaultValue={data?.phoneNumber}
+        />
+        <InputField
+          label="Email"
+          name="email"
+          register={register}
+          error={errors.email}
+          defaultValue={data?.email}
+        />
       </div>
 
       {/* Additional Information */}
@@ -72,26 +102,29 @@ const TeacherForm = ({ type, data }) => {
           {errors.status && <p className="text-xs text-red-400">{errors.status.message}</p>}
         </div>
 
-        <InputField 
-          label="Subjects (JSON format)" 
-          name="subjects" 
-          register={register} 
-          error={errors.subjects} 
+        <InputField
+          label="Subjects (JSON format)"
+          name="subjects"
+          register={register}
+          error={errors.subjects}
+          defaultValue={data?.subjects ? JSON.stringify(data.subjects) : ""}
         />
 
-        <InputField 
-          label="Wallet Amount" 
-          name="wallet" 
-          type="number" 
-          register={register} 
-          error={errors.wallet} 
+        <InputField
+          label="Wallet Amount"
+          name="wallet"
+          type="number"
+          register={register}
+          error={errors.wallet}
+          defaultValue={data?.wallet || 0}
         />
 
-        <InputField 
-          label="Group Name" 
-          name="groupName" 
-          register={register} 
-          error={errors.groupName} 
+        <InputField
+          label="Group Name"
+          name="groupName"
+          register={register}
+          error={errors.groupName}
+          defaultValue={data?.groupName}
         />
       </div>
 

@@ -18,7 +18,7 @@ const FormModal = ({ table, type, data, id }) => {
     type === "create"
       ? "bg-lamaYellow"
       : type === "update"
-      ? "bg-lamaSky"
+      ? "bg-lamaYellow"
       : "bg-lamaPurple";
 
   const [open, setOpen] = useState(false);

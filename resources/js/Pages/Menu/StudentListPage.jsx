@@ -7,7 +7,7 @@ import TableSearch from "../../Components/TableSearch";
 import Table from "../../Components/Table";
 import Pagination from "../../Components/Pagination";
 import DashboardLayout from "@/Layouts/DashboardLayout";
-
+import { UserRoundPen } from "lucide-react";
 const columns = [
   {
     header: "Info",
@@ -41,6 +41,7 @@ const columns = [
 
 const StudentListPage = () => {
   const renderRow = (item) => (
+    
     <tr
       key={item.id}
       className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
@@ -70,7 +71,12 @@ const StudentListPage = () => {
             </button>
           </Link>
           {role === "admin" && (
+            <>
+            <FormModal table="student" type="update" id={item.id} />
             <FormModal table="student" type="delete" id={item.id} />
+           
+            </>
+            
           )}
         </div>
       </td>

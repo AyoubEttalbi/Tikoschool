@@ -4,7 +4,9 @@ import Announcements from "@/Components/Announcements";
 import BigCalendar from "@/Components/BigCalender";
 import Performance from "@/Components/Performance";
 import DashboardLayout from '@/Layouts/DashboardLayout';
-
+import FormModal from '@/Components/FormModal';
+import MembershipCard from '@/Components/MembershipCard';
+// import studentProfile from "./studentProfile.png";
 const SingleStudentPage = ({ student }) => {
   return (
     <div className="flex-1 p-4 flex flex-col gap-4 xl:flex-row">
@@ -16,7 +18,7 @@ const SingleStudentPage = ({ student }) => {
           <div className="bg-lamaSky py-6 px-4 rounded-md flex-1 flex gap-4">
             <div className="w-1/3">
               <img
-                src={student.photo}
+                src="/studentProfile.png"
                 alt={student.name}
                 width={144}
                 height={144}
@@ -24,8 +26,9 @@ const SingleStudentPage = ({ student }) => {
               />
 
             </div>
+
             <div className="w-2/3 flex flex-col justify-between gap-4">
-              <h1 className="text-xl font-semibold">{student.name}</h1>
+              <h1 className="text-xl font-semibold">{student.firstName} {student.lastName}</h1>
               <p className="text-sm text-gray-500">
                 {student.bio || "Lorem ipsum, dolor sit amet consectetur adipisicing elit."}
               </p>
@@ -48,6 +51,7 @@ const SingleStudentPage = ({ student }) => {
                 </div>
               </div>
             </div>
+            <FormModal table="student" type="update" data={student} id={student.id} />
           </div>
           {/* SMALL CARDS */}
           <div className="flex-1 flex gap-4 justify-between flex-wrap">
@@ -90,7 +94,7 @@ const SingleStudentPage = ({ student }) => {
               />
               <div className="">
                 <h1 className="text-xl font-semibold">{student.lessons || "18"}</h1>
-                <span className="text-sm text-gray-400">Lessons</span>
+                <span className="text-sm text-gray-400">Offers</span>
               </div>
             </div>
             {/* CARD */}
@@ -110,10 +114,26 @@ const SingleStudentPage = ({ student }) => {
           </div>
         </div>
         {/* BOTTOM */}
-        <div className="mt-4 bg-white rounded-md p-4 h-[800px]">
+        <div className="mt-4 bg-white rounded-md p-4 h-fit flex justify-between items-center">
+  {/* <h1 className="text-xl font-semibold flex items-center gap-2">
+    <img src="/membership.png" alt="Memberships" width={24} height={24} />
+    Memberships
+  </h1>
+
+  <button className="flex items-center gap-1 bg-blue-500  text-sm font-medium px-3 py-1 rounded hover:bg-blue-600 transition">
+    <img src="/create.png" alt="create" width={16} height={16} className="w-4 h-4 " />
+    New
+  </button> */}
+  <MembershipCard />
+</div>
+
+
+
+        {/* <div className="mt-4 bg-white rounded-md p-4 h-[800px]">
           <h1>Student&apos;s Schedule</h1>
           <BigCalendar />
-        </div>
+        </div> */}
+
       </div>
       {/* RIGHT */}
       <div className="w-full xl:w-1/3 flex flex-col gap-4">
@@ -140,6 +160,7 @@ const SingleStudentPage = ({ student }) => {
         <Performance />
         <Announcements />
       </div>
+      
     </div>
   );
 };

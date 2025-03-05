@@ -5,6 +5,7 @@ import TableSearch from "@/Components/TableSearch";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { role, teachersData } from "@/lib/data";
 import { Link } from '@inertiajs/react';
+import { UserRoundPen } from "lucide-react";
 const columns = [
   {
     header: "Info",
@@ -73,7 +74,12 @@ const TeacherListPage = () => {
             </button>
           </Link>
           {role === "admin" && (
+            <>
+            <FormModal table="teacher" type="update" id={item.id} />
             <FormModal table="teacher" type="delete" id={item.id} />
+           
+            
+            </>
           )}
         </div>
       </td>

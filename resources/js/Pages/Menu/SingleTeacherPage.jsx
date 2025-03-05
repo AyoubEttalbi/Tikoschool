@@ -17,8 +17,8 @@ const SingleTeacherPage = ({ teacher }) => {
           <div className="bg-lamaSky py-6 px-4 rounded-md flex-1 flex gap-4">
             <div className="w-1/3">
               <img
-                src={teacher.photo || "https://via.placeholder.com/144"}
-                alt={teacher.name}
+                src={teacher.photo || "https://images.pexels.com/photos/2888150/pexels-photo-2888150.jpeg?auto=compress&cs=tinysrgb&w=1200"}
+                alt={teacher.lastName}
                 width={144}
                 height={144}
                 className="w-36 h-36 rounded-full object-cover"
@@ -26,14 +26,8 @@ const SingleTeacherPage = ({ teacher }) => {
             </div>
             <div className="w-2/3 flex flex-col justify-between gap-4">
               <div className="flex items-center gap-4">
-                <h1 className="text-xl font-semibold">{teacher.name}</h1>
-                {role === "admin" && (
-                  <FormModal
-                    table="teacher"
-                    type="update"
-                    data={teacher}
-                  />
-                )}
+                <h1 className="text-xl font-semibold">{teacher.firstName} {teacher.lastName}</h1>
+                
               </div>
               <p className="text-sm text-gray-500">
                 {teacher.bio || "No bio available."}
@@ -53,17 +47,24 @@ const SingleTeacherPage = ({ teacher }) => {
                 </div>
                 <div className="w-full md:w-1/3 lg:w-full 2xl:w-1/3 flex items-center gap-2">
                   <img src="/phone.png" alt="" width={14} height={14} />
-                  <span>{teacher.phone}</span>
+                  <span>{teacher.phoneNumber}</span>
                 </div>
               </div>
             </div>
+            {role === "admin" && (
+                  <FormModal
+                    table="teacher"
+                    type="update"
+                    data={teacher}
+                  />
+                )}
           </div>
 
           {/* SMALL CARDS */}
           <div className="flex-1 flex gap-4 justify-between flex-wrap">
-            <InfoCard icon="/singleAttendance.png" label="Attendance" value="90%" />
-            <InfoCard icon="/singleBranch.png" label="Branches" value="2" />
-            <InfoCard icon="/singleLesson.png" label="Lessons" value="6" />
+            <InfoCard icon="/singleAttendance.png" label="Number of Students" value="20" />
+            <InfoCard icon="/singleBranch.png" label="Subjects" value="2" />
+            <InfoCard icon="/singleLesson.png" label="Offers" value="6" />
             <InfoCard icon="/singleClass.png" label="Classes" value="6" />
           </div>
         </div>
