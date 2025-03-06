@@ -1,15 +1,17 @@
+import { Edit, Plus } from 'lucide-react';
 import React, { lazy, Suspense, useState } from 'react';
 
 const OfferForm = lazy(() => import('./forms/OfferForm'));
 const TeacherForm = lazy(() => import('./forms/TeacherForm'));
 const StudentForm = lazy(() => import('./forms/StudentForm'));
 const ClasseForm = lazy(() => import('./forms/ClasseForm'));
-
+const MembershipForm = lazy(() => import('./forms/MembershipForm'));
 const forms = {
   offer: OfferForm,
   teacher: TeacherForm,
   student: StudentForm,
   class: ClasseForm,
+  membership: MembershipForm
 };
 
 const FormModal = ({ table, type, data, id }) => {
@@ -18,8 +20,8 @@ const FormModal = ({ table, type, data, id }) => {
     type === "create"
       ? "bg-lamaYellow"
       : type === "update"
-      ? "bg-lamaYellow"
-      : "bg-lamaPurple";
+        ? "bg-lamaYellow"
+        : "bg-lamaPurple";
 
   const [open, setOpen] = useState(false);
 
@@ -38,12 +40,28 @@ const FormModal = ({ table, type, data, id }) => {
 
   return (
     <>
-      <button
-        className={`${size} flex items-center justify-center rounded-full ${bgColor}`}
-        onClick={() => setOpen(true)}
-      >
-        <img src={`/${type}.png`} alt="" width={16} height={16} />
-      </button>
+      {table === "membership" && type === "create" ? (
+        <button
+          className="bg-blue-500 hover:bg-blue-600 text-white rounded-full px-3 py-1 h-8 flex items-center"
+          onClick={() => setOpen(true)}
+        >
+          <Plus className="h-4 w-4 mr-1" />
+          New
+        </button>
+      ) : table === "membership" && type === "update" ? (
+        <button className="text-blue-500 hover:text-blue-600" onClick={() => setOpen(true)}>
+          <Edit className="h-5 w-5" />
+        </button>
+      ) : (
+        <button
+          className={`${size} flex items-center justify-center rounded-full ${bgColor}`}
+          onClick={() => setOpen(true)}
+        >
+          <img src={`/${type}.png`} alt="" width={16} height={16} />
+        </button>
+      )}
+
+
       {open && (
         <div className="w-screen h-screen absolute left-0 top-0 bg-black bg-opacity-60 z-50 flex items-center justify-center">
           <div className="bg-white p-4 rounded-md relative w-[90%] md:w-[70%] lg:w-[60%] xl:w-[50%] 2xl:w-[40%]">
@@ -60,5 +78,6 @@ const FormModal = ({ table, type, data, id }) => {
     </>
   );
 };
+
 
 export default FormModal;

@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import Calendar from "react-calendar";
 import "react-calendar/dist/Calendar.css";
@@ -57,7 +56,7 @@ const EventCalendar = () => {
       />
       <div className="flex items-center justify-between my-4">
         <h1 className="text-xl font-semibold">Events</h1>
-        <image src="/moreDark.png" alt="More" width={20} height={20} />
+        <img src="/moreDark.png" alt="More" width={20} height={20} />
       </div>
       {filteredEvents.length > 0 ? (
         <div className="flex flex-col gap-4">

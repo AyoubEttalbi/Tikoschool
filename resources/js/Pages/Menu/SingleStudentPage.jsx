@@ -1,13 +1,42 @@
 import React from 'react';
-import { Link } from '@inertiajs/react'; 
+import { Link } from '@inertiajs/react';
 import Announcements from "@/Components/Announcements";
 import BigCalendar from "@/Components/BigCalender";
 import Performance from "@/Components/Performance";
 import DashboardLayout from '@/Layouts/DashboardLayout';
 import FormModal from '@/Components/FormModal';
 import MembershipCard from '@/Components/MembershipCard';
+import StudentProfile from '@/Components/StudentProfile';
 // import studentProfile from "./studentProfile.png";
 const SingleStudentPage = ({ student }) => {
+  const offers = [
+    {
+      id: 1,
+      name: "AC MATH SVT",
+      teachers: [
+        { subject: "Math", teacher: "hamouda chakiri" },
+        { subject: "SVT", teacher: "ayoub el mahdaoui" },
+      ],
+      date: "16-Aug-2024 | 21:30",
+    },
+    {
+      id: 2,
+      name: "AC PHYSIQUE CHIMIE",
+      teachers: [
+        { subject: "Physique", teacher: "mohamed amine" },
+        { subject: "Chimie", teacher: "fatima zahra" },
+      ],
+      date: "17-Aug-2024 | 10:00",
+    },
+    {
+      id: 3,
+      name: "AC INFORMATIQUE",
+      teachers: [
+        { subject: "Informatique", teacher: "abdellah el moussaoui" },
+      ],
+      date: "18-Aug-2024 | 14:00",
+    },
+  ];
   return (
     <div className="flex-1 p-4 flex flex-col gap-4 xl:flex-row">
       {/* LEFT */}
@@ -115,24 +144,19 @@ const SingleStudentPage = ({ student }) => {
         </div>
         {/* BOTTOM */}
         <div className="mt-4 bg-white rounded-md p-4 h-fit flex justify-between items-center">
-  {/* <h1 className="text-xl font-semibold flex items-center gap-2">
-    <img src="/membership.png" alt="Memberships" width={24} height={24} />
-    Memberships
-  </h1>
-
-  <button className="flex items-center gap-1 bg-blue-500  text-sm font-medium px-3 py-1 rounded hover:bg-blue-600 transition">
-    <img src="/create.png" alt="create" width={16} height={16} className="w-4 h-4 " />
-    New
-  </button> */}
-  <MembershipCard />
-</div>
-
-
-
-        {/* <div className="mt-4 bg-white rounded-md p-4 h-[800px]">
-          <h1>Student&apos;s Schedule</h1>
-          <BigCalendar />
-        </div> */}
+          {
+            offers.length > 0 ?(
+              <MembershipCard offers={offers} />
+            ):(
+              <div className="flex flex-col items-center gap-4">
+                <img src="/student.png" alt="Student" width={64} height={64} />
+                <h1 className="text-2xl font-semibold text-gray-700">No Membership</h1>
+              </div>
+            )
+          }
+          
+        </div>
+        <StudentProfile />
 
       </div>
       {/* RIGHT */}
@@ -160,7 +184,7 @@ const SingleStudentPage = ({ student }) => {
         <Performance />
         <Announcements />
       </div>
-      
+
     </div>
   );
 };

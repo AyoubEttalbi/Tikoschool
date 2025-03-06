@@ -75,7 +75,7 @@ const TeacherListPage = () => {
           </Link>
           {role === "admin" && (
             <>
-            <FormModal table="teacher" type="update" id={item.id} />
+            <FormModal table="teacher" type="update" id={item.id} data={item}/>
             <FormModal table="teacher" type="delete" id={item.id} />
            
             
