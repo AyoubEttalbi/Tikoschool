@@ -39,9 +39,10 @@ const columns = [
   },
 ];
 
-const StudentListPage = () => {
+const StudentListPage = ({ students }) => {
+  console.log(students);
+  // Use the `students` prop instead of `studentsData`
   const renderRow = (item) => (
-    
     <tr
       key={item.id}
       className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
@@ -72,11 +73,9 @@ const StudentListPage = () => {
           </Link>
           {role === "admin" && (
             <>
-            <FormModal table="student" type="update" id={item.id} data={item}/>
-            <FormModal table="student" type="delete" id={item.id} />
-           
+              <FormModal table="student" type="update" id={item.id} data={item} />
+              <FormModal table="student" type="delete" id={item.id} />
             </>
-            
           )}
         </div>
       </td>
@@ -104,11 +103,11 @@ const StudentListPage = () => {
         </div>
       </div>
       {/* LIST */}
-      <Table columns={columns} renderRow={renderRow} data={studentsData} />
-      {/* PAGINATION */}
+      <Table columns={columns} renderRow={renderRow} data={students.data} />
       <Pagination />
     </div>
   );
 };
+
 StudentListPage.layout = (page) => <DashboardLayout>{page}</DashboardLayout>;
 export default StudentListPage;

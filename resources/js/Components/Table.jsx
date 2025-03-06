@@ -1,4 +1,4 @@
-const Table = ({ columns, renderRow, data }) => {
+const Table = ({ columns, renderRow, data = [] }) => {
   return (
     <table className="w-full mt-4">
       <thead>

@@ -4,7 +4,8 @@ use App\Http\Controllers\ProfileController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
-
+use App\Models\Student;
+use App\Http\Controllers\StudentsController;
 Route::get('/', function () {
     return Inertia::render('Auth/Login' );
 });
@@ -23,13 +24,13 @@ Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+    Route::resource('students', StudentsController::class);
 });
 
 require __DIR__.'/auth.php';
 
-Route::get('/students', function () {
-    return Inertia::render('Menu/StudentListPage');
-});
+
+
 
 
 $studentsData = [
