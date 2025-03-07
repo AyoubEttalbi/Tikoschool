@@ -1,11 +1,11 @@
 import DashboardLayout from '@/Layouts/DashboardLayout';
 import React from 'react'
 
-export default function Assignments() {
+export default function SingleAssistantPage() {
   return (
     <div>
       
     </div>
   )
 }
-TeacherListPage.layout = (page) => <DashboardLayout>{page}</DashboardLayout>;
+SingleAssistantPage.layout = (page) => <DashboardLayout>{page}</DashboardLayout>;

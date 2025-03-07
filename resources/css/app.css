@@ -105,3 +105,28 @@
     color: gray !important;
     margin-bottom: 5px;
   }
+  /* Style the scrollbar */
+.modal-scrollable {
+  cursor: pointer;
+  overflow-y: auto; /* Enable scrolling */
+  max-height: 90vh; /* Set a max height */
+}
+
+/* Custom scrollbar styles */
+.modal-scrollable::-webkit-scrollbar {
+  width: 8px; /* Adjust the width of the scrollbar */
+}
+
+.modal-scrollable::-webkit-scrollbar-thumb {
+  background-color: #888; /* Color of the thumb */
+  border-radius: 10px; /* Rounded edges for the thumb */
+}
+
+.modal-scrollable::-webkit-scrollbar-thumb:hover {
+  background-color: #555; /* Color when hovering */
+}
+
+.modal-scrollable::-webkit-scrollbar-track {
+  background-color: #f1f1f1; /* Background of the track */
+  border-radius: 10px; /* Rounded track */
+}

@@ -26,15 +26,10 @@ const menuItems = [
       {
         icon: "/parent.png",
         label: "Assistants",
-        href: "/assistants ",
+        href: "/assistants",
         visible: ["admin", "teacher"],
       },
-      {
-        icon: "/subject.png",
-        label: "Subjects",
-        href: "/subjects",
-        visible: ["admin"],
-      },
+      
       {
         icon: "/class.png",
         label: "Classes",
@@ -53,12 +48,12 @@ const menuItems = [
         href: "/exams",
         visible: ["admin", "teacher", "student", "parent"],
       },
-      {
-        icon: "/assignment.png",
-        label: "Assignments",
-        href: "/assignments",
-        visible: ["admin", "teacher", "student", "parent"],
-      },
+      // {
+      //   icon: "/assignment.png",
+      //   label: "Assignments",
+      //   href: "/assignments",
+      //   visible: ["admin", "teacher", "student", "parent"],
+      // },
       {
         icon: "/result.png",
         label: "Results",
@@ -71,23 +66,29 @@ const menuItems = [
         href: "/attendance",
         visible: ["admin", "teacher", "student", "parent"],
       },
-      {
-        icon: "/calendar.png",
-        label: "Events",
-        href: "/events",
-        visible: ["admin", "teacher", "student", "parent"],
-      },
-      {
-        icon: "/message.png",
-        label: "Messages",
-        href: "/messages",
-        visible: ["admin", "teacher", "student", "parent"],
-      },
+      // {
+      //   icon: "/calendar.png",
+      //   label: "Events",
+      //   href: "/events",
+      //   visible: ["admin", "teacher", "student", "parent"],
+      // },
+      // {
+      //   icon: "/message.png",
+      //   label: "Messages",
+      //   href: "/messages",
+      //   visible: ["admin", "teacher", "student", "parent"],
+      // },
       {
         icon: "/announcement.png",
         label: "Announcements",
         href: "/announcements",
         visible: ["admin", "teacher", "student", "parent"],
+      },
+      {
+        icon: "/parent.png",
+        label: "Other Settings",
+        href: "/othersettings",
+        visible: ["admin"],
       },
     ],
   },
@@ -103,7 +104,7 @@ const menuItems = [
       {
         icon: "/setting.png",
         label: "Settings",
-        href:  `${route("profile.edit")}`,
+        href:  `/setting`,
         visible: ["admin", "teacher", "student", "parent"],
       },
       {  

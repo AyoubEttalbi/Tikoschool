@@ -13,16 +13,19 @@ class LevelController extends Controller
      */
     public function index()
     {
-     
-        
-    }
+        $levels = Level::all();
 
+       
+        return Inertia::render('Menu/Othersettings', [
+            'levels' => $levels,
+        ]);
+    }
     /**
      * Show the form for creating a new resource.
      */
     public function create()
     {
-        return Inertia::render('Levels/Create'); // Return the create form view
+        return Inertia::render('othersettings/Create'); // Return the create form view
     }
 
     /**
@@ -39,7 +42,7 @@ class LevelController extends Controller
         Level::create($validatedData);
 
         // Redirect to the levels index page with a success message
-        return redirect()->route('levels.index')->with('success', 'Level created successfully.');
+        return redirect()->route('othersettings.index')->with('success', 'Level created successfully.');
     }
 
     /**
@@ -47,7 +50,7 @@ class LevelController extends Controller
      */
     public function show(Level $level)
     {
-        return Inertia::render('Levels/Show', [
+        return Inertia::render('othersettings/Show', [
             'level' => $level, // Pass the level to the frontend
         ]);
     }
@@ -57,7 +60,7 @@ class LevelController extends Controller
      */
     public function edit(Level $level)
     {
-        return Inertia::render('Levels/Edit', [
+        return Inertia::render('othersettings/Edit', [
             'level' => $level, // Pass the level to the frontend
         ]);
     }
@@ -76,7 +79,7 @@ class LevelController extends Controller
         $level->update($validatedData);
 
         // Redirect to the levels index page with a success message
-        return redirect()->route('levels.index')->with('success', 'Level updated successfully.');
+        return redirect()->route('othersettings.index')->with('success', 'Level updated successfully.');
     }
 
     /**

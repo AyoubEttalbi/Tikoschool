@@ -8,9 +8,9 @@ import FormModal from '@/Components/FormModal';
 import MembershipCard from '@/Components/MembershipCard';
 import StudentProfile from '@/Components/StudentProfile';
 // import studentProfile from "./studentProfile.png";
-const SingleStudentPage = ({ student ,levels}) => {
- 
-  console.log( "route",levels);
+const SingleStudentPage = ({ student, levels }) => {
+  console.log("xxxxx", student);
+  console.log("route", levels);
   const offers = [
     {
       id: 1,
@@ -70,7 +70,16 @@ const SingleStudentPage = ({ student ,levels}) => {
                 </div>
                 <div className="w-full md:w-1/3 lg:w-full 2xl:w-1/3 flex items-center gap-2">
                   <img src="/date.png" alt="Date" width={14} height={14} />
-                  <span>{student.enrollmentDate || "January 2025"}</span>
+                  <span>
+                    {student.created_at ?
+                      new Intl.DateTimeFormat('en-GB', {
+                        day: '2-digit',
+                        month: 'long',
+                        year: 'numeric'
+                      }).format(new Date(student.created_at)) :
+                      "03 January 2025"
+                    }
+                  </span>
                 </div>
                 <div className="w-full md:w-1/3 lg:w-full 2xl:w-1/3 flex items-center gap-2">
                   <img src="/mail.png" alt="Email" width={14} height={14} />
@@ -78,11 +87,11 @@ const SingleStudentPage = ({ student ,levels}) => {
                 </div>
                 <div className="w-full md:w-1/3 lg:w-full 2xl:w-1/3 flex items-center gap-2">
                   <img src="/phone.png" alt="Phone" width={14} height={14} />
-                  <span>{student.phone || "+1 234 567"}</span>
+                  <span>{student.phoneNumber || "+1 234 567"}</span>
                 </div>
               </div>
             </div>
-            <FormModal table="student" type="update" data={student} id={student.id} levels={levels}/>
+            <FormModal table="student" type="update" data={student} id={student.id} levels={levels} />
           </div>
           {/* SMALL CARDS */}
           <div className="flex-1 flex gap-4 justify-between flex-wrap">
@@ -147,16 +156,16 @@ const SingleStudentPage = ({ student ,levels}) => {
         {/* BOTTOM */}
         <div className="mt-4 bg-white rounded-md p-4 h-fit flex justify-between items-center">
           {
-            offers.length > 0 ?(
+            offers.length > 0 ? (
               <MembershipCard offers={offers} />
-            ):(
+            ) : (
               <div className="flex flex-col items-center gap-4">
                 <img src="/student.png" alt="Student" width={64} height={64} />
                 <h1 className="text-2xl font-semibold text-gray-700">No Membership</h1>
               </div>
             )
           }
-          
+
         </div>
         <StudentProfile />
 

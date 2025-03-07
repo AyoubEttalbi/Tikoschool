@@ -126,6 +126,7 @@ public function show($id)
         'status' => $student->status,
         'assurance' => $student->assurance,
         'profileImage' => $student->profileImage ? URL::asset('storage/' . $student->profileImage) : null,
+        'created_at' => $student->created_at,
     ];
 
     // Render the Inertia view with the student data and levels

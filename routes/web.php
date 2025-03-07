@@ -8,6 +8,10 @@ use App\Models\Student;
 use App\Http\Controllers\StudentsController;
 use App\Http\Controllers\LevelController;
 use App\Models\Level;
+use App\Http\Controllers\ClassesController;
+use App\Http\Controllers\OffersController;
+use App\Http\Controllers\AssistantsController;
+use App\Http\Controllers\Auth\RegisteredUserController;
 Route::get('/', function () {
     return Inertia::render('Auth/Login' );
 });
@@ -27,17 +31,23 @@ Route::middleware('auth')->group(function () {
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
     Route::resource('students', StudentsController::class);
-    
-    
+    Route::resource('classes', ClassesController::class);
+    Route::resource('offers', OffersController::class);
+    Route::resource('assistants', AssistantsController::class);
+    Route::resource('othersettings', LevelController::class );
+    Route::get('/setting', [RegisteredUserController::class, 'create'])->name('register');
+    Route::post('/setting', [RegisteredUserController::class, 'store'])->name('register.store');
 });
 
 require __DIR__.'/auth.php';
 
 
-
-Route::resource('levels', LevelController::class);
-
-
+// Route::get('/othersettings', function () {
+//     $levels = Level::all();
+//     return Inertia::render('Menu/Othersettings', [
+//         'levels' => $levels,
+//     ]);
+// });
 
 Route::get('/teachers', function () {
     return Inertia::render('Menu/TeacherListPage');
@@ -207,6 +217,15 @@ Route::get('/classes/{id}', function ($id) use ($classes, $students) {
 });
 
 
-Route::get('/assignments', function () {
-    return Inertia::render('Menu/AssignmentsListPage');
+Route::get('/assistants', function () {
+    return Inertia::render('Menu/AssistantsListPage');
 });
+
+
+Route::get('/assistants/{id}', function ($id) {
+    return Inertia::render('Menu/SingleAssistantPage');
+});
+
+// Route::get('/othersettings', function () {
+//     return Inertia::render('Menu/Othersettings');
+// });
