@@ -34,6 +34,7 @@ Route::middleware('auth')->group(function () {
     Route::resource('classes', ClassesController::class);
     Route::resource('offers', OffersController::class);
     Route::resource('assistants', AssistantsController::class);
+    Route::delete('/othersettings/{level}', [LevelController::class, 'destroy'])->name('othersettings.destroy');
     Route::resource('othersettings', LevelController::class );
     Route::get('/setting', [RegisteredUserController::class, 'create'])->name('register');
     Route::post('/setting', [RegisteredUserController::class, 'store'])->name('register.store');

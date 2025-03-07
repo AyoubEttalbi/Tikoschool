@@ -1,5 +1,7 @@
 import { Edit, Plus } from 'lucide-react';
 import React, { lazy, Suspense, useState } from 'react';
+import DeleteConfirmation from './DeleteConfirmation';
+
 const OfferForm = lazy(() => import('./forms/OfferForm'));
 const TeacherForm = lazy(() => import('./forms/TeacherForm'));
 const StudentForm = lazy(() => import('./forms/StudentForm'));
@@ -8,6 +10,7 @@ const MembershipForm = lazy(() => import('./forms/MembershipForm'));
 const AssistantForm = lazy(() => import('./forms/AssistantForm'));
 const SubjectForm = lazy(() => import('./forms/SubjectForm'));
 const LevelForm = lazy(() => import('./forms/LevelForm'));
+
 const forms = {
   offer: OfferForm,
   teacher: TeacherForm,
@@ -16,12 +19,10 @@ const forms = {
   class: ClasseForm,
   membership: MembershipForm,
   subject: SubjectForm,
-  level: LevelForm
+  level: LevelForm,
 };
 
-const FormModal = ({ table, type, data, id, levels }) => {
-  console.log('FormModal received levels:', levels);
-
+const FormModal = ({ table, type, data, id, levels, route }) => {
   const size = type === "create" ? "w-8 h-8" : "w-7 h-7";
   const bgColor =
     type === "create" || type === "update"
@@ -31,16 +32,16 @@ const FormModal = ({ table, type, data, id, levels }) => {
   const [open, setOpen] = useState(false);
 
   const Form = () => {
-    if (type === "create" || type === "update") {
-      const FormComponent = forms[table];
-      return FormComponent ? (
-        <Suspense fallback={<h1>Loading...</h1>}>
-          <FormComponent type={type} data={data} levels={levels} />
-        </Suspense>
-      ) : (
-        <p>Form not found!</p>
-      );
-    }
+
+
+    const FormComponent = forms[table];
+    return FormComponent ? (
+      <Suspense fallback={<h1>Loading...</h1>}>
+        <FormComponent type={type} data={data} levels={levels} />
+      </Suspense>
+    ) : (
+      <p>Form not found!</p>
+    );
   };
 
   return (
@@ -71,15 +72,26 @@ const FormModal = ({ table, type, data, id, levels }) => {
 
       {open && (
         <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center">
-          <div className="bg-white modal-scrollable p-6 rounded-lg shadow-lg relative w-[90%] md:w-[70%] lg:w-[60%] xl:w-[50%] 2xl:w-[40%] max-h-[90vh] ">
-            <Form />
-            <button
-              className="absolute top-4 right-4 p-2 rounded-full bg-gray-200 hover:bg-gray-300"
-              onClick={() => setOpen(false)}
-            >
-              <img src="/close.png" alt="Close" width={16} height={16} />
-            </button>
-          </div>
+          {type === "delete" ? (
+            <DeleteConfirmation
+              route={route}
+              id={id}
+              onDelete={() => {
+                console.log('Delete confirmed');
+                setOpen(false); // Close the modal after deletion
+              }}
+            />
+          ) : (
+            <div className="bg-white modal-scrollable p-6 rounded-lg shadow-lg relative w-[90%] md:w-[70%] lg:w-[60%] xl:w-[50%] 2xl:w-[40%] max-h-[90vh] overflow-y-auto">
+              <Form />
+              <button
+                className="absolute top-4 right-4 p-2 rounded-full bg-gray-200 hover:bg-gray-300"
+                onClick={() => setOpen(false)}
+              >
+                <img src="/close.png" alt="Close" width={16} height={16} />
+              </button>
+            </div>
+          )}
         </div>
       )}
     </>

@@ -85,7 +85,7 @@ const menuItems = [
         visible: ["admin", "teacher", "student", "parent"],
       },
       {
-        icon: "/parent.png",
+        icon: "/other_settings.png",
         label: "Other Settings",
         href: "/othersettings",
         visible: ["admin"],

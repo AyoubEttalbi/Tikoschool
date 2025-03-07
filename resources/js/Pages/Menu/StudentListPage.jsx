@@ -75,7 +75,7 @@ const StudentListPage = ({ students ,levels }) => {
           {role === "admin" && (
             <>
               <FormModal table="student" type="update" data={item} levels={levels}/>
-              <FormModal table="student" type="delete" id={item.id} />
+              <FormModal table="student" type="delete" id={item.id} route="students"/>
             </>
           )}
         </div>

@@ -91,6 +91,6 @@ class LevelController extends Controller
         $level->delete();
 
         // Redirect to the levels index page with a success message
-        return redirect()->route('levels.index')->with('success', 'Level deleted successfully.');
+        return redirect()->route('othersettings.index')->with('success', 'Level deleted successfully.');
     }
 }

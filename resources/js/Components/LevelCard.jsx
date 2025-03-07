@@ -11,7 +11,7 @@ function LevelCard({ level }) {
                     </div>
                     <span className="font-medium">{level.name}</span>
                 </div>
-                <FormModal table="level" type="delete" data={level} id={level.id}/>
+                <FormModal table="level" type="delete" data={level} id={level.id} route="othersettings"/>
             </div>
         </div>
     )
