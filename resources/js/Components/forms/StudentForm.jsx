@@ -16,91 +16,183 @@ const schema = z.object({
   phoneNumber: z.string().min(1, { message: "Phone number is required!" }),
   email: z.string().email({ message: "Invalid email address!" }),
   massarCode: z.string().min(1, { message: "Massar code is required!" }),
-  levelId: z.number().min(1, { message: "Level ID is required!" }),
+  levelId: z.string().min(1, { message: "Level ID is required!" }),
   status: z.enum(["active", "inactive"], { message: "Status is required!" }),
-  assurance: z.boolean(), // Updated to boolean
+  assurance: z.string(),
 });
 
+const StudentForm = ({ type, data, levels }) => {
+  console.log("form levels", levels);
 
-const StudentForm = ({ type, data }) => {
   const defaultBillingDate = new Date().toISOString().split("T")[0];
 
   const {
     register,
     handleSubmit,
     formState: { errors },
+    setValue,
   } = useForm({
     resolver: zodResolver(schema),
     defaultValues: {
       billingDate: defaultBillingDate,
-      assurance: data?.assurance || false, // Set default value for assurance
+      assurance: data?.assurance === 1 ? "1" : "0", // Ensure assurance is string "1" or "0"
       ...data, // Spread existing data for update
     },
   });
 
   // Handle form submission
   const onSubmit = (formData) => {
+    // Convert assurance to 1 (true) or 0 (false) before submitting
+    const updatedFormData = { ...formData, assurance: formData.assurance === "1" ? 1 : 0 };
+    
     if (type === "create") {
       // Send a POST request to create a new student
-      router.post("/students", formData);
+      router.post("/students", updatedFormData);
     } else if (type === "update") {
       // Send a PUT request to update an existing student
-      router.put(`/students/${data.id}`, formData);
+      router.put(`/students/${data.id}`, updatedFormData);
     }
   };
 
   return (
-    <form className="flex flex-col gap-8 p-6 bg-white shadow-lg rounded-lg" onSubmit={handleSubmit(onSubmit)}>
+    <form
+      className="flex flex-col gap-8 p-6 bg-white shadow-lg rounded-lg"
+      onSubmit={handleSubmit(onSubmit)}
+    >
       <h1 className="text-2xl font-semibold text-gray-800">
         {type === "create" ? "Create a new student" : "Update student"}
       </h1>
       <span className="text-xs text-gray-400 font-medium">Student Information</span>
 
       <div className="flex justify-between flex-wrap gap-4">
-        <InputField label="First Name" name="firstName" register={register} error={errors.firstName} />
-        <InputField label="Last Name" name="lastName" register={register} error={errors.lastName} />
-        <InputField label="Date of Birth" name="dateOfBirth" register={register} error={errors.dateOfBirth} type="date" />
+        <InputField 
+          label="First Name" 
+          name="firstName" 
+          register={register} 
+          error={errors.firstName} 
+          defaultValue={data?.firstName} 
+        />
+        <InputField 
+          label="Last Name" 
+          name="lastName" 
+          register={register} 
+          error={errors.lastName} 
+          defaultValue={data?.lastName} 
+        />
+        <InputField 
+          label="Date of Birth" 
+          name="dateOfBirth" 
+          register={register} 
+          error={errors.dateOfBirth} 
+          type="date" 
+          defaultValue={data?.dateOfBirth} 
+        />
       </div>
 
       <span className="text-xs text-gray-400 font-medium">Additional Information</span>
 
       <div className="flex justify-between flex-wrap gap-4">
-        <InputField label="Billing Date" name="billingDate" register={register} error={errors.billingDate} type="date" />
-        <InputField label="Address" name="address" register={register} error={errors.address} />
-        <InputField label="Guardian Name" name="guardianName" register={register} error={errors.guardianName} />
+        <InputField 
+          label="Billing Date" 
+          name="billingDate" 
+          register={register} 
+          error={errors.billingDate} 
+          type="date" 
+          defaultValue={data?.billingDate || defaultBillingDate} 
+        />
+        <InputField 
+          label="Address" 
+          name="address" 
+          register={register} 
+          error={errors.address} 
+          defaultValue={data?.address} 
+        />
+        <InputField 
+          label="Guardian Name" 
+          name="guardianName" 
+          register={register} 
+          error={errors.guardianName} 
+          defaultValue={data?.guardianName} 
+        />
       </div>
 
       <span className="text-xs text-gray-400 font-medium">Contact Information</span>
 
       <div className="flex justify-between flex-wrap gap-4">
-        <InputField label="CIN" name="CIN" register={register} error={errors.CIN} />
-        <InputField label="Phone Number" name="phoneNumber" register={register} error={errors.phoneNumber} />
-        <InputField label="Email" name="email" register={register} error={errors.email} />
+        <InputField 
+          label="CIN" 
+          name="CIN" 
+          register={register} 
+          error={errors.CIN} 
+          defaultValue={data?.CIN} 
+        />
+        <InputField 
+          label="Phone Number" 
+          name="phoneNumber" 
+          register={register} 
+          error={errors.phoneNumber} 
+          defaultValue={data?.phoneNumber} 
+        />
+        <InputField 
+          label="Email" 
+          name="email" 
+          register={register} 
+          error={errors.email} 
+          defaultValue={data?.email} 
+        />
       </div>
 
       <span className="text-xs text-gray-400 font-medium">Enrollment Information</span>
 
       <div className="flex justify-between flex-wrap gap-4">
-        <InputField label="Massar Code" name="massarCode" register={register} error={errors.massarCode} />
-        <InputField label="Level ID" name="levelId" register={register} error={errors.levelId} />
+        <InputField 
+          label="Massar Code" 
+          name="massarCode" 
+          register={register} 
+          error={errors.massarCode} 
+          defaultValue={data?.massarCode} 
+        />
+
+        {/* Level Selection */}
+        <div className="flex flex-col gap-2 w-full md:w-1/4">
+          <label className="text-xs text-gray-600">Level</label>
+          <select
+            className="ring-[1.5px] ring-gray-300 p-2 rounded-md text-sm w-full"
+            {...register("levelId")}
+            defaultValue={data?.levelId}
+          >
+            {levels?.map((level) => (
+              <option key={level.id} value={level.id}>
+                {level.name}
+              </option>
+            ))}
+          </select>
+          {errors.levelId?.message && <p className="text-xs text-red-400">{errors.levelId.message}</p>}
+        </div>
 
         <div className="flex flex-col gap-2 w-full md:w-1/4">
           <label className="text-xs text-gray-600">Status</label>
-          <select className="ring-[1.5px] ring-gray-300 p-2 rounded-md text-sm w-full" {...register("status")}>
+          <select 
+            className="ring-[1.5px] ring-gray-300 p-2 rounded-md text-sm w-full" 
+            {...register("status")}
+            defaultValue={data?.status}
+          >
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
           </select>
           {errors.status?.message && <p className="text-xs text-red-400">{errors.status.message}</p>}
         </div>
 
+        {/* Assurance */}
         <div className="flex flex-col gap-2 w-full md:w-1/4">
           <label className="text-xs text-gray-600">Assurance</label>
           <select
             className="ring-[1.5px] ring-gray-300 p-2 rounded-md text-sm w-full"
-            {...register("assurance", { setValueAs: (value) => value === "true" })} // Convert string to boolean
+            {...register("assurance")}
+            defaultValue={data?.assurance === 1 ? "1" : "0"}
           >
-            <option value="true">Yes</option>
-            <option value="false">No</option>
+            <option value="1">Yes</option>
+            <option value="0">No</option>
           </select>
           {errors.assurance?.message && <p className="text-xs text-red-400">{errors.assurance.message}</p>}
         </div>

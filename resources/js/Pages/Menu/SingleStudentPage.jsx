@@ -8,7 +8,9 @@ import FormModal from '@/Components/FormModal';
 import MembershipCard from '@/Components/MembershipCard';
 import StudentProfile from '@/Components/StudentProfile';
 // import studentProfile from "./studentProfile.png";
-const SingleStudentPage = ({ student }) => {
+const SingleStudentPage = ({ student ,levels}) => {
+ 
+  console.log( "route",levels);
   const offers = [
     {
       id: 1,
@@ -80,7 +82,7 @@ const SingleStudentPage = ({ student }) => {
                 </div>
               </div>
             </div>
-            <FormModal table="student" type="update" data={student} id={student.id} />
+            <FormModal table="student" type="update" data={student} id={student.id} levels={levels}/>
           </div>
           {/* SMALL CARDS */}
           <div className="flex-1 flex gap-4 justify-between flex-wrap">
@@ -108,7 +110,7 @@ const SingleStudentPage = ({ student }) => {
                 className="w-6 h-6"
               />
               <div className="">
-                <h1 className="text-xl font-semibold">{student.grade || "6th"}</h1>
+                <h1 className="text-xl font-semibold">{student.levelId || ""}</h1>
                 <span className="text-sm text-gray-400">Grade</span>
               </div>
             </div>

@@ -2,7 +2,7 @@
 import { role, studentsData } from "@/lib/data";
 
 import { Link } from '@inertiajs/react';
-import FormModal from "../../Components/FormModal";
+import FormModal from "../FormModal";
 import TableSearch from "../../Components/TableSearch";
 import Table from "../../Components/Table";
 import Pagination from "../../Components/Pagination";

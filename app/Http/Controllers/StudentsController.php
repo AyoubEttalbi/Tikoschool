@@ -6,12 +6,13 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Storage;
-
+use App\Models\Level;
 class StudentsController extends Controller
 {
     /**
      * Display a listing of the resource.
      */
+ 
     public function index()
     {
         // Fetch paginated students from the database
@@ -25,12 +26,31 @@ class StudentsController extends Controller
                 'address' => $student->address,
                 'photo' => $student->profileImage ? URL::asset('storage/' . $student->profileImage) : null,
                 'class' => $student->class,
-            ];
-        });
 
+                
+                'firstName' => $student->firstName,
+                'lastName' => $student->lastName,
+                'dateOfBirth' => $student->dateOfBirth,
+                'billingDate' => $student->billingDate,
+                'address' => $student->address,
+                'guardianName' => $student->guardianName,
+                'CIN' => $student->CIN,
+                'phoneNumber' => $student->phoneNumber,
+                'email' => $student->email,
+                'massarCode' => $student->massarCode,
+                'levelId' => $student->levelId,
+                'class' => $student->class,
+                'status' => $student->status,
+                'assurance' => $student->assurance,
+                'profileImage' => $student->profileImage ? URL::asset('storage/' . $student->profileImage) : null,
+            ];
+            
+        });
+        $levels = Level::all(); 
         // Render the Inertia view with the students data
         return Inertia::render('Menu/StudentListPage', [
             'students' => $students,
+            'levels' => $levels,
         ]);
     }
 
@@ -85,6 +105,9 @@ public function show($id)
         abort(404);
     }
 
+    // Fetch all levels (or adjust this to your actual logic for fetching levels)
+    $levels = Level::all();
+
     // Format the student data
     $studentData = [
         'id' => $student->id,
@@ -105,11 +128,13 @@ public function show($id)
         'profileImage' => $student->profileImage ? URL::asset('storage/' . $student->profileImage) : null,
     ];
 
-    // Render the Inertia view with the student data
+    // Render the Inertia view with the student data and levels
     return Inertia::render('Menu/SingleStudentPage', [
         'student' => $studentData,
+        'levels' => $levels, // Pass levels to the page
     ]);
 }
+
     /**
      * Show the form for editing the specified resource.
      */

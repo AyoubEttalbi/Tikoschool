@@ -6,6 +6,8 @@ use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use App\Models\Student;
 use App\Http\Controllers\StudentsController;
+use App\Http\Controllers\LevelController;
+use App\Models\Level;
 Route::get('/', function () {
     return Inertia::render('Auth/Login' );
 });
@@ -25,118 +27,17 @@ Route::middleware('auth')->group(function () {
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
     Route::resource('students', StudentsController::class);
+    
+    
 });
 
 require __DIR__.'/auth.php';
 
 
 
+Route::resource('levels', LevelController::class);
 
 
-$studentsData = [
-    [
-      "id" => 1,
-      "firstName" => "John",
-      "lastName" => "Doe",
-      "dateOfBirth" => "2000-01-01",
-      "billingDate" => "2022-01-01",
-      "address" => "123 Main St, Anytown, USA",
-      "guardianName" => "Jane Doe",
-      "CIN" => "CIN12345",
-      "phoneNumber" => "1234567890",
-      "email" => "john.doe@example.com",
-      "massarCode" => "MASSAR123",
-      "levelId" => 1,
-      "class" => "2BAC SVT",
-      "status" => "active",
-      "assurance" => false,
-      "createdAt" => "2022-01-01 12:00:00",
-    ],
-    [
-      "id" => 2,
-      "firstName" => "Jane",
-      "lastName" => "Smith",
-      "dateOfBirth" => "2001-02-02",
-      "billingDate" => "2022-02-02",
-      "address" => "456 Elm St, Othertown, USA",
-      "guardianName" => "John Smith",
-      "CIN" => "CIN67890",
-      "phoneNumber" => "0987654321",
-      "email" => "jane.smith@example.com",
-      "massarCode" => "MASSAR456",
-      "levelId" => 2,
-      "class" => "1BAC PC",
-      "status" => "active",
-      "assurance" => true,
-      "createdAt" => "2022-02-02 13:00:00",
-    ],
-    [
-      "id" => 3,
-      "firstName" => "Bob",
-      "lastName" => "Johnson",
-      "dateOfBirth" => "2002-03-03",
-      "billingDate" => "2022-03-03",
-      "address" => "789 Oak St, Smalltown, USA",
-      "guardianName" => "Alice Johnson",
-      "CIN" => "CIN11111",
-      "phoneNumber" => "5551234567",
-      "email" => "bob.johnson@example.com",
-      "massarCode" => "MASSAR789",
-      "levelId" => 3,
-      "class" => "3BAC Math",
-      "status" => "inactive",
-      "assurance" => false,
-      "createdAt" => "2022-03-03 14:00:00",
-    ],
-    [
-      "id" => 4,
-      "firstName" => "Alice",
-      "lastName" => "Brown",
-      "dateOfBirth" => "2003-04-04",
-      "billingDate" => "2022-04-04",
-      "address" => "901 Maple St, Largetown, USA",
-      "guardianName" => "Mike Brown",
-      "CIN" => "CIN22222",
-      "phoneNumber" => "4445556666",
-      "email" => "alice.brown@example.com",
-      "massarCode" => "MASSAR012",
-      "levelId" => 1,
-      "class" => "2BAC Science",
-      "status" => "active",
-      "assurance" => true,
-      "createdAt" => "2022-04-04 15:00:00",
-    ],
-    [
-      "id" => 5,
-      "firstName" => "Mike",
-      "lastName" => "Davis",
-      "dateOfBirth" => "2004-05-05",
-      "billingDate" => "2022-05-05",
-      "address" => "234 Pine St, Othertown, USA",
-      "guardianName" => "Emily Davis",
-      "CIN" => "CIN33333",
-      "phoneNumber" => "3332221111",
-      "email" => "mike.davis@example.com",
-      "massarCode" => "MASSAR345",
-      "levelId" => 2,
-      "class" => "1BAC English",
-      "status" => "active",
-      "assurance" => false,
-      "createdAt" => "2022-05-05 16:00:00",
-    ],
-  ];
-
-Route::get('/students/{id}', function ($id) use ($studentsData) {
-    $student = collect($studentsData)->firstWhere('id', (int)$id);
-
-    if (!$student) {
-        abort(404);
-    }
-
-    return Inertia::render('Menu/SingleStudentPage', [
-        'student' => $student
-    ]);
-});
 
 Route::get('/teachers', function () {
     return Inertia::render('Menu/TeacherListPage');
@@ -306,3 +207,6 @@ Route::get('/classes/{id}', function ($id) use ($classes, $students) {
 });
 
 
+Route::get('/assignments', function () {
+    return Inertia::render('Menu/AssignmentsListPage');
+});

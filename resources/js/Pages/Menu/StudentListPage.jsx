@@ -2,12 +2,13 @@
 import { role, studentsData } from "@/lib/data";
  
 import { Link } from '@inertiajs/react';
-import FormModal from "../../Components/FormModal";
+
 import TableSearch from "../../Components/TableSearch";
 import Table from "../../Components/Table";
 import Pagination from "../../Components/Pagination";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { UserRoundPen } from "lucide-react";
+import FormModal from "../../Components/FormModal";
 const columns = [
   {
     header: "Info",
@@ -39,8 +40,8 @@ const columns = [
   },
 ];
 
-const StudentListPage = ({ students }) => {
-  console.log(students);
+const StudentListPage = ({ students ,levels }) => {
+  
   // Use the `students` prop instead of `studentsData`
   const renderRow = (item) => (
     <tr
@@ -49,8 +50,8 @@ const StudentListPage = ({ students }) => {
     >
       <td className="flex items-center gap-4 p-4">
         <img
-          src={item.photo}
-          alt=""
+          src="/studentProfile.png"
+          alt={item.name}
           width={40}
           height={40}
           className="md:hidden xl:block w-10 h-10 rounded-full object-cover"
@@ -73,7 +74,7 @@ const StudentListPage = ({ students }) => {
           </Link>
           {role === "admin" && (
             <>
-              <FormModal table="student" type="update" id={item.id} data={item} />
+              <FormModal table="student" type="update" data={item} levels={levels}/>
               <FormModal table="student" type="delete" id={item.id} />
             </>
           )}
@@ -97,7 +98,7 @@ const StudentListPage = ({ students }) => {
               <img src="/sort.png" alt="" width={14} height={14} />
             </button>
             {role === "admin" && (
-              <FormModal table="student" type="create" />
+              <FormModal table="student" type="create" levels={levels}/>
             )}
           </div>
         </div>

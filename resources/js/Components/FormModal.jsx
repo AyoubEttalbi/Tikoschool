@@ -14,14 +14,16 @@ const forms = {
   membership: MembershipForm
 };
 
-const FormModal = ({ table, type, data, id }) => {
+  const FormModal = ({ table, type, data, id, levels }) => {
+    console.log('FormModal received levels:', levels);
+
   const size = type === "create" ? "w-8 h-8" : "w-7 h-7";
   const bgColor =
     type === "create"
       ? "bg-lamaYellow"
       : type === "update"
-        ? "bg-lamaYellow"
-        : "bg-lamaPurple";
+      ? "bg-lamaYellow"
+      : "bg-lamaPurple";
 
   const [open, setOpen] = useState(false);
 
@@ -30,7 +32,7 @@ const FormModal = ({ table, type, data, id }) => {
       const FormComponent = forms[table];
       return FormComponent ? (
         <Suspense fallback={<h1>Loading...</h1>}>
-          <FormComponent type={type} data={data} />
+          <FormComponent type={type} data={data}  levels ={levels}/>
         </Suspense>
       ) : (
         <p>Form not found!</p>
@@ -41,25 +43,25 @@ const FormModal = ({ table, type, data, id }) => {
   return (
     <>
       {table === "membership" && type === "create" ? (
-        <button
-          className="bg-blue-500 hover:bg-blue-600 text-white rounded-full px-3 py-1 h-8 flex items-center"
-          onClick={() => setOpen(true)}
-        >
-          <Plus className="h-4 w-4 mr-1" />
-          New
-        </button>
-      ) : table === "membership" && type === "update" ? (
-        <button className="text-blue-500 hover:text-blue-600" onClick={() => setOpen(true)}>
-          <Edit className="h-5 w-5" />
-        </button>
-      ) : (
-        <button
-          className={`${size} flex items-center justify-center rounded-full ${bgColor}`}
-          onClick={() => setOpen(true)}
-        >
-          <img src={`/${type}.png`} alt="" width={16} height={16} />
-        </button>
-      )}
+  <button
+    className="bg-blue-500 hover:bg-blue-600 text-white rounded-full px-3 py-1 h-8 flex items-center"
+    onClick={() => setOpen(true)}
+  >
+    <Plus className="h-4 w-4 mr-1" />
+    New
+  </button>
+) : table === "membership" && type === "update" ? (
+  <button className="text-blue-500 hover:text-blue-600" onClick={() => setOpen(true)}>
+    <Edit className="h-5 w-5" />
+  </button>
+) : (
+  <button
+    className={`${size} flex items-center justify-center rounded-full ${bgColor}`}
+    onClick={() => setOpen(true)}
+  >
+    <img src={`/${type}.png`} alt="" width={16} height={16} />
+  </button>
+)}
 
 
       {open && (

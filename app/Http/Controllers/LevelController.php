@@ -3,8 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Level;
-use App\Http\Requests\StoreLevelRequest;
-use App\Http\Requests\UpdateLevelRequest;
+use Illuminate\Http\Request;
+use Inertia\Inertia; // Import Inertia
 
 class LevelController extends Controller
 {
@@ -13,7 +13,8 @@ class LevelController extends Controller
      */
     public function index()
     {
-        //
+     
+        
     }
 
     /**
@@ -21,15 +22,24 @@ class LevelController extends Controller
      */
     public function create()
     {
-        //
+        return Inertia::render('Levels/Create'); // Return the create form view
     }
 
     /**
      * Store a newly created resource in storage.
      */
-    public function store(StoreLevelRequest $request)
+    public function store(Request $request)
     {
-        //
+        // Validate the request data
+        $validatedData = $request->validate([
+            'name' => 'required|string|max:255|unique:levels,name',
+        ]);
+
+        // Create a new level
+        Level::create($validatedData);
+
+        // Redirect to the levels index page with a success message
+        return redirect()->route('levels.index')->with('success', 'Level created successfully.');
     }
 
     /**
@@ -37,7 +47,9 @@ class LevelController extends Controller
      */
     public function show(Level $level)
     {
-        //
+        return Inertia::render('Levels/Show', [
+            'level' => $level, // Pass the level to the frontend
+        ]);
     }
 
     /**
@@ -45,15 +57,26 @@ class LevelController extends Controller
      */
     public function edit(Level $level)
     {
-        //
+        return Inertia::render('Levels/Edit', [
+            'level' => $level, // Pass the level to the frontend
+        ]);
     }
 
     /**
      * Update the specified resource in storage.
      */
-    public function update(UpdateLevelRequest $request, Level $level)
+    public function update(Request $request, Level $level)
     {
-        //
+        // Validate the request data
+        $validatedData = $request->validate([
+            'name' => 'required|string|max:255|unique:levels,name,' . $level->id,
+        ]);
+
+        // Update the level
+        $level->update($validatedData);
+
+        // Redirect to the levels index page with a success message
+        return redirect()->route('levels.index')->with('success', 'Level updated successfully.');
     }
 
     /**
@@ -61,6 +84,10 @@ class LevelController extends Controller
      */
     public function destroy(Level $level)
     {
-        //
+        // Delete the level
+        $level->delete();
+
+        // Redirect to the levels index page with a success message
+        return redirect()->route('levels.index')->with('success', 'Level deleted successfully.');
     }
 }
