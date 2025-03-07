@@ -11,7 +11,9 @@ use App\Models\Level;
 use App\Http\Controllers\ClassesController;
 use App\Http\Controllers\OffersController;
 use App\Http\Controllers\AssistantsController;
+use App\Http\Controllers\SubjectController;
 use App\Http\Controllers\Auth\RegisteredUserController;
+
 Route::get('/', function () {
     return Inertia::render('Auth/Login' );
 });
@@ -34,10 +36,21 @@ Route::middleware('auth')->group(function () {
     Route::resource('classes', ClassesController::class);
     Route::resource('offers', OffersController::class);
     Route::resource('assistants', AssistantsController::class);
-    Route::delete('/othersettings/{level}', [LevelController::class, 'destroy'])->name('othersettings.destroy');
+    Route::delete('/othersettings/levels/{level}', [LevelController::class, 'destroy'])->name('othersettings.destroy');
+
     Route::resource('othersettings', LevelController::class );
+    Route::post('/othersettings', [SubjectController::class, 'store'])->name('othersettings.store');
+
+    Route::put('/othersettings/{subject}', [SubjectController::class, 'update'])->name('othersettings.update');
+    Route::delete('/othersettings/subjects/{subject}', [SubjectController::class, 'destroy'])->name('othersettings.destroy');
     Route::get('/setting', [RegisteredUserController::class, 'create'])->name('register');
     Route::post('/setting', [RegisteredUserController::class, 'store'])->name('register.store');
+
+    // Custom routes for Levels
+Route::post('/othersettings/levels', [LevelController::class, 'store'])->name('othersettings.levels.store');
+
+// Custom routes for Subjects
+Route::post('/othersettings/subjects', [SubjectController::class, 'store'])->name('othersettings.subjects.store');
 });
 
 require __DIR__.'/auth.php';

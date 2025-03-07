@@ -22,7 +22,7 @@ const LevelForm = ({ type, data }) => {
 
     const onSubmit = (formData) => {
         if (type === "create") {
-            router.post("/othersettings", formData)
+            router.post("/othersettings/levels", formData)
         } else if (type === "update") {
             router.put(`/othersettings/${data.id}`, formData)
         }

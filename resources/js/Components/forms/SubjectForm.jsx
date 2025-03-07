@@ -23,9 +23,9 @@ const SubjectForm = ({ type, data }) => {
 
   const onSubmit = (formData) => {
     if (type === "create") {
-      router.post("/subjects", formData);
+      router.post("/othersettings/subjects", formData);
     } else if (type === "update") {
-      router.put(`/subjects/${data.id}`, formData);
+      router.put(`/othersettings/${data.id}`, formData);
     }
   };
 

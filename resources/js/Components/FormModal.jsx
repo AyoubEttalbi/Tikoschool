@@ -74,14 +74,15 @@ const FormModal = ({ table, type, data, id, levels, route }) => {
         <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center">
           {type === "delete" ? (
             <DeleteConfirmation
-              route={route}
-              id={id}
-              onDelete={() => {
-                console.log('Delete confirmed');
-                setOpen(false); // Close the modal after deletion
-              }}
+                route={route}
+                id={id}
+                onDelete={() => {
+                    console.log('Delete confirmed');
+                    setOpen(false); // Close the modal after deletion
+                }}
+                onClose={() => setOpen(false)} // Pass onClose to close the modal
             />
-          ) : (
+        ) : (
             <div className="bg-white modal-scrollable p-6 rounded-lg shadow-lg relative w-[90%] md:w-[70%] lg:w-[60%] xl:w-[50%] 2xl:w-[40%] max-h-[90vh] overflow-y-auto">
               <Form />
               <button
