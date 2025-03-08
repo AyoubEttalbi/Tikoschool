@@ -41,7 +41,7 @@ const columns = [
 ];
 
 const StudentListPage = ({ students ,levels }) => {
-  
+  console.log("student ",students);
   // Use the `students` prop instead of `studentsData`
   const renderRow = (item) => (
     <tr

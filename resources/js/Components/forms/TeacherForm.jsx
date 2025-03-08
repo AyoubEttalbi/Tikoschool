@@ -17,7 +17,8 @@ const schema = z.object({
   groupName: z.array(z.object({ value: z.string(), label: z.string() })).optional(),
 });
 
-const TeacherForm = ({ type, data, subjects, classes }) => {
+const TeacherForm = ({ type, data, subjects, groups }) => {
+  
   const {
     register,
     handleSubmit,
@@ -34,17 +35,32 @@ const TeacherForm = ({ type, data, subjects, classes }) => {
       status: data?.status || "active",
       subjects: data?.subjects || [],
       wallet: data?.wallet || 0,
-      groupName: data?.groupName || [],
+      groupName: Array.isArray(data?.groupName) ? data.groupName : [],
     },
   });
 
   const onSubmit = handleSubmit((formData) => {
-    console.log({
+    const formattedData = {
       ...formData,
-      subjects: formData.subjects.map((subj) => subj.id), // Send only IDs to backend
-      groupName: formData.groupName.map((group) => group.value),
-    });
+      subjects: formData.subjects.map((subj) => subj.name), // Extract only names
+      groupName: formData.groupName.map((group) => group.name), // Extract only names
+    };
+  
+    console.log(formattedData);
+  
+    // Send the formatted data to the backend
+    fetch("/api/teachers", {
+      method: type === "create" ? "POST" : "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(formattedData),
+    })
+      .then((res) => res.json())
+      .then((data) => console.log("Success:", data))
+      .catch((error) => console.error("Error:", error));
   });
+  
 
   return (
     <div className="flex flex-col gap-4">
@@ -99,15 +115,15 @@ const TeacherForm = ({ type, data, subjects, classes }) => {
         <div className="w-full md:w-1/4">
           <label className="text-xs text-gray-500">Group Name</label>
           <Controller
-            name="groupName"
+            name="groups"
             control={control}
             render={({ field }) => (
               <Select
                 {...field}
-                options={classes}
+                options={groups}
                 isMulti
-                getOptionLabel={(e) => e.label}
-                getOptionValue={(e) => e.value}
+                getOptionLabel={(e) => e.name}
+                getOptionValue={(e) => e.name}
                 onChange={(val) => field.onChange(val)}
                 className="basic-multi-select"
                 classNamePrefix="select"

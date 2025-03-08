@@ -3,88 +3,182 @@
 namespace App\Http\Controllers;
 
 use App\Models\Teacher;
-use App\Models\Classes;
-use App\Models\School;
-
-use App\Models\Subject;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\Validator;
 use Inertia\Inertia;
+use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Facades\Storage;
+use App\Models\Subject;
+use App\Models\Classes;
+
 
 class TeacherController extends Controller
 {
-    // Display list view with Inertia
-    public function index(Request $request)
-    {
-        $teachers = Teacher::with(['school', 'subjects', 'classes'])
-            ->when($request->trashed, fn($q) => $q->onlyTrashed())
-            ->when($request->search, fn($q, $search) => $q
-                ->where('first_name', 'LIKE', "%$search%")
-                ->orWhere('last_name', 'LIKE', "%$search%")
-                ->orWhere('email', 'LIKE', "%$search%")
-            )
-            ->paginate(10);
+    /**
+     * Display a listing of the resource.
+     */
+    public function index()
+    {   
+        $Classes = Classes::all();
+        $subjects = Subject::all();
+        $teachers = Teacher::paginate(10)->through(function ($teacher) {
+            return [
+                'id' => $teacher->id,
+                'name' => $teacher->first_name . ' ' . $teacher->last_name,
+                'phone' => $teacher->phone_number,
+                'email' => $teacher->email,
+                'address' => $teacher->address,
+                'status' => $teacher->status,
+                'wallet' => $teacher->wallet,
+                'profile_image' => $teacher->profile_image ? URL::asset('storage/' . $teacher->profile_image) : null,
+            ];
+        });
 
         return Inertia::render('Menu/TeacherListPage', [
             'teachers' => $teachers,
-            'filters' => $request->only(['search', 'trashed'])
+            'subjects' => $subjects,
+            'groups' => $Classes
         ]);
     }
 
-    // Show create form
+    /**
+     * Show the form for creating a new resource.
+     */
     public function create()
     {
+        $subjects = Subject::all();
+        $groups = Group::all();
+
         return Inertia::render('Teachers/Create', [
-            'schools' => School::all(['id', 'name']),
-            'subjects' => Subject::all(['id', 'name']),
-            'classes' => Classes::all(['id', 'name'])
+            'subjects' => $subjects,
+            'groups' => $groups,
         ]);
     }
 
-    // Store new teacher
+    /**
+     * Store a newly created resource in storage.
+     */
     public function store(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            // ... same validation rules as before ...
+        $validatedData = $request->validate([
+            'school_id' => 'required|integer|exists:schools,id',
+            'first_name' => 'required|string|max:100',
+            'last_name' => 'required|string|max:100',
+            'address' => 'nullable|string|max:255',
+            'phone_number' => 'nullable|string|max:20',
+            'email' => 'required|string|email|max:255|unique:teachers,email',
+            'status' => 'required|in:active,inactive',
+            'wallet' => 'required|numeric|min:0',
+            'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
+            'subjects' => 'array',
+            'subjects.*' => 'exists:subjects,id',
+            'groups' => 'array',
+            'groups.*' => 'exists:groups,id',
         ]);
 
-        if ($validator->fails()) {
-            return back()->withErrors($validator)->withInput();
+        // Handle profile image upload
+        if ($request->hasFile('profile_image')) {
+            $validatedData['profile_image'] = $request->file('profile_image')->store('teachers', 'public');
         }
 
-        // ... same storage logic as before ...
+        $teacher = Teacher::create($validatedData);
+        $teacher->subjects()->sync($request->subjects);
+        $teacher->groups()->sync($request->groups);
 
-        return redirect()->route('teachers.index')
-            ->with('success', 'Teacher created successfully');
+        return redirect()->route('teachers.index')->with('success', 'Teacher created successfully.');
     }
 
-    // Show edit form
-    public function edit(Teacher $teacher)
+    /**
+     * Display the specified resource.
+     */
+    public function show($id)
     {
-        return Inertia::render('Teachers/Edit', [
-            'teacher' => $teacher->load('school', 'subjects', 'classes'),
-            'schools' => School::all(['id', 'name']),
-            'subjects' => Subject::all(['id', 'name']),
-            'classes' => Classes::all(['id', 'name'])
+        $teacher = Teacher::with(['subjects', 'groups'])->find($id);
+
+        if (!$teacher) {
+            abort(404);
+        }
+
+        return Inertia::render('Menu/SingleTeacherPage', [
+            'teacher' => [
+                'id' => $teacher->id,
+                'first_name' => $teacher->first_name,
+                'last_name' => $teacher->last_name,
+                'address' => $teacher->address,
+                'phone_number' => $teacher->phone_number,
+                'email' => $teacher->email,
+                'status' => $teacher->status,
+                'wallet' => $teacher->wallet,
+                'profile_image' => $teacher->profile_image ? URL::asset('storage/' . $teacher->profile_image) : null,
+                'subjects' => $teacher->subjects,
+                'groups' => $teacher->groups,
+            ],
         ]);
     }
 
-    // Update teacher
+    /**
+     * Show the form for editing the specified resource.
+     */
+    public function edit(Teacher $teacher)
+    {
+        $subjects = Subject::all();
+        $groups = Group::all();
+
+        return Inertia::render('Teachers/Edit', [
+            'teacher' => $teacher,
+            'subjects' => $subjects,
+            'groups' => $groups,
+        ]);
+    }
+
+    /**
+     * Update the specified resource in storage.
+     */
     public function update(Request $request, Teacher $teacher)
     {
-        // ... same update logic as before ...
+        $validatedData = $request->validate([
+            'school_id' => 'required|integer|exists:schools,id',
+            'first_name' => 'required|string|max:100',
+            'last_name' => 'required|string|max:100',
+            'address' => 'nullable|string|max:255',
+            'phone_number' => 'nullable|string|max:20',
+            'email' => 'required|string|email|max:255|unique:teachers,email,' . $teacher->id,
+            'status' => 'required|in:active,inactive',
+            'wallet' => 'required|numeric|min:0',
+            'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
+            'subjects' => 'array',
+            'subjects.*' => 'exists:subjects,id',
+            'groups' => 'array',
+            'groups.*' => 'exists:groups,id',
+        ]);
+
+        // Handle profile image upload
+        if ($request->hasFile('profile_image')) {
+            if ($teacher->profile_image) {
+                Storage::disk('public')->delete($teacher->profile_image);
+            }
+            $validatedData['profile_image'] = $request->file('profile_image')->store('teachers', 'public');
+        }
+
+        $teacher->update($validatedData);
+        $teacher->subjects()->sync($request->subjects);
+        $teacher->groups()->sync($request->groups);
+
+        return redirect()->route('teachers.show', $teacher->id)->with('success', 'Teacher updated successfully.');
     }
 
-    // Delete/Restore actions
+    /**
+     * Remove the specified resource from storage.
+     */
     public function destroy(Teacher $teacher)
     {
-        $teacher->delete();
-        return back()->with('success', 'Teacher moved to trash');
-    }
+        if ($teacher->profile_image) {
+            Storage::disk('public')->delete($teacher->profile_image);
+        }
 
-    public function restore($id)
-    {
-        // ... same restore logic ...
+        $teacher->subjects()->detach();
+        $teacher->groups()->detach();
+        $teacher->delete();
+
+        return redirect()->route('teachers.index')->with('success', 'Teacher deleted successfully.');
     }
 }

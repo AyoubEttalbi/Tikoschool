@@ -12,9 +12,8 @@ use App\Http\Controllers\ClassesController;
 use App\Http\Controllers\OffersController;
 use App\Http\Controllers\AssistantsController;
 use App\Http\Controllers\SubjectController;
-use App\Http\Controllers\TeacherController;
 use App\Http\Controllers\Auth\RegisteredUserController;
-
+use App\Http\Controllers\TeacherController;
 Route::get('/', function () {
     return Inertia::render('Auth/Login' );
 });
@@ -47,12 +46,15 @@ Route::middleware('auth')->group(function () {
     Route::delete('/othersettings/subjects/{subject}', [SubjectController::class, 'destroy'])->name('othersettings.destroy');
     Route::get('/setting', [RegisteredUserController::class, 'show'])->name('register')->middleware(AdminMiddleware::class);
     Route::post('/setting', [RegisteredUserController::class, 'store'])->name('register.store')->middleware(AdminMiddleware::class);;
-    Route::resource('teachers', TeacherController::class);
+
     // Custom routes for Levels
-Route::post('/othersettings/levels', [LevelController::class, 'store'])->name('othersettings.levels.store');
-Route::get('/{view}', [SubjectController::class, 'index']);
+    Route::post('/othersettings/levels', [LevelController::class, 'store'])->name('othersettings.levels.store');
+
 // Custom routes for Subjects
-Route::post('/othersettings/subjects', [SubjectController::class, 'store'])->name('othersettings.subjects.store');
+    Route::post('/othersettings/subjects', [SubjectController::class, 'store'])->name('othersettings.subjects.store');
+    Route::get('/othersettings', [SubjectController::class, 'index']);
+    Route::resource('teachers', TeacherController::class);
+    // Route::get('/teachers',[TeacherController::class, 'index'])->name('teachers.index');
 });
 
 
@@ -60,6 +62,81 @@ require __DIR__.'/auth.php';
 
 
 
+// Route::get('/teachers', function () {
+//     return Inertia::render('Menu/TeacherListPage');
+// });
+// $teachersData = [
+//     [     
+//         "id" => 1,
+//       "firstName" => "Jane",
+//       "lastName" => "Smith",
+//       "address" => "456 Elm St, Othertown, USA",
+//       "phoneNumber" => "0987654321",
+//       "email" => "jane.smith@example.com",
+//       "status" => "active",
+//       "subjects" => ["History", "Geography", "French"],
+//       "wallet" => 500,
+//       "groupName" => "Group B",
+//     ],
+//     [
+//       "id" => 2,
+//       "firstName" => "Bob",
+//       "lastName" => "Johnson",
+//       "address" => "789 Oak St, Smalltown, USA",
+//       "phoneNumber" => "5551234567",
+//       "email" => "bob.johnson@example.com",
+//       "status" => "inactive",
+//       "subjects" => ["Math", "Science", "English"],
+//       "wallet" => 2000,
+//       "groupName" => "Group C",
+//     ],
+//     [
+//       "id" => 3,
+//       "firstName" => "Alice",
+//       "lastName" => "Brown",
+//       "address" => "901 Maple St, Largetown, USA",
+//       "phoneNumber" => "4445556666",
+//       "email" => "alice.brown@example.com",
+//       "status" => "active",
+//       "subjects" => ["Art", "Music", "Drama"],
+//       "wallet" => 1500,
+//       "groupName" => "Group D",
+//     ],
+//     [
+//       "id" => 4,
+//       "firstName" => "Mike",
+//       "lastName" => "Davis",
+//       "address" => "234 Pine St, Othertown, USA",
+//       "phoneNumber" => "3332221111",
+//       "email" => "mike.davis@example.com",
+//       "status" => "active",
+//       "subjects" => ["PE", "Sports", "Fitness"],
+//       "wallet" => 2500,
+//       "groupName" => "Group E",
+//     ],
+//     [
+//       "id" => 5,
+//       "firstName" => "Emily",
+//       "lastName" => "Taylor",
+//       "address" => "567 Cedar St, Smalltown, USA",
+//       "phoneNumber" => "7778889999",
+//       "email" => "emily.taylor@example.com",
+//       "status" => "inactive",
+//       "subjects" => ["Computing", "IT", "Networking"],
+//       "wallet" => 3000,
+//       "groupName" => "Group F",
+//     ],
+//   ];
+
+// Route::get('/teachers/{id}', function ($id) use ($teachersData) {
+//     $teacher = collect($teachersData)->firstWhere('id', (int)$id);
+//     if (!$teacher) {
+//         abort(404);
+//     }
+//     return Inertia::render('Menu/SingleTeacherPage', [
+//         'teacher' => $teacher
+//     ]);
+// });
 
 
 Route::get('/offers', function () {

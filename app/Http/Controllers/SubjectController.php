@@ -5,27 +5,26 @@ namespace App\Http\Controllers;
 use App\Models\Subject;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
-
+use App\Models\Teacher;
 class SubjectController extends Controller
 {
     /**
      * Display a listing of the subjects.
      */
-    public function index($view)
+    public function index()
     {
         $subjects = Subject::all();
     
-        if ($view === 'othersettings') {
             return Inertia::render('Menu/Othersettings', [
                 'subjects' => $subjects,
             ]);
-        } elseif ($view === 'teachers') {
-            return Inertia::render('Menu/TeacherListPage', [
-                'subjects' => $subjects,
-            ]);
-        } else {
-            // handle invalid view parameter
-        }
+        // } elseif ($view === 'teachers') {
+        //     return Inertia::render('Menu/TeacherListPage', [
+        //         'subjects' => $subjects,
+        //     ]);
+        
+           
+       
     }
 
     /**

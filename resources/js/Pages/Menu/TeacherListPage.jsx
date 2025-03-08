@@ -41,10 +41,11 @@ const columns = [
   },
 ];
 
-const TeacherListPage = ({teachers,subjects}) => {
+const TeacherListPage = ({teachers,subjects,groups}) => {
+  console.log("groups",groups)
   console.log("subj",subjects)
   const role = usePage().props.auth.user.role;
-  console.log("test",teachers.data);
+  console.log("teachers ",teachers);
   const renderRow = (item) => (
     <tr
       key={item.id}
@@ -63,10 +64,10 @@ const TeacherListPage = ({teachers,subjects}) => {
           <p className="text-xs text-gray-500">{item?.email}</p>
         </div>
       </td>
-      <td className="hidden md:table-cell">{item.teacherId}</td>
-      <td className="hidden md:table-cell">{item.subjects.join(",")}</td>
-      <td className="hidden md:table-cell">{item.classes.join(",")}</td>
-      <td className="hidden md:table-cell">{item.phone_number}</td>
+      <td className="hidden md:table-cell">{item.id}</td>
+      <td className="hidden md:table-cell">{item.subjects}</td>
+      <td className="hidden md:table-cell">{item.classes}</td>
+      <td className="hidden md:table-cell">{item.phone}</td>
       <td className="hidden md:table-cell">{item.address}</td>
       <td>
         <div className="flex items-center gap-2">
@@ -102,7 +103,7 @@ const TeacherListPage = ({teachers,subjects}) => {
             <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
               <img src="/sort.png" alt="" width={14} height={14} />
             </button>
-            {role === "admin" && <FormModal table="teacher" type="create" subjects={subjects}/>}
+            {role === "admin" && <FormModal table="teacher" type="create" subjects={subjects} groups={groups}/>}
           </div>
         </div>
       </div>
