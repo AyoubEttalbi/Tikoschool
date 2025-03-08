@@ -3,8 +3,7 @@ import Pagination from "@/Components/Pagination";
 import Table from "@/Components/Table";
 import TableSearch from "@/Components/TableSearch";
 import DashboardLayout from "@/Layouts/DashboardLayout";
-import { role, teachersData } from "@/lib/data";
-import { Link } from '@inertiajs/react';
+import { Link ,usePage} from '@inertiajs/react';
 import { UserRoundPen } from "lucide-react";
 const columns = [
   {
@@ -42,7 +41,10 @@ const columns = [
   },
 ];
 
-const TeacherListPage = ({}) => {
+const TeacherListPage = ({teachers,subjects}) => {
+  console.log("subj",subjects)
+  const role = usePage().props.auth.user.role;
+  console.log("test",teachers.data);
   const renderRow = (item) => (
     <tr
       key={item.id}
@@ -57,14 +59,14 @@ const TeacherListPage = ({}) => {
           className="md:hidden xl:block w-10 h-10 rounded-full object-cover"
         />
         <div className="flex flex-col">
-          <h3 className="font-semibold">{item.name}</h3>
+          <h3 className="font-semibold">{item.first_name}{" "}{item.last_name}</h3>
           <p className="text-xs text-gray-500">{item?.email}</p>
         </div>
       </td>
       <td className="hidden md:table-cell">{item.teacherId}</td>
       <td className="hidden md:table-cell">{item.subjects.join(",")}</td>
       <td className="hidden md:table-cell">{item.classes.join(",")}</td>
-      <td className="hidden md:table-cell">{item.phone}</td>
+      <td className="hidden md:table-cell">{item.phone_number}</td>
       <td className="hidden md:table-cell">{item.address}</td>
       <td>
         <div className="flex items-center gap-2">
@@ -100,14 +102,14 @@ const TeacherListPage = ({}) => {
             <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
               <img src="/sort.png" alt="" width={14} height={14} />
             </button>
-            {role === "admin" && <FormModal table="teacher" type="create" />}
+            {role === "admin" && <FormModal table="teacher" type="create" subjects={subjects}/>}
           </div>
         </div>
       </div>
       {/* LIST */}
-      <Table columns={columns} renderRow={renderRow} data={teachersData} />
+      <Table columns={columns} renderRow={renderRow} data={teachers.data} />
       {/* PAGINATION */}
-      {/* <Pagination /> */}
+        <Pagination links={teachers.links} />
     </div>
   );
 };

@@ -5,14 +5,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class Classes extends Model
+class teacher_subject extends Model
 {
+    /** @use HasFactory<\Database\Factories\TeacherSubjectFactory> */
     use HasFactory;
-
-    protected $fillable = [
-        'name',
-        'level',
-        'numStudents',
-        'numTeachers',
-    ];
 }

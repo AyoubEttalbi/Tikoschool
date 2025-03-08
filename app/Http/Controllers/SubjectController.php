@@ -11,12 +11,21 @@ class SubjectController extends Controller
     /**
      * Display a listing of the subjects.
      */
-    public function index()
+    public function index($view)
     {
         $subjects = Subject::all();
-        return Inertia::render('Menu/Othersettings', [
-            'subjects' => $subjects,
-        ]);
+    
+        if ($view === 'othersettings') {
+            return Inertia::render('Menu/Othersettings', [
+                'subjects' => $subjects,
+            ]);
+        } elseif ($view === 'teachers') {
+            return Inertia::render('Menu/TeacherListPage', [
+                'subjects' => $subjects,
+            ]);
+        } else {
+            // handle invalid view parameter
+        }
     }
 
     /**

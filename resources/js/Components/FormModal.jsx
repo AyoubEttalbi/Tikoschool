@@ -22,7 +22,7 @@ const forms = {
   level: LevelForm,
 };
 
-const FormModal = ({ table, type, data, id, levels, route }) => {
+const FormModal = ({ table, type, data, id, levels, route,subjects }) => {
   const size = type === "create" ? "w-8 h-8" : "w-7 h-7";
   const bgColor =
     type === "create" || type === "update"
@@ -37,7 +37,7 @@ const FormModal = ({ table, type, data, id, levels, route }) => {
     const FormComponent = forms[table];
     return FormComponent ? (
       <Suspense fallback={<h1>Loading...</h1>}>
-        <FormComponent type={type} data={data} levels={levels} />
+        <FormComponent type={type} data={data} levels={levels} subjects={subjects}/>
       </Suspense>
     ) : (
       <p>Form not found!</p>
