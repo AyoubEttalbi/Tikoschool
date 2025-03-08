@@ -19,7 +19,7 @@ const Navbar = ({auth}) => {
         </div>
         <div className='flex flex-col'>
           <span className="text-xs leading-3 font-medium">{auth.name}</span>
-          <span className="text-[10px] text-gray-500 text-right">admin</span>
+          <span className="text-[10px] text-gray-500 text-right">{auth.role}</span>
         </div>
         <img src="/avatar.png" alt="" width={36} height={36} className="rounded-full"/>
       </div>

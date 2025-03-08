@@ -18,9 +18,19 @@ class RegisteredUserController extends Controller
     /**
      * Display the registration view.
      */
+    public function show(): Response
+    {
+        $users = User::all();
+        
+       
+        return Inertia::render('Menu/UserListPage', [
+            'users' => $users,
+         
+        ]);
+    }
     public function create(): Response
     {
-        return Inertia::render('Auth/Register');
+        return Inertia::render('Menu/UserListPage');
     }
 
     /**

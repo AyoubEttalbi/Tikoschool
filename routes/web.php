@@ -1,5 +1,5 @@
 <?php
-
+use App\http\Middleware\AdminMiddleware;
 use App\Http\Controllers\ProfileController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
@@ -28,6 +28,7 @@ Route::get('/dashboard', function () {
     return Inertia::render('Dashboard');
 })->middleware(['auth', 'verified'])->name('dashboard');
 
+
 Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
@@ -43,8 +44,8 @@ Route::middleware('auth')->group(function () {
 
     Route::put('/othersettings/{subject}', [SubjectController::class, 'update'])->name('othersettings.update');
     Route::delete('/othersettings/subjects/{subject}', [SubjectController::class, 'destroy'])->name('othersettings.destroy');
-    Route::get('/setting', [RegisteredUserController::class, 'create'])->name('register');
-    Route::post('/setting', [RegisteredUserController::class, 'store'])->name('register.store');
+    Route::get('/setting', [RegisteredUserController::class, 'show'])->name('register')->middleware(AdminMiddleware::class);
+    Route::post('/setting', [RegisteredUserController::class, 'store'])->name('register.store')->middleware(AdminMiddleware::class);;
 
     // Custom routes for Levels
 Route::post('/othersettings/levels', [LevelController::class, 'store'])->name('othersettings.levels.store');
@@ -53,15 +54,10 @@ Route::post('/othersettings/levels', [LevelController::class, 'store'])->name('o
 Route::post('/othersettings/subjects', [SubjectController::class, 'store'])->name('othersettings.subjects.store');
 });
 
+
 require __DIR__.'/auth.php';
 
 
-// Route::get('/othersettings', function () {
-//     $levels = Level::all();
-//     return Inertia::render('Menu/Othersettings', [
-//         'levels' => $levels,
-//     ]);
-// });
 
 Route::get('/teachers', function () {
     return Inertia::render('Menu/TeacherListPage');
@@ -142,7 +138,7 @@ Route::get('/teachers/{id}', function ($id) use ($teachersData) {
 
 Route::get('/offers', function () {
     return Inertia::render('Menu/OffersPage');
-});
+})->middleware(AdminMiddleware::class);
 
 
 

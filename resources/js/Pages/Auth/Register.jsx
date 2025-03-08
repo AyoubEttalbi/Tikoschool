@@ -11,6 +11,7 @@ export default function Register() {
         email: '',
         password: '',
         password_confirmation: '',
+        role: 'assistant', // Default role
     });
 
     const submit = (e) => {
@@ -22,7 +23,7 @@ export default function Register() {
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
+        <div className="min-h-screen flex rounded-md items-center justify-center bg-gray-100 p-4">
             <Head title="Create User" />
 
             <div className="bg-white rounded-lg shadow-md p-8 w-full max-w-md">
@@ -30,6 +31,7 @@ export default function Register() {
                 <p className="text-gray-600 text-center mb-6">Add a new user to the system</p>
 
                 <form onSubmit={submit} className="space-y-4">
+                    {/* Name Field */}
                     <div>
                         <InputLabel htmlFor="name" value="Name" />
                         <TextInput
@@ -45,6 +47,7 @@ export default function Register() {
                         <InputError message={errors.name} className="mt-1 text-sm" />
                     </div>
 
+                    {/* Email Field */}
                     <div>
                         <InputLabel htmlFor="email" value="Email" />
                         <TextInput
@@ -60,6 +63,7 @@ export default function Register() {
                         <InputError message={errors.email} className="mt-1 text-sm" />
                     </div>
 
+                    {/* Password Field */}
                     <div>
                         <InputLabel htmlFor="password" value="Password" />
                         <TextInput
@@ -75,6 +79,7 @@ export default function Register() {
                         <InputError message={errors.password} className="mt-1 text-sm" />
                     </div>
 
+                    {/* Confirm Password Field */}
                     <div>
                         <InputLabel htmlFor="password_confirmation" value="Confirm Password" />
                         <TextInput
@@ -90,7 +95,26 @@ export default function Register() {
                         <InputError message={errors.password_confirmation} className="mt-1 text-sm" />
                     </div>
 
-                    <div className="flex  items-center justify-center mt-6">
+                    {/* Role Field */}
+                    <div>
+                        <InputLabel htmlFor="role" value="Role" />
+                        <select
+                            id="role"
+                            name="role"
+                            value={data.role}
+                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black"
+                            onChange={(e) => setData('role', e.target.value)}
+                            required
+                        >
+                            <option value="assistant">Assistant</option>
+                            <option value="admin">Admin</option>
+                            <option value="teacher">Teacher</option>
+                        </select>
+                        <InputError message={errors.role} className="mt-1 text-sm" />
+                    </div>
+
+                    {/* Submit Button */}
+                    <div className="flex items-center justify-center mt-6">
                         <PrimaryButton
                             className="px-4 py-2 bg-black text-white rounded-md hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2"
                             disabled={processing}

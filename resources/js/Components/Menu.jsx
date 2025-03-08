@@ -1,5 +1,5 @@
-import { role } from "@/lib/data";
-import { Link } from "@inertiajs/react";
+
+import { Link,usePage } from "@inertiajs/react";
 
 const menuItems = [
   {
@@ -9,19 +9,19 @@ const menuItems = [
         icon: "/home.png",
         label: "Home",
         href: "/dashboard",
-        visible: ["admin", "teacher", "student", "parent"],
+        visible: ["admin", "teacher", "assistant"],
       },
       {
         icon: "/teacher.png",
         label: "Teachers",
         href: "/teachers",
-        visible: ["admin", "teacher"],
+        visible: ["admin", "teacher", "assistant"],
       },
       {
         icon: "/student.png",
         label: "Students",
         href: "/students",
-        visible: ["admin", "teacher"],
+        visible: ["admin", "teacher", "assistant"],
       },
       {
         icon: "/parent.png",
@@ -34,19 +34,19 @@ const menuItems = [
         icon: "/class.png",
         label: "Classes",
         href: "/classes",
-        visible: ["admin", "teacher"],
+        visible: ["admin", "teacher", "assistant"],
       },
       {
         icon: "/offer.png",
         label: "Offers",
         href: "/offers",
-        visible: ["admin", "teacher"],
+        visible: ["admin"],
       },
       {
         icon: "/exam.png",
         label: "Exams",
         href: "/exams",
-        visible: ["admin", "teacher", "student", "parent"],
+        visible: ["admin", "teacher", "assistant"],
       },
       // {
       //   icon: "/assignment.png",
@@ -58,31 +58,20 @@ const menuItems = [
         icon: "/result.png",
         label: "Results",
         href: "/results",
-        visible: ["admin", "teacher", "student", "parent"],
+        visible: ["admin", "teacher", "assistant"],
       },
       {
         icon: "/attendance.png",
         label: "Attendance",
         href: "/attendance",
-        visible: ["admin", "teacher", "student", "parent"],
+        visible: ["admin", "teacher", "assistant"],
       },
-      // {
-      //   icon: "/calendar.png",
-      //   label: "Events",
-      //   href: "/events",
-      //   visible: ["admin", "teacher", "student", "parent"],
-      // },
-      // {
-      //   icon: "/message.png",
-      //   label: "Messages",
-      //   href: "/messages",
-      //   visible: ["admin", "teacher", "student", "parent"],
-      // },
+     
       {
         icon: "/announcement.png",
         label: "Announcements",
         href: "/announcements",
-        visible: ["admin", "teacher", "student", "parent"],
+        visible: ["admin", "teacher", "assistant"],
       },
       {
         icon: "/other_settings.png",
@@ -105,7 +94,7 @@ const menuItems = [
         icon: "/setting.png",
         label: "Settings",
         href:  `/setting`,
-        visible: ["admin", "teacher", "student", "parent"],
+        visible: ["admin"],
       },
       {  
         method: "post" ,
@@ -113,13 +102,14 @@ const menuItems = [
         icon: "/logout.png",
         label: "Logout",
         href: `${route("logout")}`,
-        visible: ["admin", "teacher", "student", "parent"],
+        visible: ["admin", "teacher", "assistant"],
       },
     ],
   },
 ];
 
 const Menu = () => {
+  const role=usePage().props.auth.user.role;
   return (
     <div className="mt-4 text-sm">
       {menuItems.map((i) => (
