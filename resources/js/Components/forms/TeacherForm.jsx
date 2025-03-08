@@ -1,6 +1,9 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
+import { Link } from "@inertiajs/react";
+
+
 import InputField from "../InputField";
 
 // Schema matching your database columns
@@ -17,6 +20,8 @@ const schema = z.object({
 });
 
 const TeacherForm = ({ type, data }) => {
+  
+  
   const {
     register,
     handleSubmit,
@@ -42,6 +47,7 @@ const TeacherForm = ({ type, data }) => {
   });
 
   return (
+    <div className="flex flex-col gap-4">
     <form className="flex flex-col gap-8" onSubmit={onSubmit}>
       <h1 className="text-xl font-semibold">
         {type === "create" ? "Create a New Teacher" : "Update Teacher"}
@@ -75,8 +81,8 @@ const TeacherForm = ({ type, data }) => {
           label="Phone Number"
           name="phoneNumber"
           register={register}
-          error={errors.phoneNumber}
-          defaultValue={data?.phoneNumber}
+          error={errors.phone}
+          defaultValue={data?.phone}
         />
         <InputField
           label="Email"
@@ -131,7 +137,15 @@ const TeacherForm = ({ type, data }) => {
       <button type="submit" className="bg-blue-500 text-white p-2 rounded-md">
         {type === "create" ? "Create" : "Update"}
       </button>
+      
+     
     </form>
+   
+    <Link  href={`/setting?data=${JSON.stringify(data)}`}>
+  <button className="bg-blue-500 w-full text-white p-2 rounded-md">Go to User </button>
+</Link>
+  
+  </div>
   );
 };
 

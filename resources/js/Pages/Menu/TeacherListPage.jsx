@@ -42,7 +42,7 @@ const columns = [
   },
 ];
 
-const TeacherListPage = () => {
+const TeacherListPage = ({}) => {
   const renderRow = (item) => (
     <tr
       key={item.id}

@@ -1,12 +1,12 @@
 
-import { Link } from '@inertiajs/react';
+import { Link ,usePage} from '@inertiajs/react';
 import TableSearch from "../../Components/TableSearch";
 import Table from "../../Components/Table";
 import Pagination from "../../Components/Pagination";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import FormModal from "../../Components/FormModal";
 import Register from "../Auth/Register";
-
+import { useParams } from 'react-router-dom';
 // Define table columns for users
 const columns = [
   {
@@ -33,8 +33,16 @@ const columns = [
 ];
 
 const UserListPage = ({users}) => {
-  // Mock user data (replace with real data from your backend)
- 
+   const role=usePage().props.auth.user.role;
+   const { url } = usePage();
+
+  const data = new URLSearchParams(url.split('?')[1]).get('data');
+
+  const parsedData = JSON.parse(decodeURIComponent(data));
+
+  // Now you can access the data
+
+    
   // Format the created_at date to YYYY-MM-DD
   const formatDate = (dateString) => {
     return new Date(dateString).toISOString().split("T")[0];
@@ -117,7 +125,7 @@ const UserListPage = ({users}) => {
       {/* Pagination */}
       {/* <Pagination links={users.links} /> */}
     </div>
-    <Register/>
+    <Register parsedata={parsedData}/>
 </div>
   );
 };

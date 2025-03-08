@@ -5,14 +5,16 @@ import TextInput from '@/Components/TextInput';
 import { Head, Link, useForm } from '@inertiajs/react';
 import DashboardLayout from '@/Layouts/DashboardLayout';
 
-export default function Register() {
+export default function Register({parsedata}) {
+  const  newdata=parsedata[0]
     const { data, setData, post, processing, errors, reset } = useForm({
-        name: '',
-        email: '',
+        name: newdata.name,
+        email: newdata.email,
         password: '',
         password_confirmation: '',
-        role: 'assistant', // Default role
+        role: newdata.role, // Default role
     });
+    
 
     const submit = (e) => {
         e.preventDefault();
