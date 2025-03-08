@@ -23,41 +23,21 @@ class Teacher extends Model
         'status',
         'wallet',
         'profile_image',
-    ];
-
-    protected $hidden = [
-        // No need to hide password here - it's in User model
-    ];
-
-    protected $casts = [
-        'status' => 'string',
-        'wallet' => 'decimal:2',
-        'created_at' => 'datetime:Y-m-d',
-        'updated_at' => 'datetime:Y-m-d',
+        'status',
+        'wallet',
+        
     ];
 
     // Relationships
-    public function user(): BelongsTo
+    public function subjects()
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsToMany(Subject::class, 'subject_teacher');
     }
 
-    public function school(): BelongsTo
+    public function groups()
     {
-        return $this->belongsTo(School::class);
+        return $this->belongsToMany(Classes::class, 'group_teacher');
     }
-
-    public function subjects(): BelongsToMany
-    {
-        return $this->belongsToMany(Subject::class, 'teacher_subject');
-    }
-
-    public function classes(): BelongsToMany
-    {
-        return $this->belongsToMany(Classes::class, 'teacher_class', 'teacher_id', 'class_id');
-    }
-
-    // Accessors
    
 
 

@@ -3,7 +3,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import InputField from "../InputField";
-
+import { router, Link } from "@inertiajs/react";
 // Define the schema
 const schema = z.object({
   firstName: z.string().min(1, { message: "First name is required!" }),
@@ -14,7 +14,8 @@ const schema = z.object({
   status: z.enum(["active", "inactive"]),
   subjects: z.array(z.object({ id: z.number(), name: z.string() })).optional(),
   wallet: z.coerce.number().nonnegative({ message: "Wallet must be positive!" }),
-  groupName: z.array(z.object({ value: z.string(), label: z.string() })).optional(),
+  groups: z.array(z.object({ id: z.number(), name: z.string() })).optional(),
+  
 });
 
 const TeacherForm = ({ type, data, subjects, groups }) => {
@@ -35,30 +36,27 @@ const TeacherForm = ({ type, data, subjects, groups }) => {
       status: data?.status || "active",
       subjects: data?.subjects || [],
       wallet: data?.wallet || 0,
-      groupName: Array.isArray(data?.groupName) ? data.groupName : [],
+      groups: data?.groups || [],
     },
   });
 
   const onSubmit = handleSubmit((formData) => {
     const formattedData = {
       ...formData,
-      subjects: formData.subjects.map((subj) => subj.name), // Extract only names
-      groupName: formData.groupName.map((group) => group.name), // Extract only names
+      subjects: formData.subjects.map((subj) => subj.id), // Extract only names
+      groups: formData.groups.map((group) => group.id), // Extract only names
     };
   
     console.log(formattedData);
   
-    // Send the formatted data to the backend
-    fetch("/api/teachers", {
-      method: type === "create" ? "POST" : "PUT",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(formattedData),
-    })
-      .then((res) => res.json())
-      .then((data) => console.log("Success:", data))
-      .catch((error) => console.error("Error:", error));
+    
+    if (type === "create") {
+      // Send a POST request to create a new student
+      router.post("/teachers", formattedData);
+    } else if (type === "update") {
+      // Send a PUT request to update an existing student
+      router.put(`/teachers/${data.id}`, formattedData);
+    }
   });
   
 
@@ -113,7 +111,7 @@ const TeacherForm = ({ type, data, subjects, groups }) => {
 
         {/* Multi-Select for Groups */}
         <div className="w-full md:w-1/4">
-          <label className="text-xs text-gray-500">Group Name</label>
+          <label className="text-xs text-gray-500">Groups</label>
           <Controller
             name="groups"
             control={control}
@@ -123,14 +121,14 @@ const TeacherForm = ({ type, data, subjects, groups }) => {
                 options={groups}
                 isMulti
                 getOptionLabel={(e) => e.name}
-                getOptionValue={(e) => e.name}
+                getOptionValue={(e) => e.id.toString()}
                 onChange={(val) => field.onChange(val)}
                 className="basic-multi-select"
                 classNamePrefix="select"
               />
             )}
           />
-          {errors.groupName && <p className="text-xs text-red-400">{errors.groupName.message}</p>}
+          {errors.groups && <p className="text-xs text-red-400">{errors.groups.message}</p>}
         </div>
 
         <InputField label="Wallet Amount" name="wallet" type="number" register={register} error={errors.wallet} />

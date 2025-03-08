@@ -58,34 +58,38 @@ class TeacherController extends Controller
      * Store a newly created resource in storage.
      */
     public function store(Request $request)
-    {
-        $validatedData = $request->validate([
-            'school_id' => 'required|integer|exists:schools,id',
-            'first_name' => 'required|string|max:100',
-            'last_name' => 'required|string|max:100',
-            'address' => 'nullable|string|max:255',
-            'phone_number' => 'nullable|string|max:20',
-            'email' => 'required|string|email|max:255|unique:teachers,email',
-            'status' => 'required|in:active,inactive',
-            'wallet' => 'required|numeric|min:0',
-            'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
-            'subjects' => 'array',
-            'subjects.*' => 'exists:subjects,id',
-            'groups' => 'array',
-            'groups.*' => 'exists:groups,id',
-        ]);
+{
+    $validatedData = $request->validate([
+        'first_name' => 'required|string|max:100',
+        'last_name' => 'required|string|max:100',
+        'address' => 'nullable|string|max:255',
+        'phone_number' => 'nullable|string|max:20',
+        'email' => 'required|string|email|max:255|unique:teachers,email',
+        'status' => 'required|in:active,inactive',
+        'wallet' => 'required|numeric|min:0',
+        'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
+        'subjects' => 'array',
+        'subjects.*' => 'exists:subjects,id',
+        'groups' => 'array',
+        'groups.*' => 'exists:groups,id',
+    ]);
 
-        // Handle profile image upload
-        if ($request->hasFile('profile_image')) {
-            $validatedData['profile_image'] = $request->file('profile_image')->store('teachers', 'public');
-        }
-
-        $teacher = Teacher::create($validatedData);
-        $teacher->subjects()->sync($request->subjects);
-        $teacher->groups()->sync($request->groups);
-
-        return redirect()->route('teachers.index')->with('success', 'Teacher created successfully.');
+    // Handle profile image upload (if any)
+    if ($request->hasFile('profile_image')) {
+        $validatedData['profile_image'] = $request->file('profile_image')->store('teachers', 'public');
     }
+
+    // Create the teacher record
+    $teacher = Teacher::create($validatedData);
+
+    // Sync the subjects and groups with the teacher (many-to-many relation)
+    $teacher->subjects()->sync($request->subjects); // Sync subjects using the IDs
+    $teacher->groups()->sync($request->groups); // Sync groups using the IDs
+
+    return redirect()->route('teachers.index')->with('success', 'Teacher created successfully.');
+}
+
+
 
     /**
      * Display the specified resource.
