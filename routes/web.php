@@ -46,14 +46,15 @@ Route::middleware('auth')->group(function () {
     Route::delete('/othersettings/subjects/{subject}', [SubjectController::class, 'destroy'])->name('othersettings.destroy');
     Route::get('/setting', [RegisteredUserController::class, 'show'])->name('register')->middleware(AdminMiddleware::class);
     Route::post('/setting', [RegisteredUserController::class, 'store'])->name('register.store')->middleware(AdminMiddleware::class);;
-
+    Route::post('/teachers', [TeacherController::class, 'store'])->name('teachers.store');
+    Route::get('/teachers', [TeacherController::class, 'index'])->name('teachers.index');
     // Custom routes for Levels
     Route::post('/othersettings/levels', [LevelController::class, 'store'])->name('othersettings.levels.store');
 
 // Custom routes for Subjects
     Route::post('/othersettings/subjects', [SubjectController::class, 'store'])->name('othersettings.subjects.store');
     Route::get('/othersettings', [SubjectController::class, 'index']);
-    Route::resource('teachers', TeacherController::class);
+    
     // Route::get('/teachers',[TeacherController::class, 'index'])->name('teachers.index');
 });
 

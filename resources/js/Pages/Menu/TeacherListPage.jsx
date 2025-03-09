@@ -41,11 +41,11 @@ const columns = [
   },
 ];
 
-const TeacherListPage = ({teachers,subjects,groups}) => {
-  console.log("groups",groups)
-  console.log("subj",subjects)
+const TeacherListPage = ({teachers,subjects,classes,schools}) => {
+ console.log(teachers)
+ 
   const role = usePage().props.auth.user.role;
-  console.log("teachers ",teachers);
+
   const renderRow = (item) => (
     <tr
       key={item.id}
@@ -60,7 +60,7 @@ const TeacherListPage = ({teachers,subjects,groups}) => {
           className="md:hidden xl:block w-10 h-10 rounded-full object-cover"
         />
         <div className="flex flex-col">
-          <h3 className="font-semibold">{item.first_name}{" "}{item.last_name}</h3>
+          <h3 className="font-semibold">{item.name}</h3>
           <p className="text-xs text-gray-500">{item?.email}</p>
         </div>
       </td>
@@ -103,7 +103,7 @@ const TeacherListPage = ({teachers,subjects,groups}) => {
             <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
               <img src="/sort.png" alt="" width={14} height={14} />
             </button>
-            {role === "admin" && <FormModal table="teacher" type="create" subjects={subjects} groups={groups}/>}
+            {role === "admin" && <FormModal table="teacher" type="create" schools={schools} subjects={subjects} groups={classes}/>}
           </div>
         </div>
       </div>

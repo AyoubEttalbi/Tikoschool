@@ -8,8 +8,8 @@ use Inertia\Inertia;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Storage;
 use App\Models\Subject;
+use App\Models\School;
 use App\Models\Classes;
-
 
 class TeacherController extends Controller
 {
@@ -17,8 +17,8 @@ class TeacherController extends Controller
      * Display a listing of the resource.
      */
     public function index()
-    {   
-        $Classes = Classes::all();
+    {   $schools = School::all();
+        $classes = Classes::all();
         $subjects = Subject::all();
         $teachers = Teacher::paginate(10)->through(function ($teacher) {
             return [
@@ -35,8 +35,9 @@ class TeacherController extends Controller
 
         return Inertia::render('Menu/TeacherListPage', [
             'teachers' => $teachers,
+            'schools' => $schools,
             'subjects' => $subjects,
-            'groups' => $Classes
+            'classes' => $classes, // ✅ Changed from 'groups' to 'classes'
         ]);
     }
 
@@ -46,11 +47,11 @@ class TeacherController extends Controller
     public function create()
     {
         $subjects = Subject::all();
-        $groups = Group::all();
+        $classes = Classes::all();
 
         return Inertia::render('Teachers/Create', [
             'subjects' => $subjects,
-            'groups' => $groups,
+            'classes' => $classes, // ✅ Changed from 'groups' to 'classes'
         ]);
     }
 
@@ -58,45 +59,45 @@ class TeacherController extends Controller
      * Store a newly created resource in storage.
      */
     public function store(Request $request)
-{
-    $validatedData = $request->validate([
-        'first_name' => 'required|string|max:100',
-        'last_name' => 'required|string|max:100',
-        'address' => 'nullable|string|max:255',
-        'phone_number' => 'nullable|string|max:20',
-        'email' => 'required|string|email|max:255|unique:teachers,email',
-        'status' => 'required|in:active,inactive',
-        'wallet' => 'required|numeric|min:0',
-        'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
-        'subjects' => 'array',
-        'subjects.*' => 'exists:subjects,id',
-        'groups' => 'array',
-        'groups.*' => 'exists:groups,id',
-    ]);
+    {
+        $validatedData = $request->validate([
+            'first_name' => 'required|string|max:100',
+            'last_name' => 'required|string|max:100',
+            'address' => 'nullable|string|max:255',
+            'phone_number' => 'nullable|string|max:20',
+            'email' => 'required|string|email|max:255|unique:teachers,email',
+            'status' => 'required|in:active,inactive',
+            'wallet' => 'required|numeric|min:0',
+            'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
+            'schools' => 'array',
+            'schools.*' => 'exists:schools,id',
+            'subjects' => 'array',
+            'subjects.*' => 'exists:subjects,id',
+            'classes' => 'array', // ✅ Changed from 'groups' to 'classes'
+            'classes.*' => 'exists:classes,id', // ✅ Validation fix
+        ]);
 
-    // Handle profile image upload (if any)
-    if ($request->hasFile('profile_image')) {
-        $validatedData['profile_image'] = $request->file('profile_image')->store('teachers', 'public');
+        // Handle profile image upload (if any)
+        if ($request->hasFile('profile_image')) {
+            $validatedData['profile_image'] = $request->file('profile_image')->store('teachers', 'public');
+        }
+
+        // Create the teacher record
+        $teacher = Teacher::create($validatedData);
+
+        // Sync the subjects and classes with the teacher (many-to-many relation)
+        $teacher->subjects()->sync($request->subjects);
+        $teacher->classes()->sync($request->classes); // ✅ Changed from 'groups' to 'classes'
+        $teacher->schools()->sync($request->schools);
+        return redirect()->route('teachers.index')->with('success', 'Teacher created successfully.');
     }
-
-    // Create the teacher record
-    $teacher = Teacher::create($validatedData);
-
-    // Sync the subjects and groups with the teacher (many-to-many relation)
-    $teacher->subjects()->sync($request->subjects); // Sync subjects using the IDs
-    $teacher->groups()->sync($request->groups); // Sync groups using the IDs
-
-    return redirect()->route('teachers.index')->with('success', 'Teacher created successfully.');
-}
-
-
 
     /**
      * Display the specified resource.
      */
     public function show($id)
     {
-        $teacher = Teacher::with(['subjects', 'groups'])->find($id);
+        $teacher = Teacher::with(['subjects', 'classes'])->find($id); // ✅ Changed from 'groups' to 'classes'
 
         if (!$teacher) {
             abort(404);
@@ -114,7 +115,7 @@ class TeacherController extends Controller
                 'wallet' => $teacher->wallet,
                 'profile_image' => $teacher->profile_image ? URL::asset('storage/' . $teacher->profile_image) : null,
                 'subjects' => $teacher->subjects,
-                'groups' => $teacher->groups,
+                'classes' => $teacher->classes, // ✅ Changed from 'groups' to 'classes'
             ],
         ]);
     }
@@ -125,12 +126,12 @@ class TeacherController extends Controller
     public function edit(Teacher $teacher)
     {
         $subjects = Subject::all();
-        $groups = Group::all();
+        $classes = Classes::all(); // ✅ Changed from 'groups' to 'classes'
 
         return Inertia::render('Teachers/Edit', [
             'teacher' => $teacher,
             'subjects' => $subjects,
-            'groups' => $groups,
+            'classes' => $classes, // ✅ Changed from 'groups' to 'classes'
         ]);
     }
 
@@ -140,7 +141,6 @@ class TeacherController extends Controller
     public function update(Request $request, Teacher $teacher)
     {
         $validatedData = $request->validate([
-            'school_id' => 'required|integer|exists:schools,id',
             'first_name' => 'required|string|max:100',
             'last_name' => 'required|string|max:100',
             'address' => 'nullable|string|max:255',
@@ -151,8 +151,8 @@ class TeacherController extends Controller
             'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
             'subjects' => 'array',
             'subjects.*' => 'exists:subjects,id',
-            'groups' => 'array',
-            'groups.*' => 'exists:groups,id',
+            'classes' => 'array', // ✅ Changed from 'groups' to 'classes'
+            'classes.*' => 'exists:classes,id',
         ]);
 
         // Handle profile image upload
@@ -165,7 +165,8 @@ class TeacherController extends Controller
 
         $teacher->update($validatedData);
         $teacher->subjects()->sync($request->subjects);
-        $teacher->groups()->sync($request->groups);
+        $teacher->classes()->sync($request->classes);
+        $teacher->schools()->sync($request->schools); // ✅ Changed from 'groups' to 'classes'
 
         return redirect()->route('teachers.show', $teacher->id)->with('success', 'Teacher updated successfully.');
     }
@@ -180,7 +181,7 @@ class TeacherController extends Controller
         }
 
         $teacher->subjects()->detach();
-        $teacher->groups()->detach();
+        $teacher->classes()->detach(); // ✅ Changed from 'groups' to 'classes'
         $teacher->delete();
 
         return redirect()->route('teachers.index')->with('success', 'Teacher deleted successfully.');

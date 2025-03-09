@@ -15,10 +15,11 @@ const schema = z.object({
   subjects: z.array(z.object({ id: z.number(), name: z.string() })).optional(),
   wallet: z.coerce.number().nonnegative({ message: "Wallet must be positive!" }),
   groups: z.array(z.object({ id: z.number(), name: z.string() })).optional(),
+  schools: z.array(z.object({ id: z.number(), name: z.string() })).optional(),
   
 });
 
-const TeacherForm = ({ type, data, subjects, groups }) => {
+const TeacherForm = ({ type, data, subjects, groups,schools }) => {
   
   const {
     register,
@@ -37,27 +38,34 @@ const TeacherForm = ({ type, data, subjects, groups }) => {
       subjects: data?.subjects || [],
       wallet: data?.wallet || 0,
       groups: data?.groups || [],
+      schools: data?.schools || [],
     },
   });
 
   const onSubmit = handleSubmit((formData) => {
     const formattedData = {
-      ...formData,
-      subjects: formData.subjects.map((subj) => subj.id), // Extract only names
-      groups: formData.groups.map((group) => group.id), // Extract only names
+      
+      first_name: formData.firstName,
+      last_name: formData.lastName,
+      address: formData.address,
+      phone_number: formData.phoneNumber,
+      email: formData.email,
+      status: formData.status,
+      wallet: formData.wallet,
+      subjects: formData.subjects.map((subj) => subj.id), // Extract only IDs for subjects
+      classes: formData.groups.map((group) => group.id),
+      schools: formData.schools.map((school) => school.id), // Extract only IDs for classes
     };
   
-    console.log(formattedData);
+    console.log(formattedData); // Debugging: Check if data is formatted correctly
   
-    
     if (type === "create") {
-      // Send a POST request to create a new student
       router.post("/teachers", formattedData);
     } else if (type === "update") {
-      // Send a PUT request to update an existing student
       router.put(`/teachers/${data.id}`, formattedData);
     }
   });
+  
   
 
   return (
@@ -119,6 +127,27 @@ const TeacherForm = ({ type, data, subjects, groups }) => {
               <Select
                 {...field}
                 options={groups}
+                isMulti
+                getOptionLabel={(e) => e.name}
+                getOptionValue={(e) => e.id.toString()}
+                onChange={(val) => field.onChange(val)}
+                className="basic-multi-select"
+                classNamePrefix="select"
+              />
+            )}
+          />
+          {errors.groups && <p className="text-xs text-red-400">{errors.groups.message}</p>}
+        </div>
+        {/* Multi-Select for Groups */}
+        <div className="w-full md:w-1/4">
+          <label className="text-xs text-gray-500">Schools</label>
+          <Controller
+            name="schools"
+            control={control}
+            render={({ field }) => (
+              <Select
+                {...field}
+                options={schools}
                 isMulti
                 getOptionLabel={(e) => e.name}
                 getOptionValue={(e) => e.id.toString()}

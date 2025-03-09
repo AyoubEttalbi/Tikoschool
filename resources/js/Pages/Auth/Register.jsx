@@ -6,13 +6,17 @@ import { Head, Link, useForm } from '@inertiajs/react';
 import DashboardLayout from '@/Layouts/DashboardLayout';
 
 export default function Register({parsedata}) {
-  const  newdata=parsedata[0]
+    const userData=parsedata || "";
+    
+
+
+      
     const { data, setData, post, processing, errors, reset } = useForm({
-        name: newdata.name,
-        email: newdata.email,
+        name: userData.name || "",
+        email: userData.email || "",
         password: '',
         password_confirmation: '',
-        role: newdata.role, // Default role
+        role: '', 
     });
     
 
@@ -25,7 +29,7 @@ export default function Register({parsedata}) {
     };
 
     return (
-        <div className="min-h-screen flex rounded-md items-center justify-center bg-gray-100 p-4">
+        <div className="min-h-screen flex  rounded-md items-center justify-center bg-gray-100 p-4">
             <Head title="Create User" />
 
             <div className="bg-white rounded-lg shadow-md p-8 w-full max-w-md">

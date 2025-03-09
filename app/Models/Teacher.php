@@ -31,13 +31,18 @@ class Teacher extends Model
     // Relationships
     public function subjects()
     {
-        return $this->belongsToMany(Subject::class, 'subject_teacher');
+        return $this->belongsToMany(Subject::class, 'subject_teacher')->withTimestamps();
     }
 
-    public function groups()
+    public function classes()
     {
-        return $this->belongsToMany(Classes::class, 'group_teacher');
+        return $this->belongsToMany(Classes::class, 'classes_teacher')->withTimestamps();
     }
+    public function schools()
+{
+    return $this->belongsToMany(School::class)->withTimestamps();
+}
+
    
 
 
