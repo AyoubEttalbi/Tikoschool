@@ -22,25 +22,26 @@ const schema = z.object({
 const TeacherForm = ({ type, data, subjects, groups,schools }) => {
   
   const {
-    register,
-    handleSubmit,
-    control,
-    formState: { errors },
-  } = useForm({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      firstName: data?.firstName || "",
-      lastName: data?.lastName || "",
-      address: data?.address || "",
-      phoneNumber: data?.phoneNumber || "",
-      email: data?.email || "",
-      status: data?.status || "active",
-      subjects: data?.subjects || [],
-      wallet: data?.wallet || 0,
-      groups: data?.groups || [],
-      schools: data?.schools || [],
-    },
-  });
+  register,
+  handleSubmit,
+  control,
+  formState: { errors },
+} = useForm({
+  resolver: zodResolver(schema),
+  defaultValues: {
+    firstName: data?.first_name || "",
+    lastName: data?.last_name || "",
+    address: data?.address || "",
+    phoneNumber: data?.phone_number || "",
+    email: data?.email || "",
+    status: data?.status || "active",
+    subjects: data?.subjects || [],
+    wallet: data?.wallet || 0,
+    groups: data?.classes?.map(({ id, name }) => ({ id, name })) || [],  
+    schools: data?.schools?.map(({ id, name }) => ({ id, name })) || [],
+  },
+});
+
 
   const onSubmit = handleSubmit((formData) => {
     const formattedData = {
@@ -52,12 +53,12 @@ const TeacherForm = ({ type, data, subjects, groups,schools }) => {
       email: formData.email,
       status: formData.status,
       wallet: formData.wallet,
-      subjects: formData.subjects.map((subj) => subj.id), // Extract only IDs for subjects
+      subjects: formData.subjects.map((subj) => subj.id), 
       classes: formData.groups.map((group) => group.id),
-      schools: formData.schools.map((school) => school.id), // Extract only IDs for classes
+      schools: formData.schools.map((school) => school.id), 
     };
   
-    console.log(formattedData); // Debugging: Check if data is formatted correctly
+    console.log(formattedData); 
   
     if (type === "create") {
       router.post("/teachers", formattedData);

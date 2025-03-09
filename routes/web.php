@@ -34,6 +34,7 @@ Route::middleware('auth')->group(function () {
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
     Route::resource('students', StudentsController::class);
+    Route::resource('teachers', TeacherController::class);
     Route::resource('classes', ClassesController::class);
     Route::resource('offers', OffersController::class);
     Route::resource('assistants', AssistantsController::class);
@@ -45,15 +46,18 @@ Route::middleware('auth')->group(function () {
     Route::put('/othersettings/{subject}', [SubjectController::class, 'update'])->name('othersettings.update');
     Route::delete('/othersettings/subjects/{subject}', [SubjectController::class, 'destroy'])->name('othersettings.destroy');
     Route::get('/setting', [RegisteredUserController::class, 'show'])->name('register')->middleware(AdminMiddleware::class);
-    Route::post('/setting', [RegisteredUserController::class, 'store'])->name('register.store')->middleware(AdminMiddleware::class);;
-    Route::post('/teachers', [TeacherController::class, 'store'])->name('teachers.store');
-    Route::get('/teachers', [TeacherController::class, 'index'])->name('teachers.index');
+    Route::post('/setting', [RegisteredUserController::class, 'store'])->name('register.store')->middleware(AdminMiddleware::class);
+    
+    // Route::post('/teachers', [TeacherController::class, 'store'])->name('teachers.store');
+    // Route::get('/teachers', [TeacherController::class, 'index'])->name('teachers.index'); 
+    // Route::get('/teachers/{id}', [TeacherController::class, 'show'])->name('teachers.show'); 
+    // Route::put('/teachers/{id}', [TeacherController::class, 'update'])->name('teachers.update'); 
     // Custom routes for Levels
     Route::post('/othersettings/levels', [LevelController::class, 'store'])->name('othersettings.levels.store');
 
 // Custom routes for Subjects
     Route::post('/othersettings/subjects', [SubjectController::class, 'store'])->name('othersettings.subjects.store');
-    Route::get('/othersettings', [SubjectController::class, 'index']);
+    // Route::get('/othersettings', [SubjectController::class, 'index']);
     
     // Route::get('/teachers',[TeacherController::class, 'index'])->name('teachers.index');
 });

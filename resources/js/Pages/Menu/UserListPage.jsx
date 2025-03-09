@@ -16,10 +16,12 @@ const columns = [
   {
     header: "Email",
     accessor: "email",
+    className: "hidden md:table-cell",
   },
   {
     header: "Role",
     accessor: "role",
+    className: "hidden md:table-cell",
   },
   {
     header: "Created At",
@@ -53,15 +55,23 @@ const UserListPage = ({users}) => {
     <tr
       key={user.id}
       className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
-    >
-      <td className="p-4">
+    > 
+    
+      <td className="flex items-center gap-4 p-4">
+      <img
+          src="/avatar.png"
+          alt={user.name}
+          width={40}
+          height={40}
+          className="hidden md:block xl:block w-10 h-10 rounded-full object-cover"
+        />
         <div className="flex flex-col">
           <h3 className="font-semibold">{user.name}</h3>
-          <p className="text-xs text-gray-500">ID: {user.id}</p>
+          <p className="text-xs text-gray-500 lg:hidden md:block">{user.email}</p>
         </div>
       </td>
-      <td className="p-4">{user.email}</td>
-      <td className="p-4">
+      <td className="p-4 hidden md:table-cell">{user.email}</td>
+      <td className="hidden md:table-cell">
         <span
           className={`px-2 py-1 rounded-full text-xs font-medium ${
             user.role === "admin"
@@ -96,7 +106,7 @@ const UserListPage = ({users}) => {
   );
 
   return (
-    <div className="bg-white p-4 rounded-md flex-1 m-4 mt-0">
+  
     <div className="bg-white p-4 rounded-md flex-1 m-4 mt-0">
       <div className="flex items-center justify-between">
         <h1 className="hidden md:block text-lg font-semibold">All Users</h1>
@@ -124,9 +134,10 @@ const UserListPage = ({users}) => {
 
       {/* Pagination */}
       {/* <Pagination links={users.links} /> */}
-    </div>
+
     <Register parsedata={parsedData}/>
-</div>
+    </div>
+
   );
 };
 

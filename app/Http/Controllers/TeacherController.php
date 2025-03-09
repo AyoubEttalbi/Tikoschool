@@ -24,12 +24,18 @@ class TeacherController extends Controller
             return [
                 'id' => $teacher->id,
                 'name' => $teacher->first_name . ' ' . $teacher->last_name,
+                'phone_number' => $teacher->phone_number,
+                'first_name' => $teacher->first_name,
+                'last_name' => $teacher->last_name,
                 'phone' => $teacher->phone_number,
                 'email' => $teacher->email,
                 'address' => $teacher->address,
                 'status' => $teacher->status,
                 'wallet' => $teacher->wallet,
                 'profile_image' => $teacher->profile_image ? URL::asset('storage/' . $teacher->profile_image) : null,
+                'subjects' => $teacher->subjects,
+                'classes' => $teacher->classes, 
+                'schools' => $teacher->schools,
             ];
         });
 
@@ -37,7 +43,7 @@ class TeacherController extends Controller
             'teachers' => $teachers,
             'schools' => $schools,
             'subjects' => $subjects,
-            'classes' => $classes, // ✅ Changed from 'groups' to 'classes'
+            'classes' => $classes, 
         ]);
     }
 
@@ -51,7 +57,7 @@ class TeacherController extends Controller
 
         return Inertia::render('Teachers/Create', [
             'subjects' => $subjects,
-            'classes' => $classes, // ✅ Changed from 'groups' to 'classes'
+            'classes' => $classes, 
         ]);
     }
 
@@ -97,8 +103,10 @@ class TeacherController extends Controller
      */
     public function show($id)
     {
-        $teacher = Teacher::with(['subjects', 'classes'])->find($id); // ✅ Changed from 'groups' to 'classes'
-
+        $teacher = Teacher::with(['subjects', 'classes', 'schools'])->find($id); 
+        $schools = School::all();
+        $classes = Classes::all();
+        $subjects = Subject::all();
         if (!$teacher) {
             abort(404);
         }
@@ -115,8 +123,13 @@ class TeacherController extends Controller
                 'wallet' => $teacher->wallet,
                 'profile_image' => $teacher->profile_image ? URL::asset('storage/' . $teacher->profile_image) : null,
                 'subjects' => $teacher->subjects,
-                'classes' => $teacher->classes, // ✅ Changed from 'groups' to 'classes'
+                'classes' => $teacher->classes, 
+                'schools' => $teacher->schools,
+                'created_at' => $teacher->created_at,
             ],
+            'schools' => $schools,
+            'subjects' => $subjects,
+            'classes' => $classes,
         ]);
     }
 
@@ -151,10 +164,12 @@ class TeacherController extends Controller
             'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
             'subjects' => 'array',
             'subjects.*' => 'exists:subjects,id',
-            'classes' => 'array', // ✅ Changed from 'groups' to 'classes'
+            'classes' => 'array',
             'classes.*' => 'exists:classes,id',
+            'schools' => 'array',
+            'schools.*' => 'exists:schools,id',
         ]);
-
+    
         // Handle profile image upload
         if ($request->hasFile('profile_image')) {
             if ($teacher->profile_image) {
@@ -162,14 +177,27 @@ class TeacherController extends Controller
             }
             $validatedData['profile_image'] = $request->file('profile_image')->store('teachers', 'public');
         }
-
-        $teacher->update($validatedData);
-        $teacher->subjects()->sync($request->subjects);
-        $teacher->classes()->sync($request->classes);
-        $teacher->schools()->sync($request->schools); // ✅ Changed from 'groups' to 'classes'
-
+    
+        // Update only teacher's own attributes
+        $teacher->update([
+            'first_name' => $validatedData['first_name'],
+            'last_name' => $validatedData['last_name'],
+            'address' => $validatedData['address'] ?? null,
+            'phone_number' => $validatedData['phone_number'] ?? null,
+            'email' => $validatedData['email'],
+            'status' => $validatedData['status'],
+            'wallet' => $validatedData['wallet'],
+            'profile_image' => $validatedData['profile_image'] ?? $teacher->profile_image, 
+        ]);
+    
+        // Sync relationships (prevent NULL issues by using `?? []`)
+        $teacher->subjects()->sync($request->subjects ?? []);
+        $teacher->classes()->sync($request->classes ?? []);
+        $teacher->schools()->sync($request->schools ?? []);
+    
         return redirect()->route('teachers.show', $teacher->id)->with('success', 'Teacher updated successfully.');
     }
+    
 
     /**
      * Remove the specified resource from storage.

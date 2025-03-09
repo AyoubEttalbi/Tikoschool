@@ -13,46 +13,62 @@ class StudentsController extends Controller
      * Display a listing of the resource.
      */
  
-    public function index()
-    {
-        // Fetch paginated students from the database
-        $students = Student::paginate(10)->through(function ($student) {
-            return [
-                'id' => $student->id,
-                'name' => $student->firstName . ' ' . $student->lastName,
-                'studentId' => $student->massarCode,
-                'grade' => $student->class,
-                'phone' => $student->phoneNumber,
-                'address' => $student->address,
-                'photo' => $student->profileImage ? URL::asset('storage/' . $student->profileImage) : null,
-                'class' => $student->class,
-
-                
-                'firstName' => $student->firstName,
-                'lastName' => $student->lastName,
-                'dateOfBirth' => $student->dateOfBirth,
-                'billingDate' => $student->billingDate,
-                'address' => $student->address,
-                'guardianName' => $student->guardianName,
-                'CIN' => $student->CIN,
-                'phoneNumber' => $student->phoneNumber,
-                'email' => $student->email,
-                'massarCode' => $student->massarCode,
-                'levelId' => $student->levelId,
-                'class' => $student->class,
-                'status' => $student->status,
-                'assurance' => $student->assurance,
-                'profileImage' => $student->profileImage ? URL::asset('storage/' . $student->profileImage) : null,
-            ];
-            
-        });
-        $levels = Level::all(); 
-        // Render the Inertia view with the students data
-        return Inertia::render('Menu/StudentListPage', [
-            'students' => $students,
-            'levels' => $levels,
-        ]);
-    }
+     public function index(Request $request)
+     {
+         $query = Student::query();
+     
+         if ($request->has('search') && !empty($request->search)) {
+             $searchTerm = $request->search;
+     
+             $query->where(function ($q) use ($searchTerm) {
+                 $q->where('firstName', 'LIKE', "%{$searchTerm}%")
+                   ->orWhere('lastName', 'LIKE', "%{$searchTerm}%")
+                   ->orWhere('massarCode', 'LIKE', "%{$searchTerm}%")
+                   ->orWhere('phoneNumber', 'LIKE', "%{$searchTerm}%")
+                   ->orWhere('email', 'LIKE', "%{$searchTerm}%")
+                   ->orWhere('address', 'LIKE', "%{$searchTerm}%")
+                   ->orWhere('class', 'LIKE', "%{$searchTerm}%");
+             });
+         }
+     
+         // Fetch paginated and filtered students
+         $students = $query->paginate(10)->withQueryString()->through(function ($student) {
+             return [
+                 'id' => $student->id,
+                 'name' => $student->firstName . ' ' . $student->lastName,
+                 'studentId' => $student->massarCode,
+                 'grade' => $student->class,
+                 'phone' => $student->phoneNumber,
+                 'address' => $student->address,
+                 'photo' => $student->profileImage ? URL::asset('storage/' . $student->profileImage) : null,
+                 'class' => $student->class,
+     
+                 'firstName' => $student->firstName,
+                 'lastName' => $student->lastName,
+                 'dateOfBirth' => $student->dateOfBirth,
+                 'billingDate' => $student->billingDate,
+                 'address' => $student->address,
+                 'guardianName' => $student->guardianName,
+                 'CIN' => $student->CIN,
+                 'phoneNumber' => $student->phoneNumber,
+                 'email' => $student->email,
+                 'massarCode' => $student->massarCode,
+                 'levelId' => $student->levelId,
+                 'class' => $student->class,
+                 'status' => $student->status,
+                 'assurance' => $student->assurance,
+                 'profileImage' => $student->profileImage ? URL::asset('storage/' . $student->profileImage) : null,
+             ];
+         });
+     
+         $levels = Level::all();
+     
+         return Inertia::render('Menu/StudentListPage', [
+             'students' => $students,
+             'levels' => $levels,
+         ]);
+     }
+     
 
     /**
      * Show the form for creating a new resource.

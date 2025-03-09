@@ -43,17 +43,19 @@ const columns = [
 
 const TeacherListPage = ({teachers,subjects,classes,schools}) => {
  console.log(teachers)
+ console.log('subjects ',subjects)
  
   const role = usePage().props.auth.user.role;
 
   const renderRow = (item) => (
+    
     <tr
       key={item.id}
       className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
     >
       <td className="flex items-center gap-4 p-4">
         <img
-          src={item.photo}
+          src={item.photo ? item.photo : "/teacherPrfile2.png"}
           alt=""
           width={40}
           height={40}
@@ -65,8 +67,8 @@ const TeacherListPage = ({teachers,subjects,classes,schools}) => {
         </div>
       </td>
       <td className="hidden md:table-cell">{item.id}</td>
-      <td className="hidden md:table-cell">{item.subjects}</td>
-      <td className="hidden md:table-cell">{item.classes}</td>
+      <td className="hidden md:table-cell">{item.subjects.map((subject) => subject.name).join(", ") }</td>
+      <td className="hidden md:table-cell">{item.classes.map((group) => group.name).join(", ")}</td>
       <td className="hidden md:table-cell">{item.phone}</td>
       <td className="hidden md:table-cell">{item.address}</td>
       <td>
@@ -78,8 +80,8 @@ const TeacherListPage = ({teachers,subjects,classes,schools}) => {
           </Link>
           {role === "admin" && (
             <>
-            <FormModal table="teacher" type="update" id={item.id} data={item}/>
-            <FormModal table="teacher" type="delete" id={item.id} />
+            <FormModal table="teacher" type="update" id={item.id} data={item} schools={schools} subjects={subjects} groups={classes}/>
+            <FormModal table="teacher" type="delete" id={item.id} route="teachers"/>
            
             
             </>
