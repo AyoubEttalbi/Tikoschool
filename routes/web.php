@@ -60,9 +60,9 @@ Route::middleware('auth')->group(function () {
     Route::post('/othersettings/subjects', [SubjectController::class, 'store'])->name('othersettings.subjects.store');
     // routes/api.php
 // routes/api.php
-Route::get('/classes/{classId}/student-count', [ClassesController::class, 'getStudentCount']);
-    // routes/api.php
-Route::get('/classes/{classId}/teacher-count', [ClassesController::class, 'getTeacherCount']);
+// Route::get('/classes/{classId}/student-count', [ClassesController::class, 'getStudentCount']);
+//     // routes/api.php
+// Route::get('/classes/{classId}/teacher-count', [ClassesController::class, 'getTeacherCount']);
 });
 
 

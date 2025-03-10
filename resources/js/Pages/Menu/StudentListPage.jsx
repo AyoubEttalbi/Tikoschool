@@ -90,7 +90,7 @@ const StudentListPage = ({ students ,Allclasses,Alllevels,Allschools }) => {
       <div className="flex items-center justify-between">
         <h1 className="hidden md:block text-lg font-semibold">All Students</h1>
         <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
-        <TableSearch routeName="students"/>
+        <TableSearch routeName="students.index" />
           <div className="flex items-center gap-4 self-end">
             <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
               <img src="/filter.png" alt="" width={14} height={14} />
@@ -99,7 +99,7 @@ const StudentListPage = ({ students ,Allclasses,Alllevels,Allschools }) => {
               <img src="/sort.png" alt="" width={14} height={14} />
             </button>
             {role === "admin" && (
-              <FormModal table="student" type="create" levels={Alllevels} classes={Allclasses} schools={Allschools} groups={Allclasses}/>
+              <FormModal table="student" type="create" levels={Alllevels} classes={Allclasses} schools={Allschools} />
             )}
           </div>
         </div>

@@ -25,8 +25,8 @@ return new class extends Migration
             $table->enum('status', ['active', 'inactive'])->default('active');
             $table->boolean('assurance')->default(false);
             $table->string('profile_image')->nullable();
-            $table->timestamps(); // `createdAt` is automatically handled by `timestamps()`
-
+            $table->timestamps();
+            $table->softDeletes();
             
             $table->foreign('levelId')->references('id')->on('levels')->onDelete('set null'); 
             $table->foreign('classId')->references('id')->on('classes')->onDelete('set null'); 

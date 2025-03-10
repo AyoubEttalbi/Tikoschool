@@ -30,6 +30,7 @@ class StudentsController extends Controller
                    ->orWhere('email', 'LIKE', "%{$searchTerm}%")
                    ->orWhere('address', 'LIKE', "%{$searchTerm}%")
                    ->orWhere('classId', 'LIKE', "%{$searchTerm}%");
+                   
              });
          }
      
@@ -87,30 +88,29 @@ class StudentsController extends Controller
      * Store a newly created resource in storage.
      */
     public function store(Request $request)
-{
-    $validatedData = $request->validate([
-        'firstName' => 'required|string|max:100',
-        'lastName' => 'required|string|max:100',
-        'dateOfBirth' => 'required|date',
-        'billingDate' => 'required|date',
-        'address' => 'nullable|string',
-        'guardianNumber' => 'nullable|string|max:255',
-        'CIN' => 'nullable|string|max:50|unique:students,CIN',
-        'phoneNumber' => 'nullable|string|max:20',
-        'email' => 'nullable|string|email|max:255|unique:students,email',
-        'massarCode' => 'nullable|string|max:50|unique:students,massarCode',
-        'levelId' => 'nullable|integer',
-        'classId' => 'nullable|integer',
-        'schoolId' => 'nullable|integer',
-        'status' => 'required|in:active,inactive',
-        'assurance' => 'required|boolean',
-    ]);
-
-    Student::create($validatedData);
-
-    return redirect()->route('students.index')->with('success','true');
-}
-
+    {
+        $validatedData = $request->validate([
+            'firstName' => 'required|string|max:100',
+            'lastName' => 'required|string|max:100',
+            'dateOfBirth' => 'required|date',
+            'billingDate' => 'required|date',
+            'address' => 'nullable|string',
+            'guardianNumber' => 'nullable|string|max:255',
+            'CIN' => 'nullable|string|max:50|unique:students,CIN',
+            'phoneNumber' => 'nullable|string|max:20',
+            'email' => 'nullable|string|email|max:255|unique:students,email',
+            'massarCode' => 'nullable|string|max:50|unique:students,massarCode',
+            'levelId' => 'nullable|exists:levels,id', // Ensure levelId exists in levels table
+            'classId' => 'nullable|exists:classes,id', // Ensure classId exists in classes table
+            'schoolId' => 'nullable|exists:schools,id', // Ensure schoolId exists in schools table
+            'status' => 'required|in:active,inactive',
+            'assurance' => 'required|boolean',
+        ]);
+    
+        Student::create($validatedData);
+    
+        return redirect()->route('students.index')->with('success','true');
+    }
     /**
      * Display the specified resource.
      */

@@ -38,7 +38,7 @@ const FormModal = ({ table, type, data, id, levels, route,subjects,classes, scho
     const FormComponent = forms[table];
     return FormComponent ? (
       <Suspense fallback={<h1>Loading...</h1>}>
-        <FormComponent type={type} data={data} levels={levels} schools={schools} subjects={subjects} classes={classes} setOpen={setOpen} />
+        <FormComponent type={type} data={data} levels={levels} schools={schools} subjects={subjects}  classes={classes} />
       </Suspense>
     ) : (
       <p>Form not found!</p>
