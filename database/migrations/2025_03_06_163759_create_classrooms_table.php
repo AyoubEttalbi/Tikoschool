@@ -11,9 +11,9 @@ return new class extends Migration
         Schema::create('classes', function (Blueprint $table) {
             $table->id();
             $table->string('name', 100)->unique(); // Matches the `name` field in the data
-            $table->string('level', 50); // Matches the `level` field in the data
-            $table->integer('numStudents'); // Matches the `numStudents` field in the data
-            $table->integer('numTeachers'); // Matches the `numTeachers` field in the data
+            $table->foreignId('level_id')->constrained()->onDelete('cascade');
+            $table->integer('number_of_students')->default(0);
+            $table->integer('number_of_teachers')->default(0);
             $table->timestamps();
         });
     }

@@ -6,6 +6,7 @@ import Table from "../../Components/Table";
 import Pagination from "../../Components/Pagination";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { UserRoundPen } from "lucide-react";
+import { useEffect, useState } from "react"; // Import useState and useEffect
 
 const columns = [
   { header: "Name", accessor: "name" },
@@ -15,25 +16,52 @@ const columns = [
   { header: "Actions", accessor: "action" },
 ];
 
-const classesData = [
-  { id: 1, name: "2BAC SVT G1", level: "2BAC", numStudents: 22, numTeachers: 2 },
-  { id: 2, name: "1BAC PC G2", level: "1BAC", numStudents: 18, numTeachers: 1 },
-  { id: 3, name: "3BAC Math G3", level: "3BAC", numStudents: 25, numTeachers: 3 },
-  { id: 4, name: "2BAC Science G4", level: "2BAC", numStudents: 20, numTeachers: 2 },
-  { id: 5, name: "1BAC English G5", level: "1BAC", numStudents: 19, numTeachers: 1 },
-];
+const ClassesPage = ({ classes: initialClasses, levels }) => {
+  const [classes, setClasses] = useState(initialClasses);
 
+  // Fetch student and teacher counts for each class
+  useEffect(() => {
+    const fetchCounts = async () => {
+      const updatedClasses = await Promise.all(
+        initialClasses.map(async (classe) => {
+          const studentCount = await fetchStudentCount(classe.id);
+          const teacherCount = await fetchTeacherCount(classe.id);
+          return {
+            ...classe,
+            number_of_students: studentCount,
+            number_of_teachers: teacherCount,
+          };
+        })
+      );
+      setClasses(updatedClasses);
+    };
 
-const ClassesPage = () => {
+    fetchCounts();
+  }, [initialClasses]);
+
+  // Fetch student count for a class
+  const fetchStudentCount = async (classId) => {
+    const response = await fetch(`/classes/${classId}/student-count`);
+    const data = await response.json();
+    return data.studentCount;
+  };
+
+  // Fetch teacher count for a class
+  const fetchTeacherCount = async (classId) => {
+    const response = await fetch(`/classes/${classId}/teacher-count`);
+    const data = await response.json();
+    return data.teacherCount;
+  };
+
   const renderRow = (classe) => (
     <tr
       key={classe.id}
       className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
     >
       <td className="p-4 font-semibold">{classe.name}</td>
-      <td className="hidden md:table-cell">{classe.level}</td>
-      <td className="hidden md:table-cell text-gray-500">{classe.numStudents}</td>
-      <td className="hidden lg:table-cell text-gray-500">{classe.numTeachers}</td>
+      <td className="hidden md:table-cell">{classe.level.name}</td> {/* Access level.name */}
+      <td className="hidden md:table-cell text-gray-500">{classe.number_of_students}</td>
+      <td className="hidden lg:table-cell text-gray-500">{classe.number_of_teachers}</td>
       <td>
         <div className="flex items-center gap-2">
           <Link href={`/classes/${classe.id}`}>
@@ -41,10 +69,12 @@ const ClassesPage = () => {
               <img src="/view.png" alt="" width={16} height={16} />
             </button>
           </Link>
-          {role === "admin" &&<>
-          <FormModal table="class" type="update" id={classe.id} /> 
-          <FormModal table="class" type="delete" id={classe.id} /> 
-          </> }
+          {role === "admin" && (
+            <>
+              <FormModal table="class" type="update" id={classe.id} data={classe} groups={classes} levels={levels} />
+              <FormModal table="class" type="delete" id={classe.id} route="classes" />
+            </>
+          )}
         </div>
       </td>
     </tr>
@@ -56,7 +86,7 @@ const ClassesPage = () => {
       <div className="flex items-center justify-between">
         <h1 className="hidden md:block text-lg font-semibold">All Classes</h1>
         <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
-          <TableSearch />
+          {/* <TableSearch routeName="classes"/> */}
           <div className="flex items-center gap-4 self-end">
             <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
               <img src="/filter.png" alt="" width={14} height={14} />
@@ -64,14 +94,12 @@ const ClassesPage = () => {
             <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
               <img src="/sort.png" alt="" width={14} height={14} />
             </button>
-            {role === "admin" && <FormModal table="class" type="create" />}
+            {role === "admin" && <FormModal table="class" type="create" levels={levels} />}
           </div>
         </div>
       </div>
       {/* LIST */}
-      <Table columns={columns} renderRow={renderRow} data={classesData} />
-      {/* PAGINATION */}
-      {/* <Pagination /> */}
+      <Table columns={columns} renderRow={renderRow} data={classes} />
     </div>
   );
 };

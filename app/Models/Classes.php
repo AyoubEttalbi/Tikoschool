@@ -4,8 +4,6 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Classes extends Model
 {
@@ -13,12 +11,26 @@ class Classes extends Model
 
     protected $fillable = [
         'name',
-        'level',
-        'numStudents',
-        'numTeachers',
+        'level_id',
+        'number_of_students',
+        'number_of_teachers',
     ];
-    public function teachers(): BelongsToMany
+
+    // Relationship to Level
+    public function level()
     {
-        return $this->belongsToMany(Teacher::class, 'teacher_class', 'class_id', 'teacher_id');
+        return $this->belongsTo(Level::class);
+    }
+
+    // Relationship to Students (if applicable)
+    public function students()
+    {
+        return $this->hasMany(Student::class);
+    }
+
+    // Relationship to Teachers (if applicable)
+    public function teachers()
+    {
+        return $this->hasMany(Teacher::class);
     }
 }

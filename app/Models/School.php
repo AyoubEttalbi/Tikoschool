@@ -21,4 +21,9 @@ class School extends Model
     {
         return $this->hasMany(Teacher::class);
     }
+    public function assistants()
+{
+    return $this->belongsToMany(Assistant::class, 'assistant_school')->withTimestamps();
+}
+    
 }

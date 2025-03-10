@@ -14,20 +14,23 @@ return new class extends Migration
             $table->date('dateOfBirth'); // Updated
             $table->date('billingDate'); // Updated
             $table->text('address')->nullable();
-            $table->string('guardianName', 255)->nullable(); // Updated
+            $table->string('guardianNumber', 255)->nullable(); // Updated
             $table->string('CIN', 50)->unique();
             $table->string('phoneNumber', 20)->nullable(); // Updated
             $table->string('email', 255)->unique();
             $table->string('massarCode', 50)->unique(); // Updated
             $table->unsignedBigInteger('levelId')->nullable(); // Updated
-            $table->string('class', 50)->nullable(); // Added
+            $table->unsignedBigInteger('classId')->nullable();
+            $table->unsignedBigInteger('schoolId')->nullable();
             $table->enum('status', ['active', 'inactive'])->default('active');
             $table->boolean('assurance')->default(false);
             $table->string('profile_image')->nullable();
             $table->timestamps(); // `createdAt` is automatically handled by `timestamps()`
 
-            // Foreign key constraint
-            $table->foreign('levelId')->references('id')->on('levels')->onDelete('set null'); // Updated
+            
+            $table->foreign('levelId')->references('id')->on('levels')->onDelete('set null'); 
+            $table->foreign('classId')->references('id')->on('classes')->onDelete('set null'); 
+            $table->foreign('schoolId')->references('id')->on('schools')->onDelete('set null');
         });
     }
 

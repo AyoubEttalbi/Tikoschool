@@ -15,22 +15,34 @@ class Student extends Model
         'dateOfBirth',
         'billingDate',
         'address',
-        'guardianName',
+        'guardianNumber',
         'CIN',
         'phoneNumber',
         'email',
         'massarCode',
         'levelId',
-        'class',
+        'classId', // Add classId
+        'schoolId', // Add schoolId
         'status',
         'assurance',
         'profile_image',
     ];
 
-   
-
+    // Relationship to Level
     public function level()
     {
         return $this->belongsTo(Level::class, 'levelId'); // Updated foreign key
+    }
+
+    // Relationship to Class
+    public function class()
+    {
+        return $this->belongsTo(Classes::class, 'classId'); // Updated foreign key
+    }
+
+    // Relationship to School
+    public function school()
+    {
+        return $this->belongsTo(School::class, 'schoolId'); // Updated foreign key
     }
 }

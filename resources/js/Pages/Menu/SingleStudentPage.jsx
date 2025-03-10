@@ -8,9 +8,9 @@ import FormModal from '@/Components/FormModal';
 import MembershipCard from '@/Components/MembershipCard';
 import StudentProfile from '@/Components/StudentProfile';
 // import studentProfile from "./studentProfile.png";
-const SingleStudentPage = ({ student, levels }) => {
+const SingleStudentPage = ({ student, Alllevels,Allclasses,Allschools }) => {
   console.log("xxxxx", student);
-  console.log("route", levels);
+  console.log("route", Alllevels);
   const offers = [
     {
       id: 1,
@@ -65,8 +65,8 @@ const SingleStudentPage = ({ student, levels }) => {
               </p>
               <div className="flex items-center justify-between gap-2 flex-wrap text-xs font-medium">
                 <div className="w-full md:w-1/3 lg:w-full 2xl:w-1/3 flex items-center gap-2">
-                  <img src="/student.png" alt="school" width={14} height={14} />
-                  <span>{student.school || ""}</span>
+                  <img src="/school.png" alt="school" width={14} height={14} />
+                  <span>{Allschools.find(school => school.id === student.schoolId)?.name || ""}</span>
                 </div>
                 <div className="w-full md:w-1/3 lg:w-full 2xl:w-1/3 flex items-center gap-2">
                   <img src="/date.png" alt="Date" width={14} height={14} />
@@ -91,7 +91,7 @@ const SingleStudentPage = ({ student, levels }) => {
                 </div>
               </div>
             </div>
-            <FormModal table="student" type="update" data={student} id={student.id} levels={levels} />
+            <FormModal table="student" type="update" data={student} id={student.id} levels={Alllevels} classes={Allclasses} schools={Allschools} />
           </div>
           {/* SMALL CARDS */}
           <div className="flex-1 flex gap-4 justify-between flex-wrap">
@@ -119,8 +119,8 @@ const SingleStudentPage = ({ student, levels }) => {
                 className="w-6 h-6"
               />
               <div className="">
-                <h1 className="text-xl font-semibold">{student.levelId || ""}</h1>
-                <span className="text-sm text-gray-400">Grade</span>
+                <h1 className="text-xl font-semibold">{Alllevels.find(level => level.id === student.levelId)?.name || ""}</h1>
+                <span className="text-sm text-gray-400">Level</span>
               </div>
             </div>
             {/* CARD */}
@@ -147,7 +147,7 @@ const SingleStudentPage = ({ student, levels }) => {
                 className="w-6 h-6"
               />
               <div className="">
-                <h1 className="text-xl font-semibold">{student.class || "6A"}</h1>
+                <h1 className="text-xl font-semibold">{Allclasses.find(classs => classs.id === student.classId)?.name || "6A"}</h1>
                 <span className="text-sm text-gray-400">Class</span>
               </div>
             </div>

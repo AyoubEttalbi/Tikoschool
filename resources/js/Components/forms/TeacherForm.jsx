@@ -14,13 +14,13 @@ const schema = z.object({
   status: z.enum(["active", "inactive"]),
   subjects: z.array(z.object({ id: z.number(), name: z.string() })).optional(),
   wallet: z.coerce.number().nonnegative({ message: "Wallet must be positive!" }),
-  groups: z.array(z.object({ id: z.number(), name: z.string() })).optional(),
+  classes: z.array(z.object({ id: z.number(), name: z.string() })).optional(),
   schools: z.array(z.object({ id: z.number(), name: z.string() })).optional(),
   
 });
 
-const TeacherForm = ({ type, data, subjects, groups,schools }) => {
-  
+const TeacherForm = ({ type, data, subjects, classes,schools ,setOpen}) => {
+  console.log('from ',classes);
   const {
   register,
   handleSubmit,
@@ -37,13 +37,14 @@ const TeacherForm = ({ type, data, subjects, groups,schools }) => {
     status: data?.status || "active",
     subjects: data?.subjects || [],
     wallet: data?.wallet || 0,
-    groups: data?.classes?.map(({ id, name }) => ({ id, name })) || [],  
+    classes: data?.classes?.map(({ id, name }) => ({ id, name })) || [],  
     schools: data?.schools?.map(({ id, name }) => ({ id, name })) || [],
   },
 });
 
 
   const onSubmit = handleSubmit((formData) => {
+
     const formattedData = {
       
       first_name: formData.firstName,
@@ -54,14 +55,18 @@ const TeacherForm = ({ type, data, subjects, groups,schools }) => {
       status: formData.status,
       wallet: formData.wallet,
       subjects: formData.subjects.map((subj) => subj.id), 
-      classes: formData.groups.map((group) => group.id),
+      classes: formData.classes.map((group) => group.id),
       schools: formData.schools.map((school) => school.id), 
     };
   
     console.log(formattedData); 
   
     if (type === "create") {
-      router.post("/teachers", formattedData);
+      router.post("/teachers", formattedData, {
+        onSuccess: () => {
+          setOpen(false); 
+        },
+      });
     } else if (type === "update") {
       router.put(`/teachers/${data.id}`, formattedData);
     }
@@ -118,16 +123,16 @@ const TeacherForm = ({ type, data, subjects, groups,schools }) => {
           {errors.subjects && <p className="text-xs text-red-400">{errors.subjects.message}</p>}
         </div>
 
-        {/* Multi-Select for Groups */}
+        {/* Multi-Select for classes */}
         <div className="w-full md:w-1/4">
-          <label className="text-xs text-gray-500">Groups</label>
+          <label className="text-xs text-gray-500">classes</label>
           <Controller
-            name="groups"
+            name="classes"
             control={control}
             render={({ field }) => (
               <Select
                 {...field}
-                options={groups}
+                options={classes}
                 isMulti
                 getOptionLabel={(e) => e.name}
                 getOptionValue={(e) => e.id.toString()}
@@ -137,9 +142,9 @@ const TeacherForm = ({ type, data, subjects, groups,schools }) => {
               />
             )}
           />
-          {errors.groups && <p className="text-xs text-red-400">{errors.groups.message}</p>}
+          {errors.classes && <p className="text-xs text-red-400">{errors.classes.message}</p>}
         </div>
-        {/* Multi-Select for Groups */}
+        {/* Multi-Select for classes */}
         <div className="w-full md:w-1/4">
           <label className="text-xs text-gray-500">Schools</label>
           <Controller
@@ -158,7 +163,7 @@ const TeacherForm = ({ type, data, subjects, groups,schools }) => {
               />
             )}
           />
-          {errors.groups && <p className="text-xs text-red-400">{errors.groups.message}</p>}
+          {errors.classes && <p className="text-xs text-red-400">{errors.classes.message}</p>}
         </div>
 
         <InputField label="Wallet Amount" name="wallet" type="number" register={register} error={errors.wallet} />

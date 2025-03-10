@@ -80,7 +80,7 @@ const TeacherListPage = ({teachers,subjects,classes,schools}) => {
           </Link>
           {role === "admin" && (
             <>
-            <FormModal table="teacher" type="update" id={item.id} data={item} schools={schools} subjects={subjects} groups={classes}/>
+            <FormModal table="teacher" type="update" id={item.id} data={item} schools={schools} subjects={subjects} classes={classes}/>
             <FormModal table="teacher" type="delete" id={item.id} route="teachers"/>
            
             
@@ -105,7 +105,7 @@ const TeacherListPage = ({teachers,subjects,classes,schools}) => {
             <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
               <img src="/sort.png" alt="" width={14} height={14} />
             </button>
-            {role === "admin" && <FormModal table="teacher" type="create" schools={schools} subjects={subjects} groups={classes}/>}
+            {role === "admin" && <FormModal table="teacher" type="create" schools={schools} subjects={subjects} classes={classes}/>}
           </div>
         </div>
       </div>

@@ -39,28 +39,8 @@ const columns = [
   },
 ];
 
-const AssistantsListPage = () => {
-  const assistants = [
-    {
-        id: 1,
-        first_name: "John",
-        last_name: "Doe",
-        phone_number: "123-456-7890",
-        email: "john.doe@example.com",
-        address: "123 Elm St, Casablanca",
-        status: "active"
-    },
-    {
-        id: 2,
-        first_name: "Fatima",
-        last_name: "Zahra",
-        phone_number: "212-654-7891",
-        email: "fatima.zahra@example.com",
-        address: "456 Main St, Rabat",
-        status: "inactive"
-    }
-    // Add others...
-]
+const AssistantsListPage = ({assistants = [], schools}) => {
+  console.log("assistants list",assistants);
   const renderRow = (assistant) => (
     <tr
       key={assistant.id}
@@ -104,10 +84,10 @@ const AssistantsListPage = () => {
           {role === "admin" && (
             <>
               {/* Update Assistant */}
-              <FormModal table="assistant" type="update" data={assistant} />
+              <FormModal table="assistant" type="update" data={assistant} schools={schools} />
 
               {/* Delete Assistant */}
-              <FormModal table="assistant" type="delete" id={assistant.id} />
+              <FormModal table="assistant" type="delete" id={assistant.id} route="assistants" />
             </>
           )}
         </div>
@@ -121,7 +101,7 @@ const AssistantsListPage = () => {
       <div className="flex items-center justify-between">
         <h1 className="hidden md:block text-lg font-semibold">All Assistants</h1>
         <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
-          <TableSearch />
+          <TableSearch routeName="assistants"/>
           <div className="flex items-center gap-4 self-end">
            
             <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
@@ -131,14 +111,14 @@ const AssistantsListPage = () => {
               <img src="/sort.png" alt="Sort" width={14} height={14} />
             </button>
             {role === "admin" && (
-              <FormModal table="assistant" type="create" />
+              <FormModal table="assistant" type="create" schools={schools} />
             )}
           </div>
         </div>
       </div>
 
 
-      <Table columns={columns} renderRow={renderRow} data={assistants} />
+      <Table columns={columns} renderRow={renderRow} data={assistants.data} />
 
       {/* Pagination */}
       {/* <Pagination links={assistants.links} /> */}

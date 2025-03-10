@@ -20,8 +20,8 @@ const columns = [
     className: "hidden md:table-cell",
   },
   {
-    header: "Grade",
-    accessor: "grade",
+    header: "Class",
+    accessor: "class",
     className: "hidden md:table-cell",
   },
   {
@@ -40,11 +40,12 @@ const columns = [
   },
 ];
 
-const StudentListPage = ({ students ,levels }) => {
+const StudentListPage = ({ students ,Allclasses,Alllevels,Allschools }) => {
   console.log("student ",students);
+  console.log("class ",Allclasses);
   // Use the `students` prop instead of `studentsData`
   const renderRow = (item) => (
-    <tr
+    <tr 
       key={item.id}
       className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
     >
@@ -58,11 +59,11 @@ const StudentListPage = ({ students ,levels }) => {
         />
         <div className="flex flex-col">
           <h3 className="font-semibold">{item.name}</h3>
-          <p className="text-xs text-gray-500">{item.class}</p>
+          <p className="text-xs text-gray-500">{Alllevels.find((level) => level.id === item.levelId)?.name}</p>
         </div>
       </td>
       <td className="hidden md:table-cell">{item.studentId}</td>
-      <td className="hidden md:table-cell">{item.grade}</td>
+      <td className="hidden md:table-cell">{Allclasses.find((group) => group.id === item.classId)?.name}</td>
       <td className="hidden md:table-cell">{item.phone}</td>
       <td className="hidden md:table-cell">{item.address}</td>
       <td>
@@ -74,7 +75,7 @@ const StudentListPage = ({ students ,levels }) => {
           </Link>
           {role === "admin" && (
             <>
-              <FormModal table="student" type="update" data={item} levels={levels}/>
+              <FormModal table="student" type="update" data={item} levels={Alllevels} classes={Allclasses} schools={Allschools} />
               <FormModal table="student" type="delete" id={item.id} route="students"/>
             </>
           )}
@@ -98,7 +99,7 @@ const StudentListPage = ({ students ,levels }) => {
               <img src="/sort.png" alt="" width={14} height={14} />
             </button>
             {role === "admin" && (
-              <FormModal table="student" type="create" levels={levels}/>
+              <FormModal table="student" type="create" levels={Alllevels} classes={Allclasses} schools={Allschools} groups={Allclasses}/>
             )}
           </div>
         </div>

@@ -10,7 +10,7 @@ use App\Http\Controllers\LevelController;
 use App\Models\Level;
 use App\Http\Controllers\ClassesController;
 use App\Http\Controllers\OffersController;
-use App\Http\Controllers\AssistantsController;
+use App\Http\Controllers\AssistantController;
 use App\Http\Controllers\SubjectController;
 use App\Http\Controllers\Auth\RegisteredUserController;
 use App\Http\Controllers\TeacherController;
@@ -37,10 +37,11 @@ Route::middleware('auth')->group(function () {
     Route::resource('teachers', TeacherController::class);
     Route::resource('classes', ClassesController::class);
     Route::resource('offers', OffersController::class);
-    Route::resource('assistants', AssistantsController::class);
+    Route::resource('assistants', AssistantController::class);
     Route::delete('/othersettings/levels/{level}', [LevelController::class, 'destroy'])->name('othersettings.destroy');
 
     Route::resource('othersettings', LevelController::class );
+   
     Route::post('/othersettings', [SubjectController::class, 'store'])->name('othersettings.store');
 
     Route::put('/othersettings/{subject}', [SubjectController::class, 'update'])->name('othersettings.update');
@@ -55,11 +56,13 @@ Route::middleware('auth')->group(function () {
     // Custom routes for Levels
     Route::post('/othersettings/levels', [LevelController::class, 'store'])->name('othersettings.levels.store');
 
-// Custom routes for Subjects
+
     Route::post('/othersettings/subjects', [SubjectController::class, 'store'])->name('othersettings.subjects.store');
-    // Route::get('/othersettings', [SubjectController::class, 'index']);
-    
-    // Route::get('/teachers',[TeacherController::class, 'index'])->name('teachers.index');
+    // routes/api.php
+// routes/api.php
+Route::get('/classes/{classId}/student-count', [ClassesController::class, 'getStudentCount']);
+    // routes/api.php
+Route::get('/classes/{classId}/teacher-count', [ClassesController::class, 'getTeacherCount']);
 });
 
 
@@ -150,9 +153,9 @@ Route::get('/offers', function () {
 
 
 
-Route::get('/classes', function () {    
-    return Inertia::render('Menu/ClassesPage');
-});
+// Route::get('/classes', function () {    
+//     return Inertia::render('Menu/ClassesPage');
+// });
 
 $classes = [
     1 => ['name' => '2BAC SVT G1', 'level' => '2BAC'],
@@ -235,9 +238,9 @@ Route::get('/classes/{id}', function ($id) use ($classes, $students) {
 });
 
 
-Route::get('/assistants', function () {
-    return Inertia::render('Menu/AssistantsListPage');
-});
+// Route::get('/assistants', function () {
+//     return Inertia::render('Menu/AssistantsListPage');
+// });
 
 
 Route::get('/assistants/{id}', function ($id) {

@@ -7,6 +7,8 @@ use Inertia\Inertia;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Storage;
 use App\Models\Level;
+use App\Models\Classes;
+use App\Models\School;
 class StudentsController extends Controller
 {
     /**
@@ -27,7 +29,7 @@ class StudentsController extends Controller
                    ->orWhere('phoneNumber', 'LIKE', "%{$searchTerm}%")
                    ->orWhere('email', 'LIKE', "%{$searchTerm}%")
                    ->orWhere('address', 'LIKE', "%{$searchTerm}%")
-                   ->orWhere('class', 'LIKE', "%{$searchTerm}%");
+                   ->orWhere('classId', 'LIKE', "%{$searchTerm}%");
              });
          }
      
@@ -37,35 +39,38 @@ class StudentsController extends Controller
                  'id' => $student->id,
                  'name' => $student->firstName . ' ' . $student->lastName,
                  'studentId' => $student->massarCode,
-                 'grade' => $student->class,
                  'phone' => $student->phoneNumber,
                  'address' => $student->address,
-                 'photo' => $student->profileImage ? URL::asset('storage/' . $student->profileImage) : null,
-                 'class' => $student->class,
-     
+                 'classId' => $student->classId,
+                'schoolId' => $student->schoolId,
                  'firstName' => $student->firstName,
                  'lastName' => $student->lastName,
                  'dateOfBirth' => $student->dateOfBirth,
                  'billingDate' => $student->billingDate,
                  'address' => $student->address,
-                 'guardianName' => $student->guardianName,
                  'CIN' => $student->CIN,
                  'phoneNumber' => $student->phoneNumber,
                  'email' => $student->email,
                  'massarCode' => $student->massarCode,
-                 'levelId' => $student->levelId,
-                 'class' => $student->class,
+                 'levelId' => $student->levelId,                
                  'status' => $student->status,
                  'assurance' => $student->assurance,
+                 'guardianNumber' => $student->guardianNumber,
                  'profileImage' => $student->profileImage ? URL::asset('storage/' . $student->profileImage) : null,
+                 
              ];
          });
      
          $levels = Level::all();
-     
+         $classes = Classes::all();
+         $schools = School::all();
+
          return Inertia::render('Menu/StudentListPage', [
              'students' => $students,
-             'levels' => $levels,
+             'Alllevels' => $levels,
+             'Allclasses' => $classes,
+             'Allschools' => $schools,
+             'search' => $request->search
          ]);
      }
      
@@ -89,20 +94,21 @@ class StudentsController extends Controller
         'dateOfBirth' => 'required|date',
         'billingDate' => 'required|date',
         'address' => 'nullable|string',
-        'guardianName' => 'nullable|string|max:255',
-        'CIN' => 'required|string|max:50|unique:students,CIN',
+        'guardianNumber' => 'nullable|string|max:255',
+        'CIN' => 'nullable|string|max:50|unique:students,CIN',
         'phoneNumber' => 'nullable|string|max:20',
-        'email' => 'required|string|email|max:255|unique:students,email',
-        'massarCode' => 'required|string|max:50|unique:students,massarCode',
+        'email' => 'nullable|string|email|max:255|unique:students,email',
+        'massarCode' => 'nullable|string|max:50|unique:students,massarCode',
         'levelId' => 'nullable|integer',
-        'class' => 'nullable|string',
+        'classId' => 'nullable|integer',
+        'schoolId' => 'nullable|integer',
         'status' => 'required|in:active,inactive',
         'assurance' => 'required|boolean',
     ]);
 
     Student::create($validatedData);
 
-    return redirect()->route('students.index')->with('success', 'Student created successfully.');
+    return redirect()->route('students.index')->with('success','true');
 }
 
     /**
@@ -123,32 +129,41 @@ public function show($id)
 
     // Fetch all levels (or adjust this to your actual logic for fetching levels)
     $levels = Level::all();
-
+    
     // Format the student data
     $studentData = [
         'id' => $student->id,
+        'name' => $student->firstName . ' ' . $student->lastName,
+        'studentId' => $student->massarCode,
+        'phone' => $student->phoneNumber,
+        'address' => $student->address,
+        'classId' => $student->classId,
+       'schoolId' => $student->schoolId,
         'firstName' => $student->firstName,
         'lastName' => $student->lastName,
         'dateOfBirth' => $student->dateOfBirth,
         'billingDate' => $student->billingDate,
         'address' => $student->address,
-        'guardianName' => $student->guardianName,
         'CIN' => $student->CIN,
         'phoneNumber' => $student->phoneNumber,
         'email' => $student->email,
         'massarCode' => $student->massarCode,
-        'levelId' => $student->levelId,
-        'class' => $student->class,
+        'levelId' => $student->levelId,                
         'status' => $student->status,
         'assurance' => $student->assurance,
+        'guardianNumber' => $student->guardianNumber,
         'profileImage' => $student->profileImage ? URL::asset('storage/' . $student->profileImage) : null,
         'created_at' => $student->created_at,
     ];
+    $schools = School::all();
+    $classes = Classes::all();
 
     // Render the Inertia view with the student data and levels
     return Inertia::render('Menu/SingleStudentPage', [
         'student' => $studentData,
-        'levels' => $levels, // Pass levels to the page
+        'Alllevels' => $levels, 
+        'Allclasses' => $classes,
+        'Allschools' => $schools
     ]);
 }
 
@@ -173,16 +188,18 @@ public function show($id)
         'dateOfBirth' => 'required|date',
         'billingDate' => 'required|date',
         'address' => 'nullable|string',
-        'guardianName' => 'nullable|string|max:255',
-        'CIN' => 'required|string|max:50|unique:students,CIN,' . $student->id,
+        'guardianNumber' => 'nullable|string|max:255',
+        'CIN' => 'nullable|string|max:50|unique:students,CIN,' . $student->id,
         'phoneNumber' => 'nullable|string|max:20',
-        'email' => 'required|string|email|max:255|unique:students,email,' . $student->id,
-        'massarCode' => 'required|string|max:50|unique:students,massarCode,' . $student->id,
+        'email' => 'nullable|string|email|max:255|unique:students,email,' . $student->id,
+        'massarCode' => 'nullable|string|max:50|unique:students,massarCode,' . $student->id,
         'levelId' => 'nullable|integer',
-        'class' => 'nullable|string',
+        'classId' => 'nullable|integer',
+        'schoolId' => 'nullable|integer',
         'status' => 'required|in:active,inactive',
         'assurance' => 'required|boolean',
     ]);
+    
 
     $student->update($validatedData);
 
