@@ -15,31 +15,53 @@ class AssistantController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
-    {
-        $schools = School::all();
-        $assistants = Assistant::paginate(10)->through(function ($assistant) {
-            return [
-                'id' => $assistant->id,
-                'name' => $assistant->first_name . ' ' . $assistant->last_name,
-                'phone_number' => $assistant->phone_number,
-                'first_name' => $assistant->first_name,
-                'last_name' => $assistant->last_name,
-                'email' => $assistant->email,
-                'address' => $assistant->address,
-                'status' => $assistant->status,
-                'salary' => $assistant->salary,
-                'profile_image' => $assistant->profile_image ? URL::asset('storage/' . $assistant->profile_image) : null,
-                'schools_assistant' => $assistant->schools,
-            ];
+    public function index(Request $request)
+{
+    $schools = School::all();
+    $query = Assistant::query();
+
+    // Apply search filter if search term is provided
+    if ($request->has('search') && !empty($request->search)) {
+        $searchTerm = $request->search;
+
+        $query->where(function ($q) use ($searchTerm) {
+            // Search by assistant fields
+            $q->where('first_name', 'LIKE', "%{$searchTerm}%")
+              ->orWhere('last_name', 'LIKE', "%{$searchTerm}%")
+              ->orWhere('phone_number', 'LIKE', "%{$searchTerm}%")
+              ->orWhere('email', 'LIKE', "%{$searchTerm}%")
+              ->orWhere('address', 'LIKE', "%{$searchTerm}%");
+
+            // Search by school name (if assistant has a relationship with schools)
+            $q->orWhereHas('schools', function ($schoolQuery) use ($searchTerm) {
+                $schoolQuery->where('name', 'LIKE', "%{$searchTerm}%");
+            });
         });
-
-        return Inertia::render('Menu/AssistantsListPage', [
-            'assistants' => $assistants,
-            'schools' => $schools,
-
-        ]);
     }
+
+    // Fetch paginated and filtered assistants
+    $assistants = $query->paginate(10)->withQueryString()->through(function ($assistant) {
+        return [
+            'id' => $assistant->id,
+            'name' => $assistant->first_name . ' ' . $assistant->last_name,
+            'phone_number' => $assistant->phone_number,
+            'first_name' => $assistant->first_name,
+            'last_name' => $assistant->last_name,
+            'email' => $assistant->email,
+            'address' => $assistant->address,
+            'status' => $assistant->status,
+            'salary' => $assistant->salary,
+            'profile_image' => $assistant->profile_image ? URL::asset('storage/' . $assistant->profile_image) : null,
+            'schools_assistant' => $assistant->schools,
+        ];
+    });
+
+    return Inertia::render('Menu/AssistantsListPage', [
+        'assistants' => $assistants,
+        'schools' => $schools,
+        'search' => $request->search
+    ]);
+}
 
     /**
      * Show the form for creating a new resource.

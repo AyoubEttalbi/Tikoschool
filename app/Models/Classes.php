@@ -25,12 +25,12 @@ class Classes extends Model
     // Relationship to Students (if applicable)
     public function students()
     {
-        return $this->hasMany(Student::class);
+        return $this->hasMany(Student::class, 'classId');
     }
 
     // Relationship to Teachers (if applicable)
     public function teachers()
     {
-        return $this->hasMany(Teacher::class);
+        return $this->hasMany(Teacher::class,'classes_teacher');
     }
 }

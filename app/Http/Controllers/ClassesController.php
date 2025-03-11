@@ -4,6 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Classes;
 use App\Models\Level;
+use App\Models\School;
+use App\Models\Student;
+use App\Models\Teacher;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
@@ -16,6 +19,7 @@ class ClassesController extends Controller
     {   
         $levels = Level::all();
         $classes = Classes::with('level')->get(); // Eager load the level relationship
+
         return Inertia::render('Menu/ClassesPage', [
             'classes' => $classes,
             'levels' => $levels
@@ -57,9 +61,20 @@ class ClassesController extends Controller
      * Display the specified resource.
      */
     public function show(Classes $class)
-    {
-        return Inertia::render('Menu/ClassesPage', [
-            'class' => $class->load('level'), // Eager load the level relationship
+    {   
+        $schools = School::all();
+        $classes = Classes::all();
+        $levels = Level::all();
+        $teachers = DB::table('classes_teacher')->where('classes_id', $class->id);
+        $students = DB::table('students')->where('classId', $class->id);
+        return Inertia::render('Menu/SingleClassPage', [
+            'class' => $class->load('level'), 
+            'students' => $students->get(),
+            'Alllevels' => $levels,
+            'Allclasses' => $classes,
+            'className' => $class->name,
+            'Allschools' => $schools,
+            'teachers' => $teachers->get()
         ]);
     }
 
@@ -106,15 +121,9 @@ class ClassesController extends Controller
         // Redirect to the classes index page with a success message
         return redirect()->route('classes.index')->with('success', 'Class deleted successfully.');
     }
-    public function getStudentCount($classId)
-{
-    $studentCount = DB::table('students')->where('class_id', $classId)->count();
-    return response()->json(['studentCount' => $studentCount]);
-}
-
-public function getTeacherCount($classId)
-{
-    $teacherCount = DB::table('teachers')->where('class_id', $classId)->count();
-    return response()->json(['teacherCount' => $teacherCount]);
-}
+    function removeStudent(Student $student){
+        $student->delete();
+       
+    }
+  
 }

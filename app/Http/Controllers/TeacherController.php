@@ -16,36 +16,70 @@ class TeacherController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
-    {   $schools = School::all();
-        $classes = Classes::all();
-        $subjects = Subject::all();
-        $teachers = Teacher::paginate(10)->through(function ($teacher) {
-            return [
-                'id' => $teacher->id,
-                'name' => $teacher->first_name . ' ' . $teacher->last_name,
-                'phone_number' => $teacher->phone_number,
-                'first_name' => $teacher->first_name,
-                'last_name' => $teacher->last_name,
-                'phone' => $teacher->phone_number,
-                'email' => $teacher->email,
-                'address' => $teacher->address,
-                'status' => $teacher->status,
-                'wallet' => $teacher->wallet,
-                'profile_image' => $teacher->profile_image ? URL::asset('storage/' . $teacher->profile_image) : null,
-                'subjects' => $teacher->subjects,
-                'classes' => $teacher->classes, 
-                'schools' => $teacher->schools,
-            ];
-        });
+    public function index(Request $request)
+{
+    $schools = School::all();
+    $classes = Classes::all();
+    $subjects = Subject::all();
+    $query = Teacher::query();
 
-        return Inertia::render('Menu/TeacherListPage', [
-            'teachers' => $teachers,
-            'schools' => $schools,
-            'subjects' => $subjects,
-            'classes' => $classes, 
-        ]);
+    // Apply search filter if search term is provided
+    if ($request->has('search') && !empty($request->search)) {
+        $searchTerm = $request->search;
+
+        $query->where(function ($q) use ($searchTerm) {
+            // Search by teacher fields
+            $q->where('first_name', 'LIKE', "%{$searchTerm}%")
+              ->orWhere('last_name', 'LIKE', "%{$searchTerm}%")
+              ->orWhere('phone_number', 'LIKE', "%{$searchTerm}%")
+              ->orWhere('email', 'LIKE', "%{$searchTerm}%")
+              ->orWhere('address', 'LIKE', "%{$searchTerm}%");
+
+            // Search by subject name
+            $q->orWhereHas('subjects', function ($subjectQuery) use ($searchTerm) {
+                $subjectQuery->where('name', 'LIKE', "%{$searchTerm}%");
+            });
+
+            // Search by class name
+            $q->orWhereHas('classes', function ($classQuery) use ($searchTerm) {
+                $classQuery->where('name', 'LIKE', "%{$searchTerm}%");
+            });
+
+            // Search by school name
+            $q->orWhereHas('schools', function ($schoolQuery) use ($searchTerm) {
+                $schoolQuery->where('name', 'LIKE', "%{$searchTerm}%");
+            });
+        });
     }
+
+    // Fetch paginated and filtered teachers
+    $teachers = $query->paginate(10)->withQueryString()->through(function ($teacher) {
+        return [
+            'id' => $teacher->id,
+            'name' => $teacher->first_name . ' ' . $teacher->last_name,
+            'phone_number' => $teacher->phone_number,
+            'first_name' => $teacher->first_name,
+            'last_name' => $teacher->last_name,
+            'phone' => $teacher->phone_number,
+            'email' => $teacher->email,
+            'address' => $teacher->address,
+            'status' => $teacher->status,
+            'wallet' => $teacher->wallet,
+            'profile_image' => $teacher->profile_image ? URL::asset('storage/' . $teacher->profile_image) : null,
+            'subjects' => $teacher->subjects,
+            'classes' => $teacher->classes,
+            'schools' => $teacher->schools,
+        ];
+    });
+
+    return Inertia::render('Menu/TeacherListPage', [
+        'teachers' => $teachers,
+        'schools' => $schools,
+        'subjects' => $subjects,
+        'classes' => $classes,
+        'search' => $request->search
+    ]);
+}
 
     /**
      * Show the form for creating a new resource.

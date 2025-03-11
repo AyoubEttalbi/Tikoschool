@@ -1,18 +1,19 @@
-import { router } from '@inertiajs/react';
+import { router,usePage } from '@inertiajs/react';
 import { useState } from 'react';
 
 const TableSearch = ({ routeName }) => {
-  const [searchTerm, setSearchTerm] = useState('');
+
+  const [searchTerm, setSearchTerm] = useState(usePage().props.search || '');
 
   const handleSearch = (e) => {
     const value = e.target.value;
-    setSearchTerm(value); // Update the local state
+    setSearchTerm(value);
 
-    // Trigger a GET request with the search term
+ 
     router.get(
-      route(routeName), // Route name
-      { search: value }, // Query parameters
-      { preserveState: true, replace: true } // Options
+      route(routeName), 
+      { search: value }, 
+      { preserveState: true, replace: true , preserveScroll: true  }
     );
   };
 
@@ -24,7 +25,7 @@ const TableSearch = ({ routeName }) => {
         placeholder="Search..."
         className="w-[200px] p-2 bg-transparent outline-none border-none focus:ring-0"
         value={searchTerm}
-        onChange={handleSearch} // Trigger search on every keystroke
+        onChange={handleSearch} 
       />
     </div>
   );

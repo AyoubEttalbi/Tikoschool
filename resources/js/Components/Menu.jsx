@@ -127,7 +127,7 @@ const Menu = () => {
                   key={item.label}
                   className="flex items-center justify-center lg:justify-start gap-4 text-gray-500 py-2 md:px-2 rounded-md hover:bg-lamaSkyLight"
                 >
-                  <img src={item.icon} alt="" width={20} height={20} className={`${item.label === "Assistants" ? "w-6 h-6" : ""}`}/>
+                  <img src={item.icon} alt="" width={20} height={20} className={`${item.label === "Assistants" ? "w-6 h-6 -ml-1" : ""}`}/>
                   <span className="hidden lg:block">{item.label}</span>
                 </Link>
               );

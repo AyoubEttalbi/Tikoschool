@@ -16,64 +16,78 @@ class StudentsController extends Controller
      */
  
      public function index(Request $request)
-     {
-         $query = Student::query();
-     
-         if ($request->has('search') && !empty($request->search)) {
-             $searchTerm = $request->search;
-     
-             $query->where(function ($q) use ($searchTerm) {
-                 $q->where('firstName', 'LIKE', "%{$searchTerm}%")
-                   ->orWhere('lastName', 'LIKE', "%{$searchTerm}%")
-                   ->orWhere('massarCode', 'LIKE', "%{$searchTerm}%")
-                   ->orWhere('phoneNumber', 'LIKE', "%{$searchTerm}%")
-                   ->orWhere('email', 'LIKE', "%{$searchTerm}%")
-                   ->orWhere('address', 'LIKE', "%{$searchTerm}%")
-                   ->orWhere('classId', 'LIKE', "%{$searchTerm}%");
-                   
-             });
-         }
-     
-         // Fetch paginated and filtered students
-         $students = $query->paginate(10)->withQueryString()->through(function ($student) {
-             return [
-                 'id' => $student->id,
-                 'name' => $student->firstName . ' ' . $student->lastName,
-                 'studentId' => $student->massarCode,
-                 'phone' => $student->phoneNumber,
-                 'address' => $student->address,
-                 'classId' => $student->classId,
-                'schoolId' => $student->schoolId,
-                 'firstName' => $student->firstName,
-                 'lastName' => $student->lastName,
-                 'dateOfBirth' => $student->dateOfBirth,
-                 'billingDate' => $student->billingDate,
-                 'address' => $student->address,
-                 'CIN' => $student->CIN,
-                 'phoneNumber' => $student->phoneNumber,
-                 'email' => $student->email,
-                 'massarCode' => $student->massarCode,
-                 'levelId' => $student->levelId,                
-                 'status' => $student->status,
-                 'assurance' => $student->assurance,
-                 'guardianNumber' => $student->guardianNumber,
-                 'profileImage' => $student->profileImage ? URL::asset('storage/' . $student->profileImage) : null,
-                 
-             ];
-         });
-     
-         $levels = Level::all();
-         $classes = Classes::all();
-         $schools = School::all();
+{
+    $query = Student::query();
+    $levels = Level::all();
+    $classes = Classes::all();
+    $schools = School::all();
+    // Apply search filter if search term is provided
+    if ($request->has('search') && !empty($request->search)) {
+        $searchTerm = $request->search;
 
-         return Inertia::render('Menu/StudentListPage', [
-             'students' => $students,
-             'Alllevels' => $levels,
-             'Allclasses' => $classes,
-             'Allschools' => $schools,
-             'search' => $request->search
-         ]);
-     }
+        $query->where(function ($q) use ($searchTerm) {
+            // Search by student fields
+            $q->where('firstName', 'LIKE', "%{$searchTerm}%")
+              ->orWhere('lastName', 'LIKE', "%{$searchTerm}%")
+              ->orWhere('massarCode', 'LIKE', "%{$searchTerm}%")
+              ->orWhere('phoneNumber', 'LIKE', "%{$searchTerm}%")
+              ->orWhere('email', 'LIKE', "%{$searchTerm}%")
+              ->orWhere('address', 'LIKE', "%{$searchTerm}%");
+
+            // Search by class name
+            $q->orWhereHas('class', function ($classQuery) use ($searchTerm) {
+                $classQuery->where('name', 'LIKE', "%{$searchTerm}%");
+            });
+
+            // Search by school name
+            $q->orWhereHas('school', function ($schoolQuery) use ($searchTerm) {
+                $schoolQuery->where('name', 'LIKE', "%{$searchTerm}%");
+            });
+
+            // Search by level name
+            $q->orWhereHas('level', function ($levelQuery) use ($searchTerm) {
+                $levelQuery->where('name', 'LIKE', "%{$searchTerm}%");
+            });
+        });
+    }
+
+    // Fetch paginated and filtered students
+    $students = $query->paginate(10)->withQueryString()->through(function ($student) {
+        return [
+            'id' => $student->id,
+            'name' => $student->firstName . ' ' . $student->lastName,
+            'studentId' => $student->massarCode,
+            'phone' => $student->phoneNumber,
+            'address' => $student->address,
+            'classId' => $student->classId,
+            'schoolId' => $student->schoolId,
+            'firstName' => $student->firstName,
+            'lastName' => $student->lastName,
+            'dateOfBirth' => $student->dateOfBirth,
+            'billingDate' => $student->billingDate,
+            'address' => $student->address,
+            'CIN' => $student->CIN,
+            'phoneNumber' => $student->phoneNumber,
+            'email' => $student->email,
+            'massarCode' => $student->massarCode,
+            'levelId' => $student->levelId,
+            'status' => $student->status,
+            'assurance' => $student->assurance,
+            'guardianNumber' => $student->guardianNumber,
+            'profileImage' => $student->profileImage ? URL::asset('storage/' . $student->profileImage) : null,
+        ];
+    });
+
+
+
+    return Inertia::render('Menu/StudentListPage', [
+        'students' => $students,
+        'Alllevels' => $levels,
+        'Allclasses' => $classes,
+        'Allschools' => $schools,
+        'search' => $request->search
+    ]);
+}
      
 
     /**

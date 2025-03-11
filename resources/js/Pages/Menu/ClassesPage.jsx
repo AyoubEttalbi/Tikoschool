@@ -16,42 +16,9 @@ const columns = [
   { header: "Actions", accessor: "action" },
 ];
 
-const ClassesPage = ({ classes: initialClasses, levels }) => {
-  const [classes, setClasses] = useState(initialClasses);
-
-  // Fetch student and teacher counts for each class
-  useEffect(() => {
-    const fetchCounts = async () => {
-      const updatedClasses = await Promise.all(
-        initialClasses.map(async (classe) => {
-          const studentCount = await fetchStudentCount(classe.id);
-          const teacherCount = await fetchTeacherCount(classe.id);
-          return {
-            ...classe,
-            number_of_students: studentCount,
-            number_of_teachers: teacherCount,
-          };
-        })
-      );
-      setClasses(updatedClasses);
-    };
-
-    fetchCounts();
-  }, [initialClasses]);
-
-  // Fetch student count for a class
-  const fetchStudentCount = async (classId) => {
-    const response = await fetch(`/classes/${classId}/student-count`);
-    const data = await response.json();
-    return data.studentCount;
-  };
-
-  // Fetch teacher count for a class
-  const fetchTeacherCount = async (classId) => {
-    const response = await fetch(`/classes/${classId}/teacher-count`);
-    const data = await response.json();
-    return data.teacherCount;
-  };
+const ClassesPage = ({ classes, levels }) => {
+  console.log(classes);
+  console.log(levels);
 
   const renderRow = (classe) => (
     <tr
@@ -59,7 +26,7 @@ const ClassesPage = ({ classes: initialClasses, levels }) => {
       className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
     >
       <td className="p-4 font-semibold">{classe.name}</td>
-      <td className="hidden md:table-cell">{classe.level.name}</td> {/* Access level.name */}
+      <td className="hidden md:table-cell">{levels.find((level) => level.id === classe.level_id)?.name}</td>
       <td className="hidden md:table-cell text-gray-500">{classe.number_of_students}</td>
       <td className="hidden lg:table-cell text-gray-500">{classe.number_of_teachers}</td>
       <td>
