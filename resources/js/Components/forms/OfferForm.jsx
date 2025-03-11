@@ -40,13 +40,6 @@ const OfferForm = ({ type, data, setOpen, subjects, levels }) => {
           setTimeout(() => setOpen(false), 2000);
         },
       });
-    } else if (type === "update") {
-      router.put(`/offers/${data.id}`, formDataWithSubjectsAndPercentage, {
-        onSuccess: () => {
-          setShowConfetti(true);
-          setTimeout(() => setOpen(false), 2000);
-        },
-      });
     }
   };
 

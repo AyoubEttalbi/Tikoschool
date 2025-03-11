@@ -126,16 +126,37 @@ class OfferController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(UpdateOfferRequest $request, Offer $offer)
-    {
-        //
-    }
+    public function update(Request $request, Offer $offer)
+{
+    // Validate the request data
+    $validatedData = $request->validate([
+        'offer_name' => 'required|string|max:255|unique:offers,offer_name,' . $offer->id,
+        'price' => 'required|numeric|min:0',
+        'subjects' => 'required|array|min:1',
+        'subjects.*' => 'string',
+        'percentage' => 'required|array',
+        'percentage.*' => 'numeric|min:0|max:100',
+    ]);
+
+    // Update the offer with the validated data
+    $offer->update([
+        'offer_name' => $validatedData['offer_name'],
+        'price' => $validatedData['price'],
+        'subjects' => $validatedData['subjects'],
+        'percentage' => $validatedData['percentage'],
+    ]);
+
+    // Redirect with a success message
+    return redirect()->route('offers.index')->with('success', 'Offer updated successfully.');
+}
 
     /**
      * Remove the specified resource from storage.
      */
     public function destroy(Offer $offer)
     {
-        //
+        $offer->delete();
+
+        return redirect()->route('offers.index')->with('success', 'offer deleted successfully.');
     }
 }
