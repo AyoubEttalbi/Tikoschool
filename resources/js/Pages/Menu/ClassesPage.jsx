@@ -1,11 +1,11 @@
-import { role } from "@/lib/data";
-import { Link } from "@inertiajs/react";
+
+import { Link, usePage } from "@inertiajs/react";
 import FormModal from "../../Components/FormModal";
 import TableSearch from "../../Components/TableSearch";
 import Table from "../../Components/Table";
 import Pagination from "../../Components/Pagination";
 import DashboardLayout from "@/Layouts/DashboardLayout";
-import { UserRoundPen } from "lucide-react";
+import { Eye, UserRoundPen } from "lucide-react";
 import { useEffect, useState } from "react"; // Import useState and useEffect
 
 const columns = [
@@ -17,6 +17,7 @@ const columns = [
 ];
 
 const ClassesPage = ({ classes, levels }) => {
+  const role = usePage().props.auth.user.role;
   console.log(classes);
   console.log(levels);
 
@@ -33,7 +34,7 @@ const ClassesPage = ({ classes, levels }) => {
         <div className="flex items-center gap-2">
           <Link href={`/classes/${classe.id}`}>
             <button className="w-7 h-7 flex items-center justify-center rounded-full bg-lamaSky">
-              <img src="/view.png" alt="" width={16} height={16} />
+            <Eye className="w-4 h-4 text-white"/>
             </button>
           </Link>
           {role === "admin" && (

@@ -19,7 +19,7 @@ class OfferController extends Controller
     $query = Offer::query();
     $levels = Level::all();
     $subjects = Subject::all();
-
+    
     // Apply search filter if search term is provided
     if ($request->has('search') && !empty($request->search)) {
         $searchTerm = strtolower($request->search); // Convert search term to lowercase
@@ -102,7 +102,8 @@ class OfferController extends Controller
      */
     public function show(Offer $offer)
     {
-        $offer = Offer::findOrFail($id);
+        $levels = Level::all();
+        $offer = Offer::with('level')->get();
 
     return Inertia::render('Menu/OffersPage', [
         'offer' => [

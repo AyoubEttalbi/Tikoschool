@@ -3,10 +3,11 @@ import BigCalendar from "@/Components/BigCalender";
 import FormModal from "@/Components/FormModal";
 import Performance from "@/Components/Performance";
 import DashboardLayout from "@/Layouts/DashboardLayout";
-import { role } from "@/lib/data";
-import { Link } from "@inertiajs/react";
+
+import { Link, usePage } from "@inertiajs/react";
 
 const SingleAssistantPage = ({ assistant, classes, subjects, schools }) => {
+  const role = usePage().props.auth.user.role;
   console.log(assistant);
   // console.log("schools", assistant.school.map((school) => school.name).join(", "));
   console.log("classes", classes);

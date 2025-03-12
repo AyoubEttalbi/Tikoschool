@@ -1,61 +1,60 @@
-import { Clock, Edit, GraduationCap, Plus, Users } from "lucide-react"
-import MembershipForm from "./forms/MembershipForm"
-import FormModal from "./FormModal"
+import { Clock, Edit, GraduationCap, Users, DollarSign, Calendar, UserCheck } from "lucide-react";
+import FormModal from "./FormModal";
 
-export default function MembershipCard({offers}) {
-  
+export default function MembershipCard({ offers, teachers }) {
+  console.log("Offers:", offers);
+  console.log("All Teachers:", teachers);
+
+  // Helper function to find a teacher's name by ID
+  const getTeacherName = (teacherId) => {
+    const teacher = teachers.find((t) => t.id === parseInt(teacherId));
+    return teacher ? `${teacher.first_name} ${teacher.last_name}` : "Unknown Teacher";
+  };
 
   return (
-    <div className="w-full max-w-lg p-6 bg-white rounded-lg shadow-sm">
-      <div className="flex justify-between items-center mb-6">
-        <div className="flex items-center gap-2 text-blue-600 font-medium">
-          <Users className="h-5 w-5" />
-          <span>Memberships:</span>
-        </div>
-        <FormModal table="membership" type="create" data={offers} />
-      </div>
-
+    <div className="space-y-4">
       {offers.map((offer) => (
-        <div key={offer.id} className="border border-gray-200 rounded-md mb-4">
-          <div className="p-4">
-            <div className="flex justify-between items-start">
-              <div className="space-y-4">
+        <div key={offer.id} className="bg-gray-50 rounded-lg shadow-sm p-4 mb-4 border border-gray-300">
+          <div className="flex justify-between items-start">
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-gray-800 font-medium">
+                <GraduationCap className="h-5 w-5 text-gray-600" />
+                <span>
+                  Offer: <span className="text-gray-900 font-semibold">{offer.offer_name}</span>
+                </span>
+              </div>
+
+              <div className="space-y-2">
                 <div className="flex items-center gap-2 text-gray-700 font-medium">
-                  <GraduationCap className="h-5 w-5 text-gray-600" />
-                  <span>
-                    Offer: <span className="text-gray-800">{offer.name}</span>
-                  </span>
+                  <Users className="h-5 w-5 text-gray-600" />
+                  <span>Teachers:</span>
                 </div>
 
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2 text-gray-700 font-medium">
-                    <Users className="h-5 w-5 text-gray-600" />
-                    <span>Teachers:</span>
-                  </div>
-
-                  <div className="ml-7 space-y-2">
-                    {offer.teachers.map((teacher) => (
-                      <div key={teacher.subject} className="flex items-center gap-2 text-gray-600">
-                        <Users className="h-4 w-4" />
-                        <span>
-                          {teacher.subject} : <span className="text-blue-600">{teacher.teacher}</span>
-                        </span>
-                      </div>
-                    ))}
-                  </div>
+                <div className="ml-6 space-y-1">
+                  {offer.teachers.map((teacher, index) => (
+                    <div key={index} className="flex items-center gap-2 text-gray-600">
+                      <UserCheck className="h-4 w-4 text-gray-500" />
+                      <span>
+                        {teacher.subject}:{" "}
+                        <span className="text-gray-800 font-medium">{getTeacherName(teacher.teacherId)}</span>
+                      </span>
+                      <span className="text-gray-500">(Amount: {teacher.amount} DH)</span>
+                    </div>
+                  ))}
                 </div>
               </div>
-              <FormModal table="membership" type="update" data={offers} id={offer.id} />
-              
             </div>
+            <FormModal table="membership" type="update" data={offer} id={offer.id}>
+              <Edit className="h-4 w-4 text-gray-500 hover:text-lamaBlue cursor-pointer transition-colors" />
+            </FormModal>
+          </div>
 
-            <div className="flex items-center gap-1 text-gray-500 text-sm mt-4 justify-end">
-              <Clock className="h-4 w-4" />
-              <span>{offer.date}</span>
-            </div>
+          <div className="flex items-center gap-1 text-gray-500 text-sm mt-3 justify-end">
+            <Calendar className="h-4 w-4" />
+            <span>{new Date(offer.created_at).toLocaleDateString()}</span>
           </div>
         </div>
       ))}
     </div>
-  )
+  );
 }

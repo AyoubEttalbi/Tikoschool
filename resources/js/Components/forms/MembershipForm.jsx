@@ -2,143 +2,139 @@ import React, { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { router } from "@inertiajs/react";
+import { Book, Percent, UserCheck, CheckCircle, XCircle } from "lucide-react";
 
 const membershipSchema = z.object({
-  offerName: z.string().min(1, { message: "Offer is required!" }),
   teachers: z.record(
-    z.string().min(1, { message: "Please select a teacher!" })
+    z.object({
+      teacherId: z.string().min(1, { message: "Please select a teacher!" }),
+    })
   ),
 });
 
-const offers = [
-  { id: 1, name: "AC MATH SVT", subjects: ["Math", "SVT"] },
-  { id: 2, name: "AC PHYSIQUE CHIMIE", subjects: ["Physique", "Chimie"] },
-  { id: 3, name: "AC MATH PHYSIQUE", subjects: ["Math", "Physique"] },
-];
-
-const allTeachers = [
-  { id: 1, name: "Hamouda Chakiri", subjects: ["Math", "SVT"] },
-  { id: 2, name: "Ayoub El Mahdaoui", subjects: ["Math", "Physique"] },
-  { id: 3, name: "Mohamed Amine", subjects: ["SVT", "Chimie"] },
-  { id: 4, name: "Fatima Zahra", subjects: ["Physique", "Chimie"] },
-];
-
-const MembershipForm = ({ type, data }) => {
-  const [selectedOffer, setSelectedOffer] = useState("");
+const MembershipForm = ({ type, data, offers = [], teachers = [], setOpen, studentId }) => {
+  const [selectedOffer, setSelectedOffer] = useState(null);
   const [selectedSubjects, setSelectedSubjects] = useState([]);
+  const [amounts, setAmounts] = useState({});
 
   const {
     register,
     handleSubmit,
-    formState: { errors },
     setValue,
+    watch,
+    formState: { errors },
   } = useForm({
     resolver: zodResolver(membershipSchema),
     defaultValues: data || {},
   });
 
-
   useEffect(() => {
-    if (type === "update" && data?.offers) {
-      const offer = offers.find((o) => o.id === data.offers.id);
+    if (type === "update" && data?.offerName) {
+      const offer = offers.find((o) => o.offer_name === data.offerName);
       if (offer) {
-        setSelectedOffer(offer.name);
+        setSelectedOffer(offer);
         setSelectedSubjects(offer.subjects);
-
-        setValue("offerName", offer.name);
-
         offer.subjects.forEach((subject) => {
-          setValue(`teachers.${subject}`, data.teachers?.[subject] || "");
+          const teacherData = data.teachers?.find((t) => t.subject === subject);
+          if (teacherData) {
+            setValue(`teachers.${subject}.teacherId`, teacherData.teacherId || "");
+          }
         });
       }
     }
-  }, [type, data, setValue]);
+  }, [type, data, offers, setValue]);
 
   const handleOfferChange = (event) => {
-    const offerName = event.target.value;
-    setSelectedOffer(offerName);
-
-    const offer = offers.find((o) => o.name === offerName);
+    const offer = offers.find((o) => o.id === parseInt(event.target.value));
     if (offer) {
+      setSelectedOffer(offer);
       setSelectedSubjects(offer.subjects);
-      offer.subjects.forEach((subject) => setValue(`teachers.${subject}`, ""));
+      setAmounts(calculateAmounts(offer));
     } else {
+      setSelectedOffer(null);
       setSelectedSubjects([]);
+      setAmounts({});
     }
   };
 
-  const getTeachersForSubject = (subject) => {
-    return allTeachers.filter((teacher) => teacher.subjects.includes(subject));
+  const calculateAmounts = (offer) => {
+    const newAmounts = {};
+    offer.subjects.forEach((subject) => {
+      const percentage = offer?.percentage?.[subject] || 0;
+      newAmounts[subject] = (offer.price * percentage) / 100;
+    });
+    return newAmounts;
   };
 
+  const getTeachersForSubject = (subject) => teachers.filter((t) => t.subjects?.includes(subject));
+
   const onSubmit = (formData) => {
-    console.log(formData);
+    const finalData = {
+      student_id: studentId,
+      offer_id: selectedOffer.id,
+      teachers: Object.entries(formData.teachers).map(([subject, { teacherId }]) => ({
+        subject,
+        teacherId,
+        percentage: selectedOffer.percentage[subject],
+        amount: amounts[subject] || 0,
+      })),
+    };
+
+    if (type === "create") {
+      router.post("/memberships", finalData, { onSuccess: () => setOpen(false) });
+    } else if (type === "update") {
+      router.put(`/memberships/${data.id}`, finalData);
+    }
   };
 
   return (
-    <form
-      className="flex flex-col gap-8 p-6 bg-white shadow-lg rounded-lg"
-      onSubmit={handleSubmit(onSubmit)}
-    >
-      <h1 className="text-2xl font-semibold text-gray-800">
+    <form className="p-6 bg-white rounded-lg shadow-md border" onSubmit={handleSubmit(onSubmit)}>
+      <h1 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+        <Book className="w-6 h-6 text-blue-600" />
         {type === "create" ? "Create New Membership" : "Update Membership"}
       </h1>
 
-      <span className="text-xs text-gray-400 font-medium">Membership Information</span>
-
-      <div className="flex flex-wrap gap-4">
-        <div className="flex flex-col gap-2 w-full md:w-1/2">
-          <label className="text-xs text-gray-600">Offer Name</label>
-          <select
-            {...register("offerName")}
-            onChange={handleOfferChange}
-            className="ring-[1.5px] ring-gray-300 p-2 rounded-md text-sm w-full"
-            value={selectedOffer}
-          >
-            <option value="">Select Offer</option>
-            {offers.map((offer) => (
-              <option key={offer.id} value={offer.name}>
-                {offer.name}
-              </option>
-            ))}
-          </select>
-          {errors.offerName && (
-            <p className="text-xs text-red-400">{errors.offerName.message}</p>
-          )}
-        </div>
+      <div className="mb-6">
+        <label className="block text-sm font-medium text-gray-600 mb-2">Select Offer</label>
+        <select {...register("offerName")} onChange={handleOfferChange} className="w-full px-4 py-2 border rounded-md">
+          <option value="">Select Offer</option>
+          {offers.map((offer) => (
+            <option key={offer.id} value={offer.id}>{`${offer.offer_name} - ${offer.price} DH`}</option>
+          ))}
+        </select>
       </div>
 
       {selectedSubjects.length > 0 && (
-        <>
-          <span className="text-xs text-gray-400 font-medium">Assign Teachers for Subjects</span>
-          <div className="flex flex-wrap gap-4">
-            {selectedSubjects.map((subject) => (
-              <div key={subject} className="flex flex-col gap-2 w-full md:w-1/3">
-                <label className="text-xs text-gray-600">Teacher for {subject}</label>
-                <select
-                  {...register(`teachers.${subject}`)}
-                  className="ring-[1.5px] ring-gray-300 p-2 rounded-md text-sm w-full"
-                >
-                  <option value="">Select Teacher</option>
-                  {getTeachersForSubject(subject).map((teacher) => (
-                    <option key={teacher.id} value={teacher.name}>
-                      {teacher.name}
-                    </option>
-                  ))}
-                </select>
-                {errors.teachers?.[subject] && (
-                  <p className="text-xs text-red-400">
-                    {errors.teachers[subject]?.message}
-                  </p>
-                )}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {selectedSubjects.map((subject) => (
+            <div key={subject} className="bg-gray-50 p-4 rounded-lg shadow-sm border">
+              <div className="flex items-center gap-2 mb-2">
+                <UserCheck className="w-5 h-5 text-blue-600" />
+                <span className="text-sm font-medium text-gray-700">{subject}</span>
               </div>
-            ))}
-          </div>
-        </>
+              <select {...register(`teachers.${subject}.teacherId`)} className="w-full px-4 py-2 border rounded-md">
+                <option value="">Select Teacher</option>
+                {getTeachersForSubject(subject).map((teacher) => (
+                  <option key={teacher.id} value={teacher.id}>{teacher.first_name} {teacher.last_name}</option>
+                ))}
+              </select>
+              <div className="flex justify-between mt-2 text-sm">
+                <span className="flex items-center gap-1 text-gray-600">
+                  <Percent className="w-4 h-4 text-blue-600" /> {selectedOffer.percentage[subject]}%
+                </span>
+                <span className="flex items-center gap-1 text-gray-600">
+                  <CheckCircle className="w-4 h-4 text-blue-600" /> {amounts[subject]?.toFixed(2)} DH
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
       )}
 
-      <button className="bg-blue-400 text-white p-3 rounded-md mt-6 hover:bg-blue-500 transition duration-200">
-        {type === "create" ? "Create" : "Update"}
+      <button type="submit" className="mt-6 w-full bg-blue-600 text-white py-3 rounded-md flex items-center justify-center gap-2 hover:bg-blue-700 transition-all">
+        {type === "create" ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+        {type === "create" ? "Create Membership" : "Update Membership"}
       </button>
     </form>
   );

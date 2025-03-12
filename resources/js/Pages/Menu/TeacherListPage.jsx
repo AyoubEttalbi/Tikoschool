@@ -4,7 +4,7 @@ import Table from "@/Components/Table";
 import TableSearch from "@/Components/TableSearch";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Link ,usePage} from '@inertiajs/react';
-import { UserRoundPen } from "lucide-react";
+import { Eye, UserRoundPen } from "lucide-react";
 const columns = [
   {
     header: "Info",
@@ -75,7 +75,7 @@ const TeacherListPage = ({teachers,subjects,classes,schools}) => {
         <div className="flex items-center gap-2">
           <Link href={`/teachers/${item.id}`}>
             <button className="w-7 h-7 flex items-center justify-center rounded-full bg-lamaSky">
-              <img src="/view.png" alt="" width={16} height={16} />
+            <Eye className="w-4 h-4 text-white"/>
             </button>
           </Link>
           {role === "admin" && (

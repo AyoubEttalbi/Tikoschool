@@ -3,10 +3,11 @@ import BigCalendar from "@/Components/BigCalender";
 import FormModal from "@/Components/FormModal";
 import Performance from "@/Components/Performance";
 import DashboardLayout from "@/Layouts/DashboardLayout";
-import { role } from "@/lib/data";
-import { Link } from "@inertiajs/react";
+
+import { Link, usePage } from "@inertiajs/react";
 
 const SingleTeacherPage = ({ teacher, classes, subjects, schools }) => {
+  const role = usePage().props.auth.user.role;
   console.log(teacher)
   console.log("schools " ,teacher.schools.map((school) => school.name).join(", "))
   console.log("schools " ,teacher.schools[0].name)

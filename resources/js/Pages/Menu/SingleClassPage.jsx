@@ -3,11 +3,12 @@ import Pagination from '@/Components/Pagination';
 import Table from '@/Components/Table';
 import TableSearch from '@/Components/TableSearch';
 import DashboardLayout from '@/Layouts/DashboardLayout';
-import { role } from '@/lib/data';
+
 import React from 'react';
-import { Link } from '@inertiajs/react';
+import { Link, usePage } from '@inertiajs/react';
 
 export default function SingleClassPage({ className, students, Alllevels, Allclasses, Allschools, teachers }) {
+    const role = usePage().props.auth.user.role;
     console.log("class" , className);
     console.log("students" , students);
     console.log("levels" , Alllevels);

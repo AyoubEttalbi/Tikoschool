@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link } from '@inertiajs/react';
+import { Link, usePage } from '@inertiajs/react';
 import Announcements from "@/Components/Announcements";
 import BigCalendar from "@/Components/BigCalender";
 import Performance from "@/Components/Performance";
@@ -7,38 +7,16 @@ import DashboardLayout from '@/Layouts/DashboardLayout';
 import FormModal from '@/Components/FormModal';
 import MembershipCard from '@/Components/MembershipCard';
 import StudentProfile from '@/Components/StudentProfile';
+import { Users } from 'lucide-react';
 // import studentProfile from "./studentProfile.png";
-const SingleStudentPage = ({ student, Alllevels,Allclasses,Allschools }) => {
+const SingleStudentPage = ({ student, Alllevels, Allclasses, Allschools, Alloffers, Allteachers,memberships }) => {
+  const role = usePage().props.auth.user.role;
   console.log("xxxxx", student);
   console.log("route", Alllevels);
-  const offers = [
-    {
-      id: 1,
-      name: "AC MATH SVT",
-      teachers: [
-        { subject: "Math", teacher: "hamouda chakiri" },
-        { subject: "SVT", teacher: "ayoub el mahdaoui" },
-      ],
-      date: "16-Aug-2024 | 21:30",
-    },
-    {
-      id: 2,
-      name: "AC PHYSIQUE CHIMIE",
-      teachers: [
-        { subject: "Physique", teacher: "mohamed amine" },
-        { subject: "Chimie", teacher: "fatima zahra" },
-      ],
-      date: "17-Aug-2024 | 10:00",
-    },
-    {
-      id: 3,
-      name: "AC INFORMATIQUE",
-      teachers: [
-        { subject: "Informatique", teacher: "abdellah el moussaoui" },
-      ],
-      date: "18-Aug-2024 | 14:00",
-    },
-  ];
+  console.log('Alloffers', Alloffers);
+  console.log('Allteachers', Allteachers);
+  console.log('memberships', memberships);
+ 
   return (
     <div className="flex-1 p-4 flex flex-col gap-4 xl:flex-row">
       {/* LEFT */}
@@ -105,7 +83,7 @@ const SingleStudentPage = ({ student, Alllevels,Allclasses,Allschools }) => {
                 className="w-6 h-6"
               />
               <div className="">
-                <h1 className="text-xl font-semibold">{student.attendance || "90%"}</h1>
+                <h1 className="text-xl font-semibold">{student.attendance || "99%"}</h1>
                 <span className="text-sm text-gray-400">Attendance</span>
               </div>
             </div>
@@ -127,13 +105,13 @@ const SingleStudentPage = ({ student, Alllevels,Allclasses,Allschools }) => {
             <div className="bg-white p-4 rounded-md flex gap-4 w-full md:w-[48%] xl:w-[45%] 2xl:w-[48%]">
               <img
                 src="/singleLesson.png"
-                alt="Lessons"
+                alt="Offer"
                 width={24}
                 height={24}
                 className="w-6 h-6"
               />
               <div className="">
-                <h1 className="text-xl font-semibold">{student.lessons || "18"}</h1>
+                <h1 className="text-xl font-semibold">{student.memberships.length || "0"}</h1>
                 <span className="text-sm text-gray-400">Offers</span>
               </div>
             </div>
@@ -154,19 +132,30 @@ const SingleStudentPage = ({ student, Alllevels,Allclasses,Allschools }) => {
           </div>
         </div>
         {/* BOTTOM */}
-        <div className="mt-4 bg-white rounded-md p-4 h-fit flex justify-between items-center">
+        <div className="mt-4 bg-white rounded-md p-4 h-fit flex flex-col justify-center items-start">
+        <div className="w-full max-w-lg p-6 bg-white rounded-lg shadow-md border border-gray-200">
+          <div className="flex justify-between items-center mb-6">
+            <div className="flex items-center gap-2 text-blue-600 font-medium mr-4">
+              
+              <span className='flex flex-row'><Users className="h-5 w-5 mr-3" />Memberships:</span>
+            </div>
+            <FormModal table="membership" type="create" id={student.id} offers={Alloffers} teachers={Allteachers} />
+          </div>
           {
-            offers.length > 0 ? (
-              <MembershipCard offers={offers} />
+            student.memberships ? (
+              <MembershipCard offers={student.memberships} teachers={Allteachers} />
             ) : (
               <div className="flex flex-col items-center gap-4">
-                <img src="/student.png" alt="Student" width={64} height={64} />
+                <img src="/student.png" alt="Student" width={64} height={64} className="mb-4" />
                 <h1 className="text-2xl font-semibold text-gray-700">No Membership</h1>
               </div>
             )
           }
-
         </div>
+        </div>
+        
+
+        
         <StudentProfile />
 
       </div>

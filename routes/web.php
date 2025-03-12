@@ -14,6 +14,7 @@ use App\Http\Controllers\AssistantController;
 use App\Http\Controllers\SubjectController;
 use App\Http\Controllers\Auth\RegisteredUserController;
 use App\Http\Controllers\TeacherController;
+use App\Http\Controllers\MembershipController;
 Route::get('/', function () {
     return Inertia::render('Auth/Login' );
 });
@@ -51,6 +52,7 @@ Route::middleware('auth')->group(function () {
 
     Route::post('/othersettings/subjects', [SubjectController::class, 'store'])->name('othersettings.subjects.store');
     Route::delete('/classes/students/{student}', [ClassesController::class, 'removeStudent'])->name('classes.removeStudent');
+    Route::resource('memberships', MembershipController::class);
 });
 
 

@@ -82,4 +82,5 @@ class Teacher extends Model
     {
         return $this->belongsToMany(School::class)->withTimestamps();
     }
+    
 }

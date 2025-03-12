@@ -1,4 +1,4 @@
-import { Edit, Plus } from 'lucide-react';
+import { Edit, Plus, Trash2 } from 'lucide-react';
 import React, { lazy, Suspense, useState } from 'react';
 import DeleteConfirmation from './DeleteConfirmation';
 
@@ -22,7 +22,7 @@ const forms = {
   level: LevelForm,
 };
 
-const FormModal = ({ table, type, data, id, levels, route,subjects,classes, schools }) => {
+const FormModal = ({ table, type, data, id, levels, route,subjects,classes, schools,offers,teachers }) => {
   // console.log('classes frmaldata',classes);
   const size = type === "create" ? "w-8 h-8" : "w-7 h-7";
   const bgColor =
@@ -38,7 +38,8 @@ const FormModal = ({ table, type, data, id, levels, route,subjects,classes, scho
     const FormComponent = forms[table];
     return FormComponent ? (
       <Suspense fallback={<h1>Loading...</h1>}>
-        <FormComponent type={type} data={data} levels={levels} schools={schools} subjects={subjects}  classes={classes} setOpen={setOpen} />
+        <FormComponent type={type} data={data} levels={levels} schools={schools}
+         subjects={subjects} teachers={teachers}  classes={classes} offers={offers} setOpen={setOpen} studentId={id} />
       </Suspense>
     ) : (
       <p>Form not found!</p>
@@ -60,14 +61,22 @@ const FormModal = ({ table, type, data, id, levels, route,subjects,classes, scho
           className="text-blue-500 hover:text-blue-600"
           onClick={() => setOpen(true)}
         >
-          <Edit className="h-5 w-5" />
+          <Edit className="h-5 w-5 " />
         </button>
       ) : (
         <button
           className={`${size} flex items-center justify-center rounded-full ${bgColor}`}
           onClick={() => setOpen(true)}
         >
-          <img src={`/${type}.png`} alt="" width={16} height={16} />
+          {
+            type === "delete" ? (
+              <Trash2 className='w-4 h-4 text-white'/>
+          
+            ):(
+              <img src={`/${type}.png`} alt="" width={16} height={16} />
+            )
+          
+          }
         </button>
       )}
 

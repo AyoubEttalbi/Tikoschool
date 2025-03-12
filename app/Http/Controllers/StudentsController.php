@@ -9,6 +9,10 @@ use Illuminate\Support\Facades\Storage;
 use App\Models\Level;
 use App\Models\Classes;
 use App\Models\School;
+use App\Models\Subject;
+use App\Models\Offer;
+use App\Models\Teacher;
+use App\Models\Membership;
 class StudentsController extends Controller
 {
     /**
@@ -141,10 +145,26 @@ public function show($id)
         abort(404);
     }
 
-    // Fetch all levels (or adjust this to your actual logic for fetching levels)
+    // Fetch all levels, offers, and teachers with their subjects
     $levels = Level::all();
-    
-    // Format the student data
+    $offers = Offer::all();
+    $teachers = Teacher::with('subjects')->get(); // Eager load subjects for each teacher
+
+    // Fetch memberships for the student
+    $memberships = Membership::where('student_id', $student->id)
+        ->with(['offer']) // Eager load related offer data
+        ->get()
+        ->map(function ($membership) {
+            return [
+                'id' => $membership->id,
+                'offer_name' => $membership->offer->offer_name, // Get the offer name
+                'price' => $membership->offer->price, // Get the offer price
+                'teachers' => $membership->teachers, // Teachers array (already cast to array)
+                'created_at' => $membership->created_at,
+            ];
+        });
+
+    // Format the student data, including memberships
     $studentData = [
         'id' => $student->id,
         'name' => $student->firstName . ' ' . $student->lastName,
@@ -152,35 +172,44 @@ public function show($id)
         'phone' => $student->phoneNumber,
         'address' => $student->address,
         'classId' => $student->classId,
-       'schoolId' => $student->schoolId,
+        'schoolId' => $student->schoolId,
         'firstName' => $student->firstName,
         'lastName' => $student->lastName,
         'dateOfBirth' => $student->dateOfBirth,
         'billingDate' => $student->billingDate,
-        'address' => $student->address,
         'CIN' => $student->CIN,
-        'phoneNumber' => $student->phoneNumber,
         'email' => $student->email,
         'massarCode' => $student->massarCode,
-        'levelId' => $student->levelId,                
+        'levelId' => $student->levelId,
         'status' => $student->status,
         'assurance' => $student->assurance,
         'guardianNumber' => $student->guardianNumber,
         'profileImage' => $student->profileImage ? URL::asset('storage/' . $student->profileImage) : null,
         'created_at' => $student->created_at,
+        'memberships' => $memberships, // Embed memberships in the student data
     ];
+
+    // Fetch schools and classes
     $schools = School::all();
     $classes = Classes::all();
 
-    // Render the Inertia view with the student data and levels
+    // Render the Inertia view with the student data, levels, and other resources
     return Inertia::render('Menu/SingleStudentPage', [
         'student' => $studentData,
-        'Alllevels' => $levels, 
+        'Alllevels' => $levels,
         'Allclasses' => $classes,
-        'Allschools' => $schools
+        'Allschools' => $schools,
+        'Alloffers' => $offers,
+        'Allteachers' => $teachers->map(function ($teacher) {
+            return [
+                'id' => $teacher->id,
+                'first_name' => $teacher->first_name,
+                'last_name' => $teacher->last_name,
+                'subjects' => $teacher->subjects->pluck('name'), // Extract subject names
+            ];
+        }),
     ]);
 }
-
     /**
      * Show the form for editing the specified resource.
      */

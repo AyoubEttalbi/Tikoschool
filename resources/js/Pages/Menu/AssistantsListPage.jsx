@@ -1,11 +1,12 @@
-import { role } from "@/lib/data";
-import { Link } from '@inertiajs/react';
+
+import { Link, usePage } from '@inertiajs/react';
 
 import TableSearch from "../../Components/TableSearch";
 import Table from "../../Components/Table";
 import Pagination from "../../Components/Pagination";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import FormModal from "../../Components/FormModal";
+import { Eye } from "lucide-react";
 
 // Define table columns for assistants
 const columns = [
@@ -40,6 +41,7 @@ const columns = [
 ];
 
 const AssistantsListPage = ({assistants = [], schools}) => {
+  const role = usePage().props.auth.user.role;
   console.log("assistants list",assistants);
   const renderRow = (assistant) => (
     <tr
@@ -76,7 +78,7 @@ const AssistantsListPage = ({assistants = [], schools}) => {
           {/* View Button */}
           <Link href={`assistants/${assistant.id}`}>
             <button className="w-7 h-7 flex items-center justify-center rounded-full bg-lamaSky">
-              <img src="/view.png" alt="View" width={16} height={16} />
+            <Eye className="w-4 h-4 text-white"/>
             </button>
           </Link>
 
