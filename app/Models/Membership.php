@@ -22,12 +22,12 @@ class Membership extends Model
     // Relationships
     public function student()
     {
-        return $this->belongsTo(Student::class , 'student_id');
+        return $this->belongsTo(Student::class, 'student_id');
     }
 
     public function offer()
     {
-        return $this->belongsTo(Offer::class , 'offer_id');
+        return $this->belongsTo(Offer::class, 'offer_id');
     }
 
     

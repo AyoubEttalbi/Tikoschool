@@ -22,7 +22,7 @@ const forms = {
   level: LevelForm,
 };
 
-const FormModal = ({ table, type, data, id, levels, route,subjects,classes, schools,offers,teachers }) => {
+const FormModal = ({ table, type, data, id, levels, route,subjects,classes, schools,offers,teachers,studentId }) => {
   // console.log('classes frmaldata',classes);
   const size = type === "create" ? "w-8 h-8" : "w-7 h-7";
   const bgColor =
@@ -39,7 +39,7 @@ const FormModal = ({ table, type, data, id, levels, route,subjects,classes, scho
     return FormComponent ? (
       <Suspense fallback={<h1>Loading...</h1>}>
         <FormComponent type={type} data={data} levels={levels} schools={schools}
-         subjects={subjects} teachers={teachers}  classes={classes} offers={offers} setOpen={setOpen} studentId={id} />
+         subjects={subjects} teachers={teachers}  classes={classes} offers={offers} setOpen={setOpen} studentId={studentId} />
       </Suspense>
     ) : (
       <p>Form not found!</p>
@@ -83,6 +83,18 @@ const FormModal = ({ table, type, data, id, levels, route,subjects,classes, scho
       {open && (
         <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center">
           {type === "delete" ? (
+            table === "user" ? (
+              <DeleteConfirmation
+              route={'users'}
+              id={id}
+              onDelete={() => {
+                  console.log('Delete confirmed');
+                  setOpen(false); // Close the modal after deletion
+              }}
+              onClose={() => setOpen(false)} // Pass onClose to close the modal
+          />
+            )
+            :(
             <DeleteConfirmation
                 route={route}
                 id={id}
@@ -91,7 +103,7 @@ const FormModal = ({ table, type, data, id, levels, route,subjects,classes, scho
                     setOpen(false); // Close the modal after deletion
                 }}
                 onClose={() => setOpen(false)} // Pass onClose to close the modal
-            />
+            />)
         ) : (
             <div className="bg-white modal-scrollable p-6 rounded-lg shadow-lg relative w-[90%] md:w-[70%] lg:w-[60%] xl:w-[50%] 2xl:w-[40%] max-h-[90vh] overflow-y-auto">
               <Form />

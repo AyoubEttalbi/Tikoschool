@@ -139,11 +139,11 @@ const SingleStudentPage = ({ student, Alllevels, Allclasses, Allschools, Alloffe
               
               <span className='flex flex-row'><Users className="h-5 w-5 mr-3" />Memberships:</span>
             </div>
-            <FormModal table="membership" type="create" id={student.id} offers={Alloffers} teachers={Allteachers} />
+            <FormModal table="membership" type="create" id={student.id} offers={Alloffers} teachers={Allteachers} studentId={student.id} />
           </div>
           {
             student.memberships ? (
-              <MembershipCard offers={student.memberships} teachers={Allteachers} />
+              <MembershipCard Student_memberships={student.memberships} teachers={Allteachers} offers={Alloffers} studentId={student.id}/>
             ) : (
               <div className="flex flex-col items-center gap-4">
                 <img src="/student.png" alt="Student" width={64} height={64} className="mb-4" />

@@ -7,6 +7,7 @@ use Inertia\Inertia;
 use App\Models\Student;
 use App\Http\Controllers\StudentsController;
 use App\Http\Controllers\LevelController;
+use App\Http\Controllers\UserController;
 use App\Models\Level;
 use App\Http\Controllers\ClassesController;
 use App\Http\Controllers\OfferController;
@@ -53,6 +54,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/othersettings/subjects', [SubjectController::class, 'store'])->name('othersettings.subjects.store');
     Route::delete('/classes/students/{student}', [ClassesController::class, 'removeStudent'])->name('classes.removeStudent');
     Route::resource('memberships', MembershipController::class);
+    Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update')->middleware(AdminMiddleware::class);
+    Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('users.destroy')->middleware(AdminMiddleware::class);
 });
 
 

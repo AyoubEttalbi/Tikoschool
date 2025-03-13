@@ -1,4 +1,3 @@
-
 import { Link ,usePage} from '@inertiajs/react';
 import TableSearch from "../../Components/TableSearch";
 import Table from "../../Components/Table";
@@ -6,7 +5,10 @@ import Pagination from "../../Components/Pagination";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import FormModal from "../../Components/FormModal";
 import Register from "../Auth/Register";
+import { useState } from "react";
 import { useParams } from 'react-router-dom';
+import { Edit, Plus, PlusIcon } from 'lucide-react';
+import UpdateUser from '../Auth/UpdateUser';
 // Define table columns for users
 const columns = [
   {
@@ -35,6 +37,11 @@ const columns = [
 ];
 
 const UserListPage = ({users}) => {
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isUpdateOpen, setIsUpdateOpen] = useState({
+    isOpen: false,
+    id: null,
+  });
    const role=usePage().props.auth.user.role;
    const { url } = usePage();
 
@@ -94,10 +101,16 @@ const UserListPage = ({users}) => {
           {role === "admin" && (
             <>
               {/* Update User */}
-              <FormModal table="user" type="update" data={user} />
-
+              <button
+                onClick={() => setIsUpdateOpen({...isUpdateOpen,isOpen: true, id: user.id})}
+                className="p-2 bg-lamaYellow  text-black rounded-full hover:bg-yellow-500 transition duration-200"
+            >
+               <Edit className="w-4 h-4 text-white" />
+            </button>
+        
+        
               {/* Delete User */}
-              <FormModal table="user" type="delete" id={user.id} />
+              <FormModal table="user"  type="delete" id={user.id} />
             </>
           )}
         </div>
@@ -122,20 +135,26 @@ const UserListPage = ({users}) => {
             </button>
 
             {/* Admin-only Create User Button */}
-            {role === "admin" && (
-              <FormModal table="user" type="create" />
-            )}
+            <button
+                onClick={() => setIsModalOpen(true)}
+                className="p-2 bg-lamaYellow  text-black rounded-full hover:bg-yellow-500 transition duration-200"
+            >
+               <PlusIcon className="w-4 h-4" />
+            </button>
           </div>
         </div>
       </div>
-
+      {
+        isModalOpen && <Register isModalOpen={isModalOpen} setIsModalOpen={setIsModalOpen}/> 
+      }
+          {
+        isUpdateOpen && <UpdateUser isUpdateOpen={isUpdateOpen} userData={users} type={"update"} setIsUpdateOpen={setIsUpdateOpen}/> 
+      }
       {/* Table */}
       <Table columns={columns} renderRow={renderRow} data={users} />
 
       {/* Pagination */}
       {/* <Pagination links={users.links} /> */}
-
-    <Register parsedata={parsedData}/>
     </div>
 
   );

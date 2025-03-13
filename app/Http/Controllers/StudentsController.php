@@ -139,7 +139,7 @@ public function show($id)
 {
     // Fetch the student from the database
     $student = Student::find($id);
-
+    
     // If the student doesn't exist, return a 404 error
     if (!$student) {
         abort(404);
@@ -158,6 +158,7 @@ public function show($id)
             return [
                 'id' => $membership->id,
                 'offer_name' => $membership->offer->offer_name, // Get the offer name
+                'offer_id' => $membership->offer->id, // Get the offer name
                 'price' => $membership->offer->price, // Get the offer price
                 'teachers' => $membership->teachers, // Teachers array (already cast to array)
                 'created_at' => $membership->created_at,
@@ -170,6 +171,7 @@ public function show($id)
         'name' => $student->firstName . ' ' . $student->lastName,
         'studentId' => $student->massarCode,
         'phone' => $student->phoneNumber,
+        'phoneNumber' =>  $student->phoneNumber,
         'address' => $student->address,
         'classId' => $student->classId,
         'schoolId' => $student->schoolId,

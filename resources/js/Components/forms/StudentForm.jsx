@@ -25,7 +25,7 @@ const schema = z.object({
   assurance: z.any().optional(),
 });
 
-const StudentForm = ({ type, data, levels, classes, schools }) => {
+const StudentForm = ({ type, data, levels, classes, schools,setOpen }) => {
   console.log("form levels", levels);
 
   const defaultBillingDate = new Date().toISOString().split("T")[0];
@@ -61,8 +61,10 @@ const StudentForm = ({ type, data, levels, classes, schools }) => {
 
     if (type === "create") {
       // Send a POST request to create a new student
-      router.post("/students", updatedFormData);
-    } else if (type === "update") {
+      router.post("/students", updatedFormData,
+        { onSuccess: () => setOpen(false) }
+      );
+    } else if (type === "update", { onSuccess: () => setOpen(false) }) {
       // Send a PUT request to update an existing student
       router.put(`/students/${data.id}`, updatedFormData);
     }

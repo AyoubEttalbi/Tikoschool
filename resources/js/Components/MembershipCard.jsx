@@ -1,10 +1,10 @@
 import { Clock, Edit, GraduationCap, Users, DollarSign, Calendar, UserCheck } from "lucide-react";
 import FormModal from "./FormModal";
 
-export default function MembershipCard({ offers, teachers }) {
-  console.log("Offers:", offers);
-  console.log("All Teachers:", teachers);
-
+export default function MembershipCard({ Student_memberships =[], teachers =[] ,offers=[] ,studentId}) {
+  console.log("Student_memberships:", Student_memberships);
+  console.log("All Teachersssss:", teachers);
+  console.log('offers',offers)
   // Helper function to find a teacher's name by ID
   const getTeacherName = (teacherId) => {
     const teacher = teachers.find((t) => t.id === parseInt(teacherId));
@@ -13,14 +13,14 @@ export default function MembershipCard({ offers, teachers }) {
 
   return (
     <div className="space-y-4">
-      {offers.map((offer) => (
-        <div key={offer.id} className="bg-gray-50 rounded-lg shadow-sm p-4 mb-4 border border-gray-300">
+      {Student_memberships.map((membership) => (
+        <div key={membership.id} className="bg-gray-50 rounded-lg shadow-sm p-4 mb-4 border border-gray-300">
           <div className="flex justify-between items-start">
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-gray-800 font-medium">
                 <GraduationCap className="h-5 w-5 text-gray-600" />
                 <span>
-                  Offer: <span className="text-gray-900 font-semibold">{offer.offer_name}</span>
+                  Offer: <span className="text-gray-900 font-semibold">{membership.offer_name}</span>
                 </span>
               </div>
 
@@ -31,27 +31,26 @@ export default function MembershipCard({ offers, teachers }) {
                 </div>
 
                 <div className="ml-6 space-y-1">
-                  {offer.teachers.map((teacher, index) => (
+                  {membership.teachers.map((teacher, index) => (
                     <div key={index} className="flex items-center gap-2 text-gray-600">
                       <UserCheck className="h-4 w-4 text-gray-500" />
                       <span>
                         {teacher.subject}:{" "}
                         <span className="text-gray-800 font-medium">{getTeacherName(teacher.teacherId)}</span>
                       </span>
-                      <span className="text-gray-500">(Amount: {teacher.amount} DH)</span>
+                      <span className="text-gray-500">(Amount: {parseFloat(membership.price) * (teacher.percentage / 100) ? parseFloat(membership.price) * (teacher.percentage / 100) : "0"} DH)</span>
                     </div>
                   ))}
                 </div>
               </div>
             </div>
-            <FormModal table="membership" type="update" data={offer} id={offer.id}>
-              <Edit className="h-4 w-4 text-gray-500 hover:text-lamaBlue cursor-pointer transition-colors" />
-            </FormModal>
+            <FormModal table="membership" type="update" teachers={teachers} data={membership} id={membership.id} studentId={studentId} offers={offers} />
+            
           </div>
 
           <div className="flex items-center gap-1 text-gray-500 text-sm mt-3 justify-end">
             <Calendar className="h-4 w-4" />
-            <span>{new Date(offer.created_at).toLocaleDateString()}</span>
+            <span>{new Date(membership.created_at).toLocaleDateString()}</span>
           </div>
         </div>
       ))}
