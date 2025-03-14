@@ -1,65 +1,76 @@
-import React from 'react';
 
-const FilterForm = ({ schools, classes, levels, filters, onFilterChange }) => {
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select"
+
+export default function FilterForm({ schools, classes, levels, filters, onFilterChange }) {
+  const handleSelectChange = (name, value) => {
+    
+    const syntheticEvent = {
+      target: {
+        name,
+        value,
+      },
+    }
+
+    onFilterChange(syntheticEvent)
+  }
+
   return (
-    <div className="bg-white p-4 rounded-lg shadow-md mb-4">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+      <div className="bg-white p-4 rounded-md shadow-sm mb-4 grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* School Filter */}
         <div>
-          <label className="block text-sm font-medium text-gray-700">School</label>
-          <select
-            name="school"
-            value={filters.school}
-            onChange={onFilterChange}
-            className="mt-1 block w-full p-2 border border-gray-300 rounded-md"
-          >
-            <option value="">Select School</option>
-            {schools.map((school) => (
-              <option key={school.id} value={school.id}>
-                {school.name}
-              </option>
-            ))}
-          </select>
+          <label className="block text-sm font-medium mb-2">School</label>
+          <Select value={filters.school} onValueChange={(value) => handleSelectChange("school", value)}>
+            <SelectTrigger className="w-full bg-white">
+              <SelectValue placeholder="Select School" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem> All Schools</SelectItem>
+              {schools.map((school) => (
+                <SelectItem key={school.id} value={school.id}>
+                  {school.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Class Filter */}
         <div>
-          <label className="block text-sm font-medium text-gray-700">Class</label>
-          <select
-            name="class"
-            value={filters.class}
-            onChange={onFilterChange}
-            className="mt-1 block w-full p-2 border border-gray-300 rounded-md"
-          >
-            <option value="">Select Class</option>
-            {classes.map((cls) => (
-              <option key={cls.id} value={cls.id}>
-                {cls.name}
-              </option>
-            ))}
-          </select>
+          <label className="block text-sm font-medium mb-2">Class</label>
+          <Select value={filters.class} onValueChange={(value) => handleSelectChange("class", value)}>
+            <SelectTrigger className="w-full bg-white">
+              <SelectValue placeholder="Select Class" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem> All Classes</SelectItem>
+              {classes.map((cls) => (
+                <SelectItem key={cls.id} value={cls.id}>
+                  {cls.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Level Filter */}
         <div>
-          <label className="block text-sm font-medium text-gray-700">Level</label>
-          <select
-            name="level"
-            value={filters.level}
-            onChange={onFilterChange}
-            className="mt-1 block w-full p-2 border border-gray-300 rounded-md"
-          >
-            <option value="">Select Level</option>
-            {levels.map((level) => (
-              <option key={level.id} value={level.id}>
-                {level.name}
-              </option>
-            ))}
-          </select>
+          <label className="block text-sm font-medium mb-2">Level</label>
+          <Select value={filters.level} onValueChange={(value) => handleSelectChange("level", value)}>
+            <SelectTrigger className="w-full bg-white">
+              <SelectValue placeholder="Select Level" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem > All Levels</SelectItem>
+              {levels.map((level) => (
+                <SelectItem key={level.id} value={level.id}>
+                  {level.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
-    </div>
-  );
-};
 
-export default FilterForm;
+  )
+}

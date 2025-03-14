@@ -14,14 +14,14 @@ const invoiceSchema = z.object({
     totalAmount: z.any().optional(),
     amountPaid: z.any().optional(),
     rest: z.any().optional(),
-    
+    student_id: z.any().optional(),
     offer_id: z.any().optional(),
     endDate: z.string().optional(),
     includePartialMonth: z.boolean().optional(),
     partialMonthAmount: z.number().optional(),
 });
 
-const InvoicesForm = ({ type, data, setOpen, StudentMemberships = [], invoices }) => {
+const InvoicesForm = ({ type, data, setOpen, StudentMemberships = [], studentId }) => {
     const defaultBillingDate = new Date().toISOString().split("T")[0];
     const [includePartialMonth, setIncludePartialMonth] = useState(false);
     
@@ -41,7 +41,7 @@ const InvoicesForm = ({ type, data, setOpen, StudentMemberships = [], invoices }
             totalAmount: data?.totalAmount || 0,
             amountPaid: data?.amountPaid || 0,
             rest: data?.rest || 0,
-            
+            student_id: studentId,
             offer_id: data?.offer_id || "",
             endDate: data?.endDate || "",
             includePartialMonth: data?.includePartialMonth || false,
@@ -102,6 +102,8 @@ const InvoicesForm = ({ type, data, setOpen, StudentMemberships = [], invoices }
         setValue("partialMonthAmount", partialMonthAmount);
         setValue("totalAmount", totalAmount);
         setValue("rest", restAmount);
+        setValue("student_id", studentId);
+        
 
         // Update offer_id based on the selected membership
         if (selectedMembership) {
@@ -121,8 +123,9 @@ const InvoicesForm = ({ type, data, setOpen, StudentMemberships = [], invoices }
         setIncludePartialMonth(e.target.checked);
         setValue("includePartialMonth", e.target.checked);
     };
-
+    console.log("iddddddddddddddddd",studentId);
     const onSubmit = (formData) => {
+       
         console.log("Form submitted with data:", formData);
         if (type === "create") {
             router.post("/invoices", formData, {
@@ -150,6 +153,7 @@ const InvoicesForm = ({ type, data, setOpen, StudentMemberships = [], invoices }
         >
             <h1 className="text-2xl font-semibold text-gray-800">
                 {type === "create" ? "Create a New Invoice" : "Update Invoice"}
+                
             </h1>
 
             {/* Membership Select Field */}
@@ -214,6 +218,7 @@ const InvoicesForm = ({ type, data, setOpen, StudentMemberships = [], invoices }
                 <InputField
                     label="Bill Date"
                     name="billDate"
+                    step={"0.01"}
                     type="date"
                     register={register}
                     error={errors.billDate}
@@ -225,6 +230,7 @@ const InvoicesForm = ({ type, data, setOpen, StudentMemberships = [], invoices }
                     label="Total Amount"
                     name="totalAmount"
                     type="number"
+                    step={"0.01"}
                     register={register}
                     error={errors.totalAmount}
                     defaultValue={data?.totalAmount || 0}
@@ -246,6 +252,7 @@ const InvoicesForm = ({ type, data, setOpen, StudentMemberships = [], invoices }
                     label="Rest Amount"
                     name="rest"
                     type="number"
+                    step={"0.01"}
                     register={register}
                     error={errors.rest}
                     defaultValue={data?.rest || 0}
@@ -277,6 +284,10 @@ const InvoicesForm = ({ type, data, setOpen, StudentMemberships = [], invoices }
             <input
                 type="hidden"
                 {...register("offer_id")}
+            />
+            <input
+                type="hidden"
+                {...register("student_id")}
             />
             <input
                 type="hidden"

@@ -14,8 +14,8 @@ return new class extends Migration
     {
         Schema::create('memberships', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('student_id')->constrained('students')->onDelete('set null');
-            $table->foreignId('offer_id')->constrained('offers')->onDelete('set null');
+            $table->foreignId('student_id')->constrained('students')->onDelete('cascade');
+            $table->foreignId('offer_id')->constrained('offers')->onDelete('cascade');
             $table->json('teachers'); 
             $table->timestamps();
             $table->enum('payment_status', ['pending', 'paid', 'expired'])->default('pending');

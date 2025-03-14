@@ -1,7 +1,7 @@
 import { Edit, Plus, Trash2 } from 'lucide-react';
 import React, { lazy, Suspense, useState } from 'react';
 import DeleteConfirmation from './DeleteConfirmation';
-
+import { X } from 'lucide-react';
 const OfferForm = lazy(() => import('./forms/OfferForm'));
 const TeacherForm = lazy(() => import('./forms/TeacherForm'));
 const StudentForm = lazy(() => import('./forms/StudentForm'));
@@ -122,10 +122,10 @@ const FormModal = ({ table, type, data, id, levels, route,subjects,classes, scho
             <div className="bg-white modal-scrollable p-6 rounded-lg shadow-lg relative w-[90%] md:w-[70%] lg:w-[60%] xl:w-[50%] 2xl:w-[40%] max-h-[90vh] overflow-y-auto">
               <Form />
               <button
-                className="absolute top-4 right-4 p-2 rounded-full bg-gray-200 hover:bg-gray-300"
+                className="absolute text-lg text-gray-700 top-4 right-4 p-2 rounded-full hover:text-black transition-all duration-200" 
                 onClick={() => setOpen(false)}
               >
-                <img src="/close.png" alt="Close" width={16} height={16} />
+                <X className="w-6 h-6" />
               </button>
             </div>
           )}

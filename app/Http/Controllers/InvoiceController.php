@@ -65,6 +65,7 @@ class InvoiceController extends Controller
         // Validate the incoming request
         $validated = $request->validate([
             'membership_id' => 'required|integer',
+            'student_id' => 'required|integer',
             'months' => 'required|integer',
             'billDate' => 'required|date',
             'creationDate' => 'nullable|date',
@@ -163,7 +164,8 @@ class InvoiceController extends Controller
     try {
         // Validate the incoming request
         $validated = $request->validate([
-            'membership_id' => 'required|integer',
+            'membership_id' => 'integer',
+            'student_id' => 'required|integer',
             'months' => 'required|integer',
             'billDate' => 'required|date',
             'creationDate' => 'nullable|date',

@@ -205,25 +205,25 @@ public function show($id)
             ];
         });
 
-    // Fetch invoices for all memberships
-    $invoices = Invoice::whereIn('membership_id', $memberships->pluck('id')) // Get invoices for all membership IDs
-        ->with(['offer']) // Eager load related offer data
-        ->get()
-        ->map(function ($invoice) {
-            return [
-                'id' => $invoice->id,
-                'membership_id' => $invoice->membership_id, // Fixed missing key
-                'months' => $invoice->months,
-                'billDate' => $invoice->billDate,
-                'creationDate' => $invoice->creationDate,
-                'totalAmount' => $invoice->totalAmount,
-                'amountPaid' => $invoice->amountPaid,
-                'rest' => $invoice->rest,
-                'endDate' => $invoice->endDate,
-                'includePartialMonth' => $invoice->includePartialMonth,
-                'partialMonthAmount' => $invoice->partialMonthAmount,
-            ];
-        });
+    // Fetch invoices for all student
+    $invoices = Invoice::where('student_id', $student->id) // Get invoices for the specific student
+    ->with(['offer']) // Eager load related offer data
+    ->get()
+    ->map(function ($invoice) {
+        return [
+            'id' => $invoice->id,
+            'membership_id' => $invoice->membership_id,
+            'months' => $invoice->months,
+            'billDate' => $invoice->billDate,
+            'creationDate' => $invoice->creationDate,
+            'totalAmount' => $invoice->totalAmount,
+            'amountPaid' => $invoice->amountPaid,
+            'rest' => $invoice->rest,
+            'endDate' => $invoice->endDate,
+            'includePartialMonth' => $invoice->includePartialMonth,
+            'partialMonthAmount' => $invoice->partialMonthAmount,
+        ];
+    });
 
     // Format the student data, including memberships
     $studentData = [

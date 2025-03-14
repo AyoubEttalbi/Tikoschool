@@ -2,7 +2,7 @@ import { FaFileInvoice, FaEdit } from 'react-icons/fa';
 import FormModal from './FormModal';
 import { format, parseISO } from "date-fns";
 import { Printer } from 'lucide-react';
-const InvoicesTable = ({ invoices, Student_memberships }) => {
+const InvoicesTable = ({ invoices, Student_memberships,studentId }) => {
   const formatDate = (dateString, formatType) => {
     if (!dateString) return "N/A"; // Handle empty values
 
@@ -16,7 +16,7 @@ const InvoicesTable = ({ invoices, Student_memberships }) => {
 
         <h2 className="text-xl font-bold mb-4 flex items-center"><FaFileInvoice className="mr-2" /> Invoices
         </h2>
-         <FormModal table="invoice" type="create" StudentMemberships={Student_memberships} /> 
+         <FormModal table="invoice" type="create" StudentMemberships={Student_memberships} studentId={studentId} /> 
       </div>
       <table className="w-full border-collapse">
         <thead>

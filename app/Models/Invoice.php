@@ -4,10 +4,10 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-
+use Illuminate\Database\Eloquent\SoftDeletes;
 class Invoice extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes;
 
     protected $fillable = [
         'membership_id',
@@ -17,7 +17,7 @@ class Invoice extends Model
         'totalAmount',
         'amountPaid',
         'rest',
-        
+        'student_id',
         'offer_id',
         'endDate',
         'includePartialMonth',
@@ -36,7 +36,10 @@ class Invoice extends Model
 {
     return $this->belongsTo(Membership::class , 'membership_id');
 }
-
+    public function student()
+    {
+        return $this->belongsTo(Student::class, 'student_id');
+    }
     // Relationship with Offer (if applicable)
     public function offer()
     {

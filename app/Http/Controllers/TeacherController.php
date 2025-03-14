@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\CheckEmailUnique;
 use App\Models\Teacher;
 use Illuminate\Http\Request;
 use Inertia\Inertia;

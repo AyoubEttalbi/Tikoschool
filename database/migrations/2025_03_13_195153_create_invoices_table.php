@@ -9,9 +9,10 @@ return new class extends Migration {
     {
         Schema::create('invoices', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('membership_id')->constrained()->onDelete('set null'); // Change to set null
-            $table->integer('months');
+            $table->foreignId('membership_id')->nullable()->constrained()->onDelete('set null'); // Change to set null
+            $table->foreignId('student_id')->nullable()->constrained()->onDelete('set null');
             $table->date('billDate');
+            $table->integer('months');
             $table->date('creationDate')->nullable();
             $table->decimal('totalAmount', 10, 2);
             $table->decimal('amountPaid', 10, 2);

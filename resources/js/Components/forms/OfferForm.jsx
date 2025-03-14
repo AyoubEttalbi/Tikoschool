@@ -69,7 +69,7 @@ const OfferForm = ({ type, data, setOpen, subjects, levels }) => {
       {showConfetti && <Confetti recycle={false} numberOfPieces={500} />}
 
       <form
-        className="grid grid-cols-1 md:grid-cols-2 gap-6 p-8 bg-white rounded-lg shadow-2xl border border-gray-200"
+        className="grid grid-cols-1 md:grid-cols-2 gap-6 p-8 bg-white"
         onSubmit={handleSubmit(onSubmit)}
       >
         <h1 className="text-2xl font-bold text-gray-800 col-span-full">
@@ -135,7 +135,7 @@ const OfferForm = ({ type, data, setOpen, subjects, levels }) => {
             <Book className="w-5 h-5 text-gray-500" />
             Subjects & Percentages
           </label>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 cursor-default">
             {predefinedSubjects.map((subject, index) => (
               <div
                 key={index}
@@ -143,7 +143,7 @@ const OfferForm = ({ type, data, setOpen, subjects, levels }) => {
               >
                 <div className="flex items-center gap-3">
                   <div
-                    className={`w-5 h-5 rounded-md border-2 border-gray-300 flex items-center justify-center cursor-pointer transition-colors duration-200 ${
+                    className={`w-5 h-5 rounded-md border-2 cursor-pointer border-gray-300 flex items-center justify-center  transition-colors duration-200 ${
                       checkedSubjects.includes(subject) ? 'bg-blue-500 border-blue-500' : 'bg-white'
                     }`}
                     onClick={() => handleCheckboxChange(subject)}

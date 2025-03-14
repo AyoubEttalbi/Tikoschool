@@ -3,6 +3,7 @@ const InputField = ({
   type = "text",
   register,
   name,
+  step,
   defaultValue,
   error,
   inputProps,
@@ -12,8 +13,9 @@ const InputField = ({
       <label className="text-xs text-gray-500">{label}</label>
       <input
         type={type}
+        step={step}
         {...register(name)}
-        className="mt-1 block w-full rounded-md ring-[1.5px] ring-gray-300 p-2  text-sm  shadow-sm focus:border-black focus:ring-black pr-10"
+        className="mt-1 block w-full rounded-md ring-[1.5px] border-none ring-gray-300  p-2  text-sm  focus:border-black focus:ring-black pr-10"
         {...inputProps}
         defaultValue={defaultValue}
         min={0}
