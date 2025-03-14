@@ -14,10 +14,15 @@ return new class extends Migration
     {
         Schema::create('memberships', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('student_id')->constrained('students')->onDelete('cascade');
-            $table->foreignId('offer_id')->constrained('offers')->onDelete('cascade');
+            $table->foreignId('student_id')->constrained('students')->onDelete('set null');
+            $table->foreignId('offer_id')->constrained('offers')->onDelete('set null');
             $table->json('teachers'); 
             $table->timestamps();
+            $table->enum('payment_status', ['pending', 'paid', 'expired'])->default('pending');
+            $table->boolean('is_active')->default(false);
+            $table->date('start_date')->nullable();
+            $table->date('end_date')->nullable();
+            $table->softDeletes();
         });
     }
 

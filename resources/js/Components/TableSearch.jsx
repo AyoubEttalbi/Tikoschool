@@ -1,19 +1,19 @@
-import { router,usePage } from '@inertiajs/react';
+import { router, usePage } from '@inertiajs/react';
 import { useState } from 'react';
 
 const TableSearch = ({ routeName }) => {
-
-  const [searchTerm, setSearchTerm] = useState(usePage().props.search || '');
+  const pageProps = usePage().props;
+  const [searchTerm, setSearchTerm] = useState(pageProps.search || '');
 
   const handleSearch = (e) => {
     const value = e.target.value;
     setSearchTerm(value);
 
- 
+    // Preserve existing filters while updating the search term
     router.get(
-      route(routeName), 
-      { search: value }, 
-      { preserveState: true, replace: true , preserveScroll: true  }
+      route(routeName),
+      { ...pageProps.filters, search: value }, // Include existing filters and update search
+      { preserveState: true, replace: true, preserveScroll: true }
     );
   };
 
@@ -25,7 +25,7 @@ const TableSearch = ({ routeName }) => {
         placeholder="Search..."
         className="w-[200px] p-2 bg-transparent outline-none border-none focus:ring-0"
         value={searchTerm}
-        onChange={handleSearch} 
+        onChange={handleSearch}
       />
     </div>
   );

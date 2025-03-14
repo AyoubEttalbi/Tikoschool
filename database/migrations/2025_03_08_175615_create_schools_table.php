@@ -15,6 +15,7 @@ return new class extends Migration
             $table->string('phone_number', 20)->nullable(); // School phone number
             $table->string('email')->unique(); // School email
             $table->timestamps(); // created_at and updated_at timestamps
+            $table->softDeletes();
         });
     }
 

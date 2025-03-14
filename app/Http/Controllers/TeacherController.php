@@ -121,7 +121,7 @@ class TeacherController extends Controller
         if ($request->hasFile('profile_image')) {
             $validatedData['profile_image'] = $request->file('profile_image')->store('teachers', 'public');
         }
-
+        event(new CheckEmailUnique($request->email));
         // Create the teacher record
         $teacher = Teacher::create($validatedData);
 
@@ -211,7 +211,7 @@ class TeacherController extends Controller
             }
             $validatedData['profile_image'] = $request->file('profile_image')->store('teachers', 'public');
         }
-    
+        event(new CheckEmailUnique($request->email, $teacher->id));
         // Update only teacher's own attributes
         $teacher->update([
             'first_name' => $validatedData['first_name'],

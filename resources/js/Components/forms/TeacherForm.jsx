@@ -82,12 +82,13 @@ const TeacherForm = ({ type, data, subjects, classes,schools ,setOpen}) => {
       </h1>
 
       {/* Personal Information */}
-      <div className="flex flex-wrap gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 md:grid-cols-2 gap-4">
         <InputField label="First Name" name="firstName" register={register} error={errors.firstName} />
         <InputField label="Last Name" name="lastName" register={register} error={errors.lastName} />
         <InputField label="Address" name="address" register={register} error={errors.address} />
         <InputField label="Phone Number" name="phoneNumber" register={register} error={errors.phoneNumber} />
         <InputField label="Email" name="email" register={register} error={errors.email} />
+        <InputField label="Wallet Amount" name="wallet" type="number" register={register} error={errors.wallet} />
       </div>
 
       {/* Additional Information */}
@@ -166,7 +167,7 @@ const TeacherForm = ({ type, data, subjects, classes,schools ,setOpen}) => {
           {errors.classes && <p className="text-xs text-red-400">{errors.classes.message}</p>}
         </div>
 
-        <InputField label="Wallet Amount" name="wallet" type="number" register={register} error={errors.wallet} />
+        
       </div>
 
       <button type="submit" className="bg-blue-500 text-white p-2 rounded-md">

@@ -10,6 +10,7 @@ const MembershipForm = lazy(() => import('./forms/MembershipForm'));
 const AssistantForm = lazy(() => import('./forms/AssistantForm'));
 const SubjectForm = lazy(() => import('./forms/SubjectForm'));
 const LevelForm = lazy(() => import('./forms/LevelForm'));
+const InvoicesFrom = lazy(() => import('./forms/InvoicesFrom'));
 
 const forms = {
   offer: OfferForm,
@@ -20,9 +21,10 @@ const forms = {
   membership: MembershipForm,
   subject: SubjectForm,
   level: LevelForm,
+  invoice: InvoicesFrom
 };
 
-const FormModal = ({ table, type, data, id, levels, route,subjects,classes, schools,offers,teachers,studentId }) => {
+const FormModal = ({ table, type, data, id, levels, route,subjects,classes, schools,offers,teachers,studentId,StudentMemberships }) => {
   // console.log('classes frmaldata',classes);
   const size = type === "create" ? "w-8 h-8" : "w-7 h-7";
   const bgColor =
@@ -39,7 +41,8 @@ const FormModal = ({ table, type, data, id, levels, route,subjects,classes, scho
     return FormComponent ? (
       <Suspense fallback={<h1>Loading...</h1>}>
         <FormComponent type={type} data={data} levels={levels} schools={schools}
-         subjects={subjects} teachers={teachers}  classes={classes} offers={offers} setOpen={setOpen} studentId={studentId} />
+         subjects={subjects} teachers={teachers}  classes={classes} offers={offers} setOpen={setOpen} studentId={studentId}
+         StudentMemberships={StudentMemberships} />
       </Suspense>
     ) : (
       <p>Form not found!</p>
@@ -48,7 +51,8 @@ const FormModal = ({ table, type, data, id, levels, route,subjects,classes, scho
 
   return (
     <>
-      {table === "membership" && type === "create" ? (
+      {
+      (table === "membership" && type === "create")  ? (
         <button
           className="bg-blue-500 hover:bg-blue-600 text-white rounded-full px-3 py-1 h-8 flex items-center"
           onClick={() => setOpen(true)}
@@ -56,7 +60,17 @@ const FormModal = ({ table, type, data, id, levels, route,subjects,classes, scho
           <Plus className="h-4 w-4 mr-1" />
           New
         </button>
-      ) : table === "membership" && type === "update" ? (
+      ) 
+      : table === "invoice" && type === "create" ? (
+        <button
+          className="bg-blue-500 hover:bg-blue-600 text-white rounded-full px-3 py-1 h-8 flex items-center"
+          onClick={() => setOpen(true)}
+        >
+          <Plus className="h-4 w-4 mr-1" />
+          New
+        </button>
+      )
+      : table === "membership" && type === "update" ? (
         <button
           className="text-blue-500 hover:text-blue-600"
           onClick={() => setOpen(true)}

@@ -2,10 +2,13 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import InputField from "../InputField";
-import { router, Link } from "@inertiajs/react";
+import { router, usePage } from "@inertiajs/react";
 import Select from "react-select";
+import { useState } from "react";
+import Register from "@/Pages/Auth/Register";
+import { ChevronDown, ChevronUp } from "lucide-react";
 
-// Define the schema
+// Define the validation schema
 const schema = z.object({
   first_name: z.string().min(1, { message: "First name is required!" }),
   last_name: z.string().min(1, { message: "Last name is required!" }),
@@ -14,15 +17,19 @@ const schema = z.object({
   address: z.string().min(1, { message: "Address is required!" }),
   status: z.enum(["active", "inactive"], { message: "Status is required!" }),
   salary: z.coerce.number().nonnegative({ message: "Salary must be positive!" }),
-  profile_image: z.any().optional(), // For file uploads
+  profile_image: z.any().optional(),
   schools_assistant: z.array(z.object({ id: z.number(), name: z.string() })).optional(),
 });
 
-const AssistantForm = ({ type =[], data , schools  }) => {
+const AssistantForm = ({ type, data, schools, setOpen }) => {
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const { errors: pageErrors } = usePage().props;
+
   const {
     register,
     handleSubmit,
     control,
+    watch,
     formState: { errors },
   } = useForm({
     resolver: zodResolver(schema),
@@ -49,15 +56,32 @@ const AssistantForm = ({ type =[], data , schools  }) => {
       status: formData.status,
       salary: formData.salary,
       profile_image: formData.profile_image,
-      schools: formData.schools_assistant.map((school) => school.id), // Send array of school IDs
+      schools: formData.schools_assistant.map((school) => school.id),
     };
-  
+
     if (type === "create") {
-      router.post("/assistants", formattedData);
+      router.post("/assistants", formattedData, {
+        preserveScroll: true,
+        onError: (errors) => console.log("Inertia Errors:", errors),
+      });
     } else if (type === "update") {
-      router.put(`/assistants/${data.id}`, formattedData);
+      router.put(`/assistants/${data.id}`, formattedData, {
+        preserveScroll: true,
+        onError: (errors) => console.log("Inertia Errors:", errors),
+      });
     }
   });
+
+  // Watch the form fields for changes
+  const firstName = watch("first_name");
+  const lastName = watch("last_name");
+  const email = watch("email");
+
+  // Prepare user data for the Register component
+  const userData = {
+    name: `${firstName} ${lastName}`,
+    email: email,
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -68,39 +92,63 @@ const AssistantForm = ({ type =[], data , schools  }) => {
 
         {/* Personal Information */}
         <div className="flex flex-wrap gap-4">
-          <InputField label="First Name" name="first_name" register={register} error={errors.first_name} />
-          <InputField label="Last Name" name="last_name" register={register} error={errors.last_name} />
-          <InputField label="Phone Number" name="phone_number" register={register} error={errors.phone_number} />
-          <InputField label="Email" name="email" register={register} error={errors.email} />
-          <InputField label="Address" name="address" register={register} error={errors.address} />
-      
+          <InputField 
+            label="First Name" 
+            name="first_name" 
+            register={register} 
+            error={errors.first_name?.message || pageErrors?.first_name?.[0]} 
+          />
+          <InputField 
+            label="Last Name" 
+            name="last_name" 
+            register={register} 
+            error={errors.last_name?.message || pageErrors?.last_name?.[0]} 
+          />
+          <InputField 
+            label="Phone Number" 
+            name="phone_number" 
+            register={register} 
+            error={errors.phone_number?.message || pageErrors?.phone_number?.[0]} 
+          />
+          <InputField 
+            label="Email" 
+            name="email" 
+            register={register} 
+            error={errors.email?.message || pageErrors?.email} 
+          />
+          <InputField 
+            label="Address" 
+            name="address" 
+            register={register} 
+            error={errors.address?.message || pageErrors?.address?.[0]} 
+          />
+
+          {/* Status Dropdown */}
           <div className="flex flex-col gap-2 w-full md:w-1/4">
             <label className="text-xs text-gray-500">Status</label>
             <select
-              className="ring-[1.5px] ring-gray-300 p-2 rounded-md text-sm w-full"
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black pr-10"
               {...register("status")}
             >
               <option value="active">Active</option>
               <option value="inactive">Inactive</option>
             </select>
-            {errors.status && <p className="text-xs text-red-400">{errors.status.message}</p>}
+            {(errors.status?.message || pageErrors?.status?.[0]) && (
+              <p className="text-xs text-red-400">{errors.status?.message || pageErrors?.status?.[0]}</p>
+            )}
           </div>
-
-          <InputField label="Salary" name="salary" type="number" register={register} error={errors.salary} />
-
-          {/* File Upload for Profile Image */}
-          {/* <div className="w-full md:w-1/4">
-            <label className="text-xs text-gray-500">Profile Image</label>
-            <input
-              type="file"
-              {...register("profile_image")}
-              className="ring-[1.5px] ring-gray-300 p-2 rounded-md text-sm w-full"
-            />
-            {errors.profile_image && <p className="text-xs text-red-400">{errors.profile_image.message}</p>}
-          </div> */}
+        <div className="flex flex-wrap gap-2">
+          {/* Salary Field */}
+          <InputField 
+            label="Salary" 
+            name="salary" 
+            type="number" 
+            register={register} 
+            error={errors.salary?.message || pageErrors?.salary?.[0]} 
+          />
 
           {/* Multi-Select for Schools */}
-          <div className="w-full md:w-1/4">
+          <div className="flex flex-col gap-2 w-full md:w-1/2">
             <label className="text-xs text-gray-500">Schools</label>
             <Controller
               name="schools_assistant"
@@ -113,25 +161,51 @@ const AssistantForm = ({ type =[], data , schools  }) => {
                   getOptionLabel={(e) => e.name}
                   getOptionValue={(e) => e.id.toString()}
                   onChange={(val) => field.onChange(val)}
-                  className="basic-multi-select"
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black pr-10"
                   classNamePrefix="select"
                 />
               )}
             />
-            {errors.schools_assistant && <p className="text-xs text-red-400">{errors.schools_assistant.message}</p>}
+            {(errors.schools_assistant?.message || pageErrors?.schools_assistant?.[0]) && (
+              <p className="text-xs text-red-400">{errors.schools_assistant?.message || pageErrors?.schools_assistant?.[0]}</p>
+            )}
           </div>
-        </div>
+          <button
+              type="button"
+              onClick={() => setIsModalOpen(!isModalOpen)}
+              className="items-center inline-flex gap-2 bg-blue-500 hover:bg-blue-600 transition-all text-white px-4 py-2 rounded-md shadow-sm"
+            >
+              {isModalOpen ? (
+                <ChevronUp className="w-4 h-4" />
+              ) : (
+                <ChevronDown className="w-4 h-4" />
+              )}
+              <span>Add User</span>
+            </button>
 
-        <button type="submit" className="bg-blue-500 text-white p-2 rounded-md">
+        </div>
+          
+        </div>
+       
+        <button type="submit" className="bg-blue-500 hover:bg-blue-600 transition-all text-white p-2 rounded-md">
           {type === "create" ? "Create" : "Update"}
         </button>
+       
       </form>
-
-      {type === "update" && (
-        <Link href={`/setting?data=${JSON.stringify(data)}`}>
-          <button className="bg-blue-500 w-full text-white p-2 rounded-md">Go to User</button>
-        </Link>
+     
+     
+      
+        {isModalOpen && (
+        <Register
+          setIsModalOpen={setIsModalOpen}
+          table="assistants"
+          role={"assistant"}
+          isModalOpen={isModalOpen}
+          UserData={userData} // Pass the user data to the Register component
+        />
       )}
+      {/* Render the Register modal */}
+      
     </div>
   );
 };

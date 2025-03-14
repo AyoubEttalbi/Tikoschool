@@ -15,6 +15,7 @@ return new class extends Migration
             $table->id();
             $table->string('name', 50)->unique(); // Matches the `name` field in the data
             $table->timestamps();
+            $table->softDeletes();
         });
     }
 

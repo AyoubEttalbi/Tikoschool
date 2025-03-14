@@ -17,6 +17,7 @@ return new class extends Migration
             $table->string('icon')->nullable(); // Optional icon
             $table->string('color')->nullable(); // Optional color
             $table->timestamps(); // Created at and updated at timestamps
+            $table->softDeletes();
         });
     }
 

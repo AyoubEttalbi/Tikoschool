@@ -2,17 +2,9 @@ import AbsenceLogTable from "./AbsenceLogTable";
 import InvoicesTable from "./InvoicesTable";
 import ScoresTable from "./ScoresTable";
 
-const StudentProfile = () => {
-
-  const invoices = [
-    {
-      billDate: '2024-06',
-      creationDate: '04-Jun-2024 19:24',
-      amount: 300,
-      rest: 0,
-      pack: 'Offer: AC MATH SVT',
-    },
-  ];
+const StudentProfile = ({Student_memberships,invoices = []}) => {
+  
+  
 
   const absences = [
     {
@@ -38,7 +30,7 @@ const StudentProfile = () => {
   return (
     <div className="p-8 bg-white">
       
-      <InvoicesTable invoices={invoices} />
+      <InvoicesTable invoices={invoices} Student_memberships={Student_memberships}/>
       <AbsenceLogTable absences={absences} />
       <ScoresTable scores={scores} />
     </div>

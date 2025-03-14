@@ -15,6 +15,7 @@ return new class extends Migration
             $table->integer('number_of_students')->default(0);
             $table->integer('number_of_teachers')->default(0);
             $table->timestamps();
+            $table->softDeletes();
         });
     }
 

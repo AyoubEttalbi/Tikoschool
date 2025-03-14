@@ -9,7 +9,9 @@ use App\Http\Controllers\StudentsController;
 use App\Http\Controllers\LevelController;
 use App\Http\Controllers\UserController;
 use App\Models\Level;
+
 use App\Http\Controllers\ClassesController;
+use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\OfferController;
 use App\Http\Controllers\AssistantController;
 use App\Http\Controllers\SubjectController;
@@ -39,6 +41,7 @@ Route::middleware('auth')->group(function () {
 
     Route::resource('othersettings', LevelController::class );
     Route::resource('offers', OfferController::class );
+    Route::resource('invoices', InvoiceController ::class );
     
     Route::post('/othersettings', [SubjectController::class, 'store'])->name('othersettings.store');
 
@@ -56,6 +59,16 @@ Route::middleware('auth')->group(function () {
     Route::resource('memberships', MembershipController::class);
     Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update')->middleware(AdminMiddleware::class);
     Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('users.destroy')->middleware(AdminMiddleware::class);
+    Route::get('/results',function(){
+        return Inertia::render('Menu/ResultsPage');
+    });
+    Route::get('/attendance',function(){
+        return Inertia::render('Menu/AttendancePage');
+    });
+    Route::get('/announcements',function(){
+        return Inertia::render('Menu/AnnouncementsPage');
+    });
+    Route::delete('/students/invoices/{invoiceId}', [InvoiceController::class, 'destroy'])->name('invoices.destroy');
 });
 
 

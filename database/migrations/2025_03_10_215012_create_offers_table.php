@@ -16,6 +16,7 @@ class CreateOffersTable extends Migration
             $table->json('subjects'); // Store subjects as JSON
             $table->json('percentage'); // Store percentages as JSON
             $table->timestamps();
+            $table->softDeletes();
         });
     }
 

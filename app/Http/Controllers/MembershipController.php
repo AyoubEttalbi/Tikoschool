@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Membership;
 use App\Models\Teacher;
+use App\Models\Invoice;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
@@ -16,7 +17,7 @@ class MembershipController extends Controller
      */
     public function index()
     {
-        $memberships = Membership::with(['student', 'offer'])->paginate(10);
+        $memberships = Membership::with(['student', 'offer', 'invoices'])->paginate(10);
 
         return Inertia::render('Menu/SingleStudentPage', [
             'memberships' => $memberships,
@@ -37,6 +38,7 @@ class MembershipController extends Controller
             'students' => $students,
             'offers' => $offers,
             'teachers' => $teachers,
+            
         ]);
     }
 
@@ -58,21 +60,23 @@ class MembershipController extends Controller
                 'teachers.*.amount' => 'required|numeric',
             ]);
 
-            // Create the membership record
-            $membership = Membership::create($validated);
-
-            // Update teachers' wallets
-            foreach ($validated['teachers'] as $teacherData) {
-                $teacher = Teacher::find($teacherData['teacherId']);
-                if ($teacher) {
-                    $teacher->increment('wallet', $teacherData['amount']);
-                }
-            }
+            // Create the membership record with payment_status set to 'pending'
+            $membership = Membership::create([
+                'student_id' => $validated['student_id'],
+                'offer_id' => $validated['offer_id'],
+                'teachers' => $validated['teachers'],
+                'payment_status' => 'pending', // Add default payment status
+                'is_active' => false // Membership is inactive until paid
+            ]);
 
             DB::commit();
-            return redirect()->back()->with('success', 'Membership created successfully!');
+            
+            // Redirect to the invoice creation page for this membership
+            // return redirect()->route('member', ['membership_id' => $membership->id])
+            //                  ->with('success', 'Membership created successfully! Please create an invoice.');
         } catch (\Exception $e) {
             DB::rollBack();
+            Log::error('Error creating membership:', ['error' => $e->getMessage()]);
             return redirect()->back()->withErrors(['error' => 'An error occurred while processing your request.']);
         }
     }
@@ -82,7 +86,7 @@ class MembershipController extends Controller
      */
     public function show($id)
     {
-        $membership = Membership::with(['student', 'offer'])->findOrFail($id);
+        $membership = Membership::with(['student', 'offer', 'invoices'])->findOrFail($id);
 
         return Inertia::render('Memberships/Show', [
             'membership' => $membership,
@@ -130,11 +134,22 @@ class MembershipController extends Controller
             // Find the membership
             $membership = Membership::findOrFail($id);
 
-            // Decrement the wallet for old teachers
-            foreach ($membership->teachers as $oldTeacher) {
-                $teacher = Teacher::find($oldTeacher['teacherId']);
-                if ($teacher) {
-                    $teacher->decrement('wallet', $oldTeacher['amount']);
+            // Only update teacher wallets if the membership was previously paid
+            if ($membership->payment_status === 'paid') {
+                // Decrement the wallet for old teachers
+                foreach ($membership->teachers as $oldTeacher) {
+                    $teacher = Teacher::find($oldTeacher['teacherId']);
+                    if ($teacher) {
+                        $teacher->decrement('wallet', $oldTeacher['amount']);
+                    }
+                }
+                
+                // Increment the wallet for new teachers after update
+                foreach ($validated['teachers'] as $newTeacher) {
+                    $teacher = Teacher::find($newTeacher['teacherId']);
+                    if ($teacher) {
+                        $teacher->increment('wallet', $newTeacher['amount']);
+                    }
                 }
             }
 
@@ -145,15 +160,8 @@ class MembershipController extends Controller
                 'teachers' => $validated['teachers'],
             ]);
 
-            // Increment the wallet for new teachers
-            foreach ($validated['teachers'] as $newTeacher) {
-                $teacher = Teacher::find($newTeacher['teacherId']);
-                if ($teacher) {
-                    $teacher->increment('wallet', $newTeacher['amount']);
-                }
-            }
-
             DB::commit();
+            return redirect()->back()->with('success', 'Membership updated successfully.');
             
         } catch (\Exception $e) {
             DB::rollBack();
@@ -173,11 +181,14 @@ class MembershipController extends Controller
             // Find the membership
             $membership = Membership::findOrFail($id);
 
-            // Decrement the wallet for associated teachers
-            foreach ($membership->teachers as $teacherData) {
-                $teacher = Teacher::find($teacherData['teacherId']);
-                if ($teacher) {
-                    $teacher->decrement('wallet', $teacherData['amount']);
+            // Only decrement wallets if the membership was paid
+            if ($membership->payment_status === 'paid') {
+                // Decrement the wallet for associated teachers
+                foreach ($membership->teachers as $teacherData) {
+                    $teacher = Teacher::find($teacherData['teacherId']);
+                    if ($teacher) {
+                        $teacher->decrement('wallet', $teacherData['amount']);
+                    }
                 }
             }
 

@@ -8,7 +8,7 @@ const levelSchema = z.object({
     name: z.string().min(1, { message: "Level name is required!" })
 })
 
-const LevelForm = ({ type, data }) => {
+const LevelForm = ({ type, data,setOpen }) => {
     const {
         register,
         handleSubmit,
@@ -22,9 +22,20 @@ const LevelForm = ({ type, data }) => {
 
     const onSubmit = (formData) => {
         if (type === "create") {
-            router.post("/othersettings/levels", formData)
+            router.post("/othersettings/levels", formData,
+                {
+                    onSuccess: () => {
+                        setOpen(false)
+                    }
+                }
+            )
         } else if (type === "update") {
-            router.put(`/othersettings/${data.id}`, formData)
+            router.put(`/othersettings/${data.id}`, formData,
+                {
+                    onSuccess: () => {
+                        setOpen(false)
+                    }
+            })
         }
     }
 

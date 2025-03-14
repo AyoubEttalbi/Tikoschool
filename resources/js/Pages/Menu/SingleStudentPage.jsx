@@ -156,7 +156,7 @@ const SingleStudentPage = ({ student, Alllevels, Allclasses, Allschools, Alloffe
         
 
         
-        <StudentProfile />
+        <StudentProfile Student_memberships={student.memberships} invoices={student.invoices}        />
 
       </div>
       {/* RIGHT */}

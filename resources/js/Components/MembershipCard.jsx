@@ -5,6 +5,7 @@ export default function MembershipCard({ Student_memberships =[], teachers =[] ,
   console.log("Student_memberships:", Student_memberships);
   console.log("All Teachersssss:", teachers);
   console.log('offers',offers)
+  
   // Helper function to find a teacher's name by ID
   const getTeacherName = (teacherId) => {
     const teacher = teachers.find((t) => t.id === parseInt(teacherId));
@@ -38,7 +39,7 @@ export default function MembershipCard({ Student_memberships =[], teachers =[] ,
                         {teacher.subject}:{" "}
                         <span className="text-gray-800 font-medium">{getTeacherName(teacher.teacherId)}</span>
                       </span>
-                      <span className="text-gray-500">(Amount: {parseFloat(membership.price) * (teacher.percentage / 100) ? parseFloat(membership.price) * (teacher.percentage / 100) : "0"} DH)</span>
+                      <span className="text-gray-500">(Amount: {teacher.amount ? teacher.amount : "0"} DH)</span>
                     </div>
                   ))}
                 </div>

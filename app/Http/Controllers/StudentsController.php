@@ -13,6 +13,7 @@ use App\Models\Subject;
 use App\Models\Offer;
 use App\Models\Teacher;
 use App\Models\Membership;
+use App\Models\Invoice;
 class StudentsController extends Controller
 {
     /**
@@ -21,78 +22,113 @@ class StudentsController extends Controller
  
      public function index(Request $request)
 {
-    $query = Student::query();
-    $levels = Level::all();
-    $classes = Classes::all();
-    $schools = School::all();
+    // Initialize the query with eager loading for relationships
+    $query = Student::with(['class', 'school', 'level']);
+
     // Apply search filter if search term is provided
     if ($request->has('search') && !empty($request->search)) {
-        $searchTerm = $request->search;
-
-        $query->where(function ($q) use ($searchTerm) {
-            // Search by student fields
-            $q->where('firstName', 'LIKE', "%{$searchTerm}%")
-              ->orWhere('lastName', 'LIKE', "%{$searchTerm}%")
-              ->orWhere('massarCode', 'LIKE', "%{$searchTerm}%")
-              ->orWhere('phoneNumber', 'LIKE', "%{$searchTerm}%")
-              ->orWhere('email', 'LIKE', "%{$searchTerm}%")
-              ->orWhere('address', 'LIKE', "%{$searchTerm}%");
-
-            // Search by class name
-            $q->orWhereHas('class', function ($classQuery) use ($searchTerm) {
-                $classQuery->where('name', 'LIKE', "%{$searchTerm}%");
-            });
-
-            // Search by school name
-            $q->orWhereHas('school', function ($schoolQuery) use ($searchTerm) {
-                $schoolQuery->where('name', 'LIKE', "%{$searchTerm}%");
-            });
-
-            // Search by level name
-            $q->orWhereHas('level', function ($levelQuery) use ($searchTerm) {
-                $levelQuery->where('name', 'LIKE', "%{$searchTerm}%");
-            });
-        });
+        $this->applySearchFilter($query, $request->search);
     }
+
+    // Apply additional filters (e.g., school, class, level)
+    $this->applyFilters($query, $request->only(['school', 'class', 'level']));
 
     // Fetch paginated and filtered students
     $students = $query->paginate(10)->withQueryString()->through(function ($student) {
-        return [
-            'id' => $student->id,
-            'name' => $student->firstName . ' ' . $student->lastName,
-            'studentId' => $student->massarCode,
-            'phone' => $student->phoneNumber,
-            'address' => $student->address,
-            'classId' => $student->classId,
-            'schoolId' => $student->schoolId,
-            'firstName' => $student->firstName,
-            'lastName' => $student->lastName,
-            'dateOfBirth' => $student->dateOfBirth,
-            'billingDate' => $student->billingDate,
-            'address' => $student->address,
-            'CIN' => $student->CIN,
-            'phoneNumber' => $student->phoneNumber,
-            'email' => $student->email,
-            'massarCode' => $student->massarCode,
-            'levelId' => $student->levelId,
-            'status' => $student->status,
-            'assurance' => $student->assurance,
-            'guardianNumber' => $student->guardianNumber,
-            'profileImage' => $student->profileImage ? URL::asset('storage/' . $student->profileImage) : null,
-        ];
+        return $this->transformStudentData($student);
     });
 
-
-
+    // Return data to the Inertia frontend
     return Inertia::render('Menu/StudentListPage', [
         'students' => $students,
-        'Alllevels' => $levels,
-        'Allclasses' => $classes,
-        'Allschools' => $schools,
-        'search' => $request->search
+        'Alllevels' => Level::all(),
+        'Allclasses' => Classes::all(),
+        'Allschools' => School::all(),
+        'search' => $request->search,
+        'filters' => $request->only(['school', 'class', 'level']), // Pass filter values to the frontend
     ]);
 }
-     
+
+/**
+ * Apply search filter to the query.
+ */
+protected function applySearchFilter($query, $searchTerm)
+{
+    $query->where(function ($q) use ($searchTerm) {
+        // Search by student fields
+        $q->where('firstName', 'LIKE', "%{$searchTerm}%")
+          ->orWhere('lastName', 'LIKE', "%{$searchTerm}%")
+          ->orWhere('massarCode', 'LIKE', "%{$searchTerm}%")
+          ->orWhere('phoneNumber', 'LIKE', "%{$searchTerm}%")
+          ->orWhere('email', 'LIKE', "%{$searchTerm}%")
+          ->orWhere('address', 'LIKE', "%{$searchTerm}%");
+
+        // Search by class, school, and level names
+        $this->applyRelationshipSearch($q, $searchTerm);
+    });
+}
+
+/**
+ * Apply search filter to relationships (class, school, level).
+ */
+protected function applyRelationshipSearch($query, $searchTerm)
+{
+    $query->orWhereHas('class', function ($classQuery) use ($searchTerm) {
+        $classQuery->where('name', 'LIKE', "%{$searchTerm}%");
+    })
+    ->orWhereHas('school', function ($schoolQuery) use ($searchTerm) {
+        $schoolQuery->where('name', 'LIKE', "%{$searchTerm}%");
+    })
+    ->orWhereHas('level', function ($levelQuery) use ($searchTerm) {
+        $levelQuery->where('name', 'LIKE', "%{$searchTerm}%");
+    });
+}
+
+/**
+ * Apply additional filters (school, class, level).
+ */
+protected function applyFilters($query, $filters)
+{
+    if (!empty($filters['school'])) {
+        $query->where('schoolId', $filters['school']);
+    }
+
+    if (!empty($filters['class'])) {
+        $query->where('classId', $filters['class']);
+    }
+
+    if (!empty($filters['level'])) {
+        $query->where('levelId', $filters['level']);
+    }
+}
+
+/**
+ * Transform student data for the frontend.
+ */
+protected function transformStudentData($student)
+{
+    return [
+        'id' => $student->id,
+        'name' => $student->firstName . ' ' . $student->lastName,
+        'studentId' => $student->massarCode,
+        'phone' => $student->phoneNumber,
+        'address' => $student->address,
+        'classId' => $student->classId,
+        'schoolId' => $student->schoolId,
+        'firstName' => $student->firstName,
+        'lastName' => $student->lastName,
+        'dateOfBirth' => $student->dateOfBirth,
+        'billingDate' => $student->billingDate,
+        'CIN' => $student->CIN,
+        'email' => $student->email,
+        'massarCode' => $student->massarCode,
+        'levelId' => $student->levelId,
+        'status' => $student->status,
+        'assurance' => $student->assurance,
+        'guardianNumber' => $student->guardianNumber,
+        'profileImage' => $student->profileImage ? URL::asset('storage/' . $student->profileImage) : null,
+    ];
+}
 
     /**
      * Show the form for creating a new resource.
@@ -139,7 +175,7 @@ public function show($id)
 {
     // Fetch the student from the database
     $student = Student::find($id);
-    
+
     // If the student doesn't exist, return a 404 error
     if (!$student) {
         abort(404);
@@ -157,11 +193,35 @@ public function show($id)
         ->map(function ($membership) {
             return [
                 'id' => $membership->id,
-                'offer_name' => $membership->offer->offer_name, // Get the offer name
-                'offer_id' => $membership->offer->id, // Get the offer name
-                'price' => $membership->offer->price, // Get the offer price
-                'teachers' => $membership->teachers, // Teachers array (already cast to array)
+                'offer_name' => optional($membership->offer)->offer_name, // Avoid errors if no offer
+                'offer_id' => optional($membership->offer)->id,
+                'price' => optional($membership->offer)->price,
+                'teachers' => $membership->teachers,
                 'created_at' => $membership->created_at,
+                'payment_status' => $membership->payment_status,
+                'is_active' => $membership->is_active,
+                'start_date' => $membership->start_date,
+                'end_date' => $membership->end_date,
+            ];
+        });
+
+    // Fetch invoices for all memberships
+    $invoices = Invoice::whereIn('membership_id', $memberships->pluck('id')) // Get invoices for all membership IDs
+        ->with(['offer']) // Eager load related offer data
+        ->get()
+        ->map(function ($invoice) {
+            return [
+                'id' => $invoice->id,
+                'membership_id' => $invoice->membership_id, // Fixed missing key
+                'months' => $invoice->months,
+                'billDate' => $invoice->billDate,
+                'creationDate' => $invoice->creationDate,
+                'totalAmount' => $invoice->totalAmount,
+                'amountPaid' => $invoice->amountPaid,
+                'rest' => $invoice->rest,
+                'endDate' => $invoice->endDate,
+                'includePartialMonth' => $invoice->includePartialMonth,
+                'partialMonthAmount' => $invoice->partialMonthAmount,
             ];
         });
 
@@ -189,6 +249,7 @@ public function show($id)
         'profileImage' => $student->profileImage ? URL::asset('storage/' . $student->profileImage) : null,
         'created_at' => $student->created_at,
         'memberships' => $memberships, // Embed memberships in the student data
+        'invoices' => $invoices, // Include invoices in the response
     ];
 
     // Fetch schools and classes
@@ -212,6 +273,7 @@ public function show($id)
         }),
     ]);
 }
+
     /**
      * Show the form for editing the specified resource.
      */

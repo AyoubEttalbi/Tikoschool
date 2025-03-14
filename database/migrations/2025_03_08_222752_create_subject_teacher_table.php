@@ -17,6 +17,7 @@ public function up()
         $table->foreignId('teacher_id')->constrained('teachers')->onDelete('cascade');
         $table->foreignId('subject_id')->constrained('subjects')->onDelete('cascade');
         $table->timestamps();
+        $table->softDeletes();
     });
 }
 

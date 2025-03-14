@@ -145,7 +145,7 @@ const UserListPage = ({users}) => {
         </div>
       </div>
       {
-        isModalOpen && <Register isModalOpen={isModalOpen} setIsModalOpen={setIsModalOpen}/> 
+        isModalOpen && <Register isModalOpen={isModalOpen} table={"users"} setIsModalOpen={setIsModalOpen}/> 
       }
           {
         isUpdateOpen && <UpdateUser isUpdateOpen={isUpdateOpen} userData={users} type={"update"} setIsUpdateOpen={setIsUpdateOpen}/> 

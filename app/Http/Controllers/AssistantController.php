@@ -1,6 +1,8 @@
 <?php
+
 namespace App\Http\Controllers;
 
+use App\Events\CheckEmailUnique;
 use App\Models\Assistant;
 use App\Models\School;
 use App\Models\Subject;
@@ -9,6 +11,7 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 
 class AssistantController extends Controller
 {
@@ -16,52 +19,52 @@ class AssistantController extends Controller
      * Display a listing of the resource.
      */
     public function index(Request $request)
-{
-    $schools = School::all();
-    $query = Assistant::query();
+    {
+        $schools = School::all();
+        $query = Assistant::query();
 
-    // Apply search filter if search term is provided
-    if ($request->has('search') && !empty($request->search)) {
-        $searchTerm = $request->search;
+        // Apply search filter if search term is provided
+        if ($request->has('search') && !empty($request->search)) {
+            $searchTerm = $request->search;
 
-        $query->where(function ($q) use ($searchTerm) {
-            // Search by assistant fields
-            $q->where('first_name', 'LIKE', "%{$searchTerm}%")
-              ->orWhere('last_name', 'LIKE', "%{$searchTerm}%")
-              ->orWhere('phone_number', 'LIKE', "%{$searchTerm}%")
-              ->orWhere('email', 'LIKE', "%{$searchTerm}%")
-              ->orWhere('address', 'LIKE', "%{$searchTerm}%");
+            $query->where(function ($q) use ($searchTerm) {
+                // Search by assistant fields
+                $q->where('first_name', 'LIKE', "%{$searchTerm}%")
+                  ->orWhere('last_name', 'LIKE', "%{$searchTerm}%")
+                  ->orWhere('phone_number', 'LIKE', "%{$searchTerm}%")
+                  ->orWhere('email', 'LIKE', "%{$searchTerm}%")
+                  ->orWhere('address', 'LIKE', "%{$searchTerm}%");
 
-            // Search by school name (if assistant has a relationship with schools)
-            $q->orWhereHas('schools', function ($schoolQuery) use ($searchTerm) {
-                $schoolQuery->where('name', 'LIKE', "%{$searchTerm}%");
+                // Search by school name (if assistant has a relationship with schools)
+                $q->orWhereHas('schools', function ($schoolQuery) use ($searchTerm) {
+                    $schoolQuery->where('name', 'LIKE', "%{$searchTerm}%");
+                });
             });
+        }
+
+        // Fetch paginated and filtered assistants
+        $assistants = $query->paginate(10)->withQueryString()->through(function ($assistant) {
+            return [
+                'id' => $assistant->id,
+                'name' => $assistant->first_name . ' ' . $assistant->last_name,
+                'phone_number' => $assistant->phone_number,
+                'first_name' => $assistant->first_name,
+                'last_name' => $assistant->last_name,
+                'email' => $assistant->email,
+                'address' => $assistant->address,
+                'status' => $assistant->status,
+                'salary' => $assistant->salary,
+                'profile_image' => $assistant->profile_image ? URL::asset('storage/' . $assistant->profile_image) : null,
+                'schools_assistant' => $assistant->schools,
+            ];
         });
+
+        return Inertia::render('Menu/AssistantsListPage', [
+            'assistants' => $assistants,
+            'schools' => $schools,
+            'search' => $request->search,
+        ]);
     }
-
-    // Fetch paginated and filtered assistants
-    $assistants = $query->paginate(10)->withQueryString()->through(function ($assistant) {
-        return [
-            'id' => $assistant->id,
-            'name' => $assistant->first_name . ' ' . $assistant->last_name,
-            'phone_number' => $assistant->phone_number,
-            'first_name' => $assistant->first_name,
-            'last_name' => $assistant->last_name,
-            'email' => $assistant->email,
-            'address' => $assistant->address,
-            'status' => $assistant->status,
-            'salary' => $assistant->salary,
-            'profile_image' => $assistant->profile_image ? URL::asset('storage/' . $assistant->profile_image) : null,
-            'schools_assistant' => $assistant->schools,
-        ];
-    });
-
-    return Inertia::render('Menu/AssistantsListPage', [
-        'assistants' => $assistants,
-        'schools' => $schools,
-        'search' => $request->search
-    ]);
-}
 
     /**
      * Show the form for creating a new resource.
@@ -81,34 +84,50 @@ class AssistantController extends Controller
 
     /**
      * Store a newly created resource in storage.
-     */public function store(Request $request)
-{
-    $validatedData = $request->validate([
-        'first_name' => 'required|string|max:100',
-        'last_name' => 'required|string|max:100',
-        'email' => 'required|string|email|max:255|unique:assistants,email',
-        'phone_number' => 'nullable|string|max:20',
-        'address' => 'nullable|string|max:255',
-        'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
-        'salary' => 'required|numeric|min:0',
-        'status' => 'required|in:active,inactive',
-        'schools' => 'required|array', // Ensure schools is required and an array
-        'schools.*' => 'exists:schools,id', // Ensure each school ID exists in the schools table
-    ]);
+     */
+    public function store(Request $request)
+    
+    {
+        try {
+            $validatedData = $request->validate([
+                'first_name' => 'required|string|max:100',
+                'last_name' => 'required|string|max:100',
+                'email' => 'required|string|email|max:255|unique:assistants,email',
+                'phone_number' => 'nullable|string|max:20',
+                'address' => 'nullable|string|max:255',
+                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
+                'salary' => 'required|numeric|min:0',
+                'status' => 'required|in:active,inactive',
+                'schools' => 'required|array',
+                'schools.*' => 'exists:schools,id',
+            ]);
 
-    // Handle profile image upload (if any)
-    if ($request->hasFile('profile_image')) {
-        $validatedData['profile_image'] = $request->file('profile_image')->store('assistants', 'public');
+            // Handle profile image upload (if any)
+            if ($request->hasFile('profile_image')) {
+                $validatedData['profile_image'] = $request->file('profile_image')->store('assistants', 'public');
+            }
+
+            // Dispatch the event to check email uniqueness
+            event(new CheckEmailUnique($request->email));
+
+            // Create the assistant record
+            $assistant = Assistant::create($validatedData);
+
+            // Sync schools with the assistant
+            $assistant->schools()->sync($request->schools);
+
+            return redirect()->route('assistants.index')->with('success', 'Assistant created successfully.');
+        } catch (ValidationException $e) {
+            return redirect()->back()
+                ->withErrors($e->errors())
+                ->withInput();
+        } catch (\Exception $e) {
+            return redirect()->back()
+                ->with('error', 'An error occurred while creating the assistant: ' . $e->getMessage())
+                ->withInput();
+        }
     }
 
-    // Create the assistant record
-    $assistant = Assistant::create($validatedData);
-
-    // Sync schools with the assistant
-    $assistant->schools()->sync($request->schools);
-
-    return redirect()->route('assistants.index')->with('success', 'Assistant created successfully.');
-}
     /**
      * Display the specified resource.
      */
@@ -164,47 +183,66 @@ class AssistantController extends Controller
      * Update the specified resource in storage.
      */
     public function update(Request $request, Assistant $assistant)
-{
-    $validatedData = $request->validate([
-        'first_name' => 'required|string|max:100',
-        'last_name' => 'required|string|max:100',
-        'email' => 'required|string|email|max:255|unique:assistants,email,' . $assistant->id,
-        'phone_number' => 'nullable|string|max:20',
-        'address' => 'nullable|string|max:255',
-        'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
-        'salary' => 'required|numeric|min:0',
-        'status' => 'required|in:active,inactive',
-        'schools' => 'array', // Add validation for schools
-        'schools.*' => 'exists:schools,id',
-    ]);
+    {
+        try {
+            $validatedData = $request->validate([
+                'first_name' => 'required|string|max:100',
+                'last_name' => 'required|string|max:100',
+                'email' => 'required|string|email|max:255|unique:assistants,email,' . $assistant->id,
+                'phone_number' => 'nullable|string|max:20',
+                'address' => 'nullable|string|max:255',
+                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
+                'salary' => 'required|numeric|min:0',
+                'status' => 'required|in:active,inactive',
+                'schools' => 'array',
+                'schools.*' => 'exists:schools,id',
+            ]);
 
-    // Handle profile image upload
-    if ($request->hasFile('profile_image')) {
-        if ($assistant->profile_image) {
-            Storage::disk('public')->delete($assistant->profile_image);
+            // Handle profile image upload
+            if ($request->hasFile('profile_image')) {
+                if ($assistant->profile_image) {
+                    Storage::disk('public')->delete($assistant->profile_image);
+                }
+                $validatedData['profile_image'] = $request->file('profile_image')->store('assistants', 'public');
+            }
+
+            // Dispatch the event to check email uniqueness
+            event(new CheckEmailUnique($request->email, $assistant->id));
+
+            // Update the assistant record
+            $assistant->update($validatedData);
+
+            // Sync schools with the assistant
+            $assistant->schools()->sync($request->schools ?? []);
+
+            return redirect()->route('assistants.show', $assistant->id)->with('success', 'Assistant updated successfully.');
+        } catch (ValidationException $e) {
+            return redirect()->back()
+                ->withErrors($e->errors())
+                ->withInput();
+        } catch (\Exception $e) {
+            return redirect()->back()
+                ->with('error', 'An error occurred while updating the assistant: ' . $e->getMessage())
+                ->withInput();
         }
-        $validatedData['profile_image'] = $request->file('profile_image')->store('assistants', 'public');
     }
 
-    // Update the assistant record
-    $assistant->update($validatedData);
-
-    $assistant->schools()->sync($request->schools ?? []);
-
-    return redirect()->route('assistants.show', $assistant->id)->with('success', 'Assistant updated successfully.');
-}
     /**
      * Remove the specified resource from storage.
      */
     public function destroy(Assistant $assistant)
     {
-        if ($assistant->profile_image) {
-            Storage::disk('public')->delete($assistant->profile_image);
+        try {
+            if ($assistant->profile_image) {
+                Storage::disk('public')->delete($assistant->profile_image);
+            }
+
+            $assistant->delete();
+
+            return redirect()->route('assistants.index')->with('success', 'Assistant deleted successfully.');
+        } catch (\Exception $e) {
+            return redirect()->back()
+                ->with('error', 'An error occurred while deleting the assistant: ' . $e->getMessage());
         }
-
-
-        $assistant->delete();
-
-        return redirect()->route('assistants.index')->with('success', 'Assistant deleted successfully.');
     }
 }

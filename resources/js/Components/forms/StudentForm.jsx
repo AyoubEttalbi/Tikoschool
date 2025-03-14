@@ -80,7 +80,7 @@ const StudentForm = ({ type, data, levels, classes, schools,setOpen }) => {
       </h1>
       <span className="text-xs text-gray-400 font-medium">Student Information</span>
 
-      <div className="flex justify-between flex-wrap gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 md:grid-cols-2 gap-4">
         <InputField
           label="First Name"
           name="firstName"
@@ -107,7 +107,7 @@ const StudentForm = ({ type, data, levels, classes, schools,setOpen }) => {
 
       <span className="text-xs text-gray-400 font-medium">Additional Information</span>
 
-      <div className="flex justify-between flex-wrap gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 md:grid-cols-2 gap-4">
         <InputField
           label="Billing Date"
           name="billingDate"
@@ -134,7 +134,7 @@ const StudentForm = ({ type, data, levels, classes, schools,setOpen }) => {
 
       <span className="text-xs text-gray-400 font-medium">Contact Information</span>
 
-      <div className="flex justify-between flex-wrap gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 md:grid-cols-2 gap-4">
         <InputField
           label="CIN"
           name="CIN"
@@ -160,7 +160,7 @@ const StudentForm = ({ type, data, levels, classes, schools,setOpen }) => {
 
       <span className="text-xs text-gray-400 font-medium">Enrollment Information</span>
 
-      <div className="flex justify-between flex-wrap gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 md:grid-cols-2 gap-4">
         <InputField
           label="Massar Code"
           name="massarCode"
@@ -170,7 +170,7 @@ const StudentForm = ({ type, data, levels, classes, schools,setOpen }) => {
         />
 
         {/* Level Selection */}
-        <div className="flex flex-col gap-2 w-full md:w-1/4">
+        <div className="flex flex-col gap-2 w-full ">
           <label className="text-xs text-gray-600">Level</label>
           <select className="ring-1 ring-gray-300 p-2 rounded-md text-sm w-full" {...register("levelId")}>
             <option value="">Select Level</option>
@@ -184,7 +184,7 @@ const StudentForm = ({ type, data, levels, classes, schools,setOpen }) => {
         </div>
 
         {/* Class Selection */}
-        <div className="flex flex-col gap-2 w-full md:w-1/4">
+        <div className="flex flex-col gap-2 w-full">
           <label className="text-xs text-gray-600">Class</label>
           <select className="ring-1 ring-gray-300 p-2 rounded-md text-sm w-full" {...register("classId")}>
             <option value="">Select Class</option>
@@ -198,7 +198,7 @@ const StudentForm = ({ type, data, levels, classes, schools,setOpen }) => {
         </div>
 
         {/* School Selection */}
-        <div className="flex flex-col gap-2 w-full md:w-1/4">
+        <div className="flex flex-col gap-2 w-full ">
           <label className="text-xs text-gray-600">School</label>
           <select className="ring-1 ring-gray-300 p-2 rounded-md text-sm w-full" {...register("schoolId")}>
             <option value="">Select School</option>
@@ -210,7 +210,7 @@ const StudentForm = ({ type, data, levels, classes, schools,setOpen }) => {
           </select>
           {errors.schoolId?.message && <p className="text-xs text-red-400">{errors.schoolId.message}</p>}
         </div>
-        <div className="flex flex-col gap-2 w-full md:w-1/4">
+        <div className="flex flex-col gap-2 w-full ">
           <label className="text-xs text-gray-600">Status</label>
           <select
             className="ring-[1.5px] ring-gray-300 p-2 rounded-md text-sm w-full"
@@ -224,7 +224,7 @@ const StudentForm = ({ type, data, levels, classes, schools,setOpen }) => {
         </div>
 
         {/* Assurance */}
-        <div className="flex flex-col gap-2 w-full md:w-1/4">
+        <div className="flex flex-col gap-2 w-full">
           <label className="text-xs text-gray-600">Assurance</label>
           <select
             className="ring-[1.5px] ring-gray-300 p-2 rounded-md text-sm w-full"

@@ -6,6 +6,7 @@ import DashboardLayout from '@/Layouts/DashboardLayout';
 
 import React from 'react';
 import { Link, usePage } from '@inertiajs/react';
+import { Eye } from 'lucide-react';
 
 export default function SingleClassPage({ className, students, Alllevels, Allclasses, Allschools, teachers }) {
     const role = usePage().props.auth.user.role;
@@ -26,7 +27,7 @@ export default function SingleClassPage({ className, students, Alllevels, Allcla
         <tr key={item.id} className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight">
             <td className="flex items-center gap-4 p-4">
                 <img
-                    src={item.photo}
+                    src='/studentProfile.png'
                     alt=""
                     width={40}
                     height={40}
@@ -45,7 +46,7 @@ export default function SingleClassPage({ className, students, Alllevels, Allcla
                 <div className="flex items-center gap-2">
                     <Link href={`/students/${item.id}`}>
                         <button className="w-7 h-7 flex items-center justify-center rounded-full bg-lamaSky">
-                            <img src="/view.png" alt="" width={16} height={16} />
+                        <Eye className="w-4 h-4 text-white"/>
                         </button>
                     </Link>
                     {role === "admin" && (
