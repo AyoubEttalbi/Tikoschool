@@ -42,7 +42,7 @@ Route::middleware('auth')->group(function () {
     Route::resource('othersettings', LevelController::class );
     Route::resource('offers', OfferController::class );
     Route::resource('invoices', InvoiceController ::class );
-    
+    Route::get('/invoices/{id}/pdf', [InvoiceController::class, 'generateInvoicePdf'])->name('invoices.pdf');
     Route::post('/othersettings', [SubjectController::class, 'store'])->name('othersettings.store');
 
     Route::put('/othersettings/{subject}', [SubjectController::class, 'update'])->name('othersettings.update');

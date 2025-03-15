@@ -206,7 +206,7 @@ public function show($id)
         });
 
     // Fetch invoices for all student
-    $invoices = Invoice::where('student_id', $student->id) // Get invoices for the specific student
+    $invoices = Invoice::where('student_id', $student->id ) // Get invoices for the specific student
     ->with(['offer']) // Eager load related offer data
     ->get()
     ->map(function ($invoice) {

@@ -6,7 +6,7 @@ import { z } from "zod"
 import InputField from "../InputField"
 import { router } from "@inertiajs/react" // Import Inertia's router
 import { useEffect, useState } from "react"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select"
 
 // Define the schema with assurance as a boolean
 const schema = z.object({
@@ -23,7 +23,7 @@ const schema = z.object({
   levelId: z.string().min(1, { message: "Level is required!" }), // Only check for non-empty
   classId: z.string().min(1, { message: "Class is required!" }), // Only check for non-empty
   schoolId: z.string().min(1, { message: "School is required!" }),
-  status: z.enum(["active", "inactive"], { message: "Status is required!" }),
+  status: z.enum(["active", "inactive"]).optional(),
   assurance: z.any().optional(),
 })
 
@@ -49,6 +49,7 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
     defaultValues: {
       billingDate: defaultBillingDate,
       assurance: data?.assurance === 1 ? "1" : "0",
+      status: data?.status || "active",
       ...data, // Spread existing data for update
     },
   })
@@ -66,29 +67,30 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
       setSelectedAssurance(data.assurance === 1 ? "1" : "0")
     }
   }, [data, setValue])
-
+  
   // Handle form submission
   const onSubmit = (formData) => {
     // Convert assurance to 1 (true) or 0 (false) before submitting
     const updatedFormData = {
       ...formData,
+      
       assurance: formData.assurance === "1" ? 1 : 0,
       levelId: formData.levelId.toString(),
       classId: formData.classId.toString(),
       schoolId: formData.schoolId.toString(),
     }
-
-    if (type === "create") {
-      // Send a POST request to create a new student
-      router.post("/students", updatedFormData, {
-        onSuccess: () => setOpen(false),
-      })
-    } else if (type === "update") {
-      // Send a PUT request to update an existing student
-      router.put(`/students/${data.id}`, updatedFormData, {
-        onSuccess: () => setOpen(false),
-      })
-    }
+    console.log("Form submitted with data:", formData)
+    // if (type === "create") {
+    //   // Send a POST request to create a new student
+    //   router.post("/students", updatedFormData, {
+    //     onSuccess: () => setOpen(false),
+    //   })
+    // } else if (type === "update") {
+    //   // Send a PUT request to update an existing student
+    //   router.put(`/students/${data.id}`, updatedFormData, {
+    //     onSuccess: () => setOpen(false),
+    //   })
+    // }
   }
 
   return (
@@ -251,10 +253,10 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
         <div className="flex flex-col gap-2 w-full">
           <label className="text-xs text-gray-600">Status</label>
           <Select
-            value={selectedStatus}
+            value={selectedStatus} // Bind to state
             onValueChange={(value) => {
-              setSelectedStatus(value)
-              setValue("status", value)
+              setSelectedStatus(value || "active"); // Update local state
+              setValue("status", value); // Update form value
             }}
           >
             <SelectTrigger className="w-full bg-white ring-1 ring-gray-300 p-2 rounded-md text-sm">

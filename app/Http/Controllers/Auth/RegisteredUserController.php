@@ -64,11 +64,11 @@ public function store(Request $request): RedirectResponse
         event(new Registered($user));
 
         // Redirect with success message
-        return redirect(route('register', absolute: false))->with('success', 'User created successfully!');
+        return redirect()->back()->with('success', 'User created successfully!');
 
     } catch (ValidationException $e) {
         // Handle validation errors (e.g., missing fields, invalid format)
-        return redirect(route('register', absolute: false))
+        return redirect()->back()
             ->withErrors($e->errors())
             ->withInput();
     } catch (QueryException $e) {
@@ -80,12 +80,12 @@ public function store(Request $request): RedirectResponse
             $errorMessage = 'The email address is already in use.';
         }
 
-        return redirect(route('register', absolute: false))
+        return redirect()->back()
             ->withErrors(['email' => $errorMessage])
             ->withInput();
     } catch (\Exception $e) {
         // Handle any other unexpected exceptions
-        return redirect(route('register', absolute: false))
+        return redirect()->back()
             ->withErrors(['general' => 'An unexpected error occurred. Please try again later.'])
             ->withInput();
     }

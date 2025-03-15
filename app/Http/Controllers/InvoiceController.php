@@ -9,7 +9,7 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-
+use Barryvdh\DomPDF\Facade\Pdf;
 class InvoiceController extends Controller
 {
     /**
@@ -235,5 +235,29 @@ class InvoiceController extends Controller
             Log::error('Error deleting invoice:', ['error' => $e->getMessage()]);
             return redirect()->back()->withErrors(['error' => 'An error occurred while deleting the invoice.']);
         }
+    }
+
+    // Generate and download the invoice as a PDF
+    public function generateInvoicePdf($id)
+    {
+       
+        $invoice = \App\Models\Invoice::with(['membership.offer', 'student'])
+            ->findOrFail($id);
+
+        // Extract membership, student, and offer details
+        $membership = $invoice->membership;
+        $student = $invoice->student;
+        $offerName = $membership?->offer?->offer_name ?? 'No offer available';
+
+        // Load the view for the invoice
+        $pdf = Pdf::loadView('invoices.invoice_pdf', [
+            'invoice' => $invoice,
+            'membership' => $membership,
+            'student' => $student,
+            'offerName' => $offerName,
+        ]);
+
+        // Return the PDF as a downloadable file
+        return $pdf->download('invoice_' . $invoice->id . '.pdf');
     }
 }

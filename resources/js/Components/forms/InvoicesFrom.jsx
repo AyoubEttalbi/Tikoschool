@@ -165,14 +165,14 @@ const InvoicesForm = ({ type, data, setOpen, StudentMemberships = [], studentId 
                     id="membership_id"
                     {...register("membership_id")}
                     className="p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
+                    >
                     <option value="">Select a membership</option>
-                    {StudentMemberships.map((membership) => (
+                    {StudentMemberships.filter((membership) => membership.payment_status !== "paid").map((membership) => (
                         <option key={membership.id} value={membership.id}>
-                            {membership.offer_name} (Price: {membership.price})
+                        {membership.offer_name} (Price: {membership.price})
                         </option>
                     ))}
-                </select>
+                    </select>
                 {errors.membership_id && (
                     <span className="text-sm text-red-500">{errors.membership_id.message}</span>
                 )}

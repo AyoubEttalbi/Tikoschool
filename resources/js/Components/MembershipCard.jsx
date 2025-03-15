@@ -1,4 +1,4 @@
-import { Clock, Edit, GraduationCap, Users, DollarSign, Calendar, UserCheck } from "lucide-react";
+import { Clock, Edit, GraduationCap, Users, DollarSign, Calendar, UserCheck, Check, X } from "lucide-react";
 import FormModal from "./FormModal";
 
 export default function MembershipCard({ Student_memberships =[], teachers =[] ,offers=[] ,studentId}) {
@@ -22,7 +22,9 @@ export default function MembershipCard({ Student_memberships =[], teachers =[] ,
                 <GraduationCap className="h-5 w-5 text-gray-600" />
                 <span>
                   Offer: <span className="text-gray-900 font-semibold">{membership.offer_name}</span>
+                  
                 </span>
+                <span >{membership.payment_status === "paid" ? <Check className="text-green-500"/> : <X className="text-red-500"/>}</span>
               </div>
 
               <div className="space-y-2">

@@ -91,7 +91,7 @@ const AssistantForm = ({ type, data, schools, setOpen }) => {
         </h1>
 
         {/* Personal Information */}
-        <div className="flex flex-wrap gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-3 md:grid-cols-2 gap-4">
           <InputField 
             label="First Name" 
             name="first_name" 
@@ -124,7 +124,7 @@ const AssistantForm = ({ type, data, schools, setOpen }) => {
           />
 
           {/* Status Dropdown */}
-          <div className="flex flex-col gap-2 w-full md:w-1/4">
+          <div className="flex flex-col gap-2 w-full ">
             <label className="text-xs text-gray-500">Status</label>
             <select
               className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black pr-10"
@@ -137,7 +137,7 @@ const AssistantForm = ({ type, data, schools, setOpen }) => {
               <p className="text-xs text-red-400">{errors.status?.message || pageErrors?.status?.[0]}</p>
             )}
           </div>
-        <div className="flex flex-wrap gap-2">
+      
           {/* Salary Field */}
           <InputField 
             label="Salary" 
@@ -148,7 +148,7 @@ const AssistantForm = ({ type, data, schools, setOpen }) => {
           />
 
           {/* Multi-Select for Schools */}
-          <div className="flex flex-col gap-2 w-full md:w-1/2">
+          <div className="flex flex-col gap-2 w-full ">
             <label className="text-xs text-gray-500">Schools</label>
             <Controller
               name="schools_assistant"
@@ -173,7 +173,7 @@ const AssistantForm = ({ type, data, schools, setOpen }) => {
           <button
               type="button"
               onClick={() => setIsModalOpen(!isModalOpen)}
-              className="items-center inline-flex gap-2 bg-blue-500 hover:bg-blue-600 transition-all text-white px-4 py-2 rounded-md shadow-sm"
+              className="items-center mt-7 h-10 inline-flex gap-2 bg-blue-500 hover:bg-blue-600 transition-all text-white px-4 py-2 rounded-md shadow-sm"
             >
               {isModalOpen ? (
                 <ChevronUp className="w-4 h-4" />
@@ -183,7 +183,7 @@ const AssistantForm = ({ type, data, schools, setOpen }) => {
               <span>Add User</span>
             </button>
 
-        </div>
+       
           
         </div>
        

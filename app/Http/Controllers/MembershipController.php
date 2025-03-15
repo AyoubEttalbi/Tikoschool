@@ -177,30 +177,31 @@ class MembershipController extends Controller
     {
         DB::beginTransaction();
 
-        try {
+        // try {
             // Find the membership
-            $membership = Membership::findOrFail($id);
+            // $membership = Membership::findOrFail($id);
 
             // Only decrement wallets if the membership was paid
-            if ($membership->payment_status === 'paid') {
-                // Decrement the wallet for associated teachers
-                foreach ($membership->teachers as $teacherData) {
-                    $teacher = Teacher::find($teacherData['teacherId']);
-                    if ($teacher) {
-                        $teacher->decrement('wallet', $teacherData['amount']);
-                    }
-                }
-            }
-
+            // if ($membership->payment_status === 'paid') {
+            //     // Decrement the wallet for associated teachers
+            //     foreach ($membership->teachers as $teacherData) {
+            //         $teacher = Teacher::find($teacherData['teacherId']);
+            //         if ($teacher) {
+            //             $teacher->decrement('wallet', $teacherData['amount']);
+            //         }
+            //     }
+            // }
+            
             // Delete the membership
+            // $membership->delete();
+            $membership = Membership::findOrFail($id);
             $membership->delete();
-
             DB::commit();
             return redirect()->back()->with('success', 'Membership deleted successfully.');
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Error deleting membership:', ['error' => $e->getMessage()]);
-            return redirect()->back()->withErrors(['error' => 'An error occurred while deleting the membership.']);
-        }
+        // } catch (\Exception $e) {
+        //     DB::rollBack();
+        //     Log::error('Error deleting membership:', ['error' => $e->getMessage()]);
+        //     return redirect()->back()->withErrors(['error' => 'An error occurred while deleting the membership.']);
+        // }
     }
 }
