@@ -69,7 +69,7 @@ const SingleStudentPage = ({ student, Alllevels, Allclasses, Allschools, Alloffe
                 </div>
               </div>
             </div>
-            <FormModal table="student" type="updateIcon2" data={student} id={student.id} levels={Alllevels} classes={Allclasses} schools={Allschools} />
+            <FormModal table="student" type="update" icon={'updateIcon2'} data={student} id={student.id} levels={Alllevels} classes={Allclasses} schools={Allschools} />
           </div>
           {/* SMALL CARDS */}
           <div className="flex-1 flex gap-4 justify-between flex-wrap">

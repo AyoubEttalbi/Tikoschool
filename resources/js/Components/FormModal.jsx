@@ -1,4 +1,4 @@
-import { Edit, Plus, Trash2, UserRoundPen } from 'lucide-react';
+import { Edit, Icon, Plus, Trash2, UserRoundPen } from 'lucide-react';
 import React, { lazy, Suspense, useState } from 'react';
 import DeleteConfirmation from './DeleteConfirmation';
 import { X } from 'lucide-react';
@@ -24,7 +24,7 @@ const forms = {
   invoice: InvoicesFrom
 };
 
-const FormModal = ({ table, type, data, id, levels, route,subjects,classes, schools,offers,teachers,studentId,StudentMemberships }) => {
+const FormModal = ({ table, type,icon, data, id, levels, route,subjects,classes, schools,offers,teachers,studentId,StudentMemberships }) => {
   // console.log('classes frmaldata',classes);
   const size = type === "create" ? "w-8 h-8" : "w-7 h-7";
   const bgColor =
@@ -78,7 +78,7 @@ const FormModal = ({ table, type, data, id, levels, route,subjects,classes, scho
           <Edit className="h-5 w-5 " />
         </button>
       ) :
-         type === "updateIcon2" ? (
+         icon === "updateIcon2" ? (
           <button className='flex items-center justify-center rounded-full w-10 h-1 ' onClick={() => setOpen(true)} >
             <UserRoundPen className='w-10  text-black' />
           </button>

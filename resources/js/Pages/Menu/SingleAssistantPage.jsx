@@ -74,6 +74,7 @@ const SingleAssistantPage = ({ assistant, classes, subjects, schools }) => {
                     schools={schools}
                     groups={classes}
                     subjects={subjects}
+                    icon={'updateIcon2'}
                   />
                 )}
           </div>

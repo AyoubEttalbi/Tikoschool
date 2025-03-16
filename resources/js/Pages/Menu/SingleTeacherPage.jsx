@@ -70,11 +70,13 @@ const SingleTeacherPage = ({ teacher, classes, subjects, schools }) => {
             {role === "admin" && (
                   <FormModal
                     table="teacher"
-                    type="updateIcon2"
+                    type="update"
                     data={teacher}
                     schools={schools}
                     groups={classes}
                     subjects={subjects}
+                    icon={'updateIcon2'}
+                    
                   />
                 )}
           </div>

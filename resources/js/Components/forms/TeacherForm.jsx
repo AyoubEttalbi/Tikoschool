@@ -86,7 +86,11 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
         },
       })
     } else if (type === "update") {
-      router.put(`/teachers/${data.id}`, formattedData)
+      router.put(`/teachers/${data.id}`, formattedData , {
+        onSuccess: () => {
+          setOpen(false)
+        },
+      })
     }
   })
 
