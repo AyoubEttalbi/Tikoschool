@@ -50,7 +50,7 @@ const AssistantsListPage = ({assistants = [], schools}) => {
     >
       <td className="flex items-center gap-4 p-4">
         <img
-          src="/assistantProfile.png"
+          src={assistant.profile_image ? assistant.profile_image : "/assistantProfile.png"}
           alt={`${assistant.first_name} ${assistant.last_name}`}
           width={40}
           height={40}

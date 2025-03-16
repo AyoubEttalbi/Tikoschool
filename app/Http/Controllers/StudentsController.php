@@ -46,6 +46,7 @@ class StudentsController extends Controller
         'Allschools' => School::all(),
         'search' => $request->search,
         'filters' => $request->only(['school', 'class', 'level']), // Pass filter values to the frontend
+        'Allmemberships' => Membership::all(),
     ]);
 }
 

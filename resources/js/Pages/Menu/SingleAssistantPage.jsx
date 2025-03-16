@@ -22,7 +22,7 @@ const SingleAssistantPage = ({ assistant, classes, subjects, schools }) => {
           <div className="bg-lamaSky py-6 px-4 rounded-md flex-1 flex gap-4">
             <div className="w-1/3">
               <img
-                src={assistant.photo || "https://images.pexels.com/photos/2888150/pexels-photo-2888150.jpeg?auto=compress&cs=tinysrgb&w=1200"}
+                src={assistant.profile_image || "https://images.pexels.com/photos/2888150/pexels-photo-2888150.jpeg?auto=compress&cs=tinysrgb&w=1200"}
                 alt={assistant.last_name}
                 width={144}
                 height={144}

@@ -7,7 +7,7 @@ import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Eye, RotateCcw } from "lucide-react";
 import FormModal from "../../Components/FormModal";
 import FilterForm from '@/Components/FilterForm';
-
+import { motion } from "framer-motion";
 
 const columns = [
   {
@@ -35,14 +35,20 @@ const columns = [
     className: "hidden lg:table-cell",
   },
   {
+    header: "Membership status",
+    accessor: "membershipStatus",
+    className: "hidden lg:table-cell",
+  },
+  {
     header: "Actions",
     accessor: "action",
+    className: "text-center",
   },
 ];
 
-const StudentListPage = ({ students, Allclasses, Alllevels, Allschools, filters: initialFilters }) => {
+const StudentListPage = ({ students, Allclasses, Alllevels, Allschools, filters: initialFilters, Allmemberships }) => {
   const role = usePage().props.auth.user.role;
-
+  console.log("Allmemberships", Allmemberships);
   // State for filters and search
   const [filters, setFilters] = useState({
     school: initialFilters.school || '',
@@ -69,11 +75,11 @@ const StudentListPage = ({ students, Allclasses, Alllevels, Allschools, filters:
   // Handle filter changes
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
-    
+
     // Update the filters state
     const newFilters = { ...filters, [name]: value };
     setFilters(newFilters);
-    
+
     // Use Inertia to navigate with the new filters while resetting to page 1
     router.get(route('students.index'), {
       ...newFilters,
@@ -108,7 +114,7 @@ const StudentListPage = ({ students, Allclasses, Alllevels, Allschools, filters:
 
   // Render table rows
   const renderRow = (item) => (
-    <tr 
+    <tr
       key={item.id}
       className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
     >
@@ -129,17 +135,60 @@ const StudentListPage = ({ students, Allclasses, Alllevels, Allschools, filters:
       <td className="hidden md:table-cell">{Allclasses.find((group) => group.id === item.classId)?.name}</td>
       <td className="hidden md:table-cell">{item.phone}</td>
       <td className="hidden md:table-cell">{item.address}</td>
-      <td>
-        <div className="flex items-center gap-2">
+      <td className="hidden md:table-cell w-1/12">
+  {Allmemberships.filter(membership => membership.student_id === item.id).length > 0 ? (
+    <div className="flex flex-col space-y-1">
+      {/* Payment ratio with colored stats */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center">
+          <span className="font-semibold text-emerald-600">
+            {Allmemberships.filter(membership => membership.student_id === item.id && membership.payment_status === "paid").length}
+          </span>
+          <span className="mx-1 text-gray-400">/</span>
+          <span className="font-medium text-gray-700">
+            {Allmemberships.filter(membership => membership.student_id === item.id).length}
+          </span>
+        </div>
+      </div>
+
+      {/* Progress bar with animation */}
+      {(() => {
+        const paid = Allmemberships.filter(membership => membership.student_id === item.id && membership.payment_status === "paid").length;
+        const total = Allmemberships.filter(membership => membership.student_id === item.id).length;
+        const percentage = total > 0 ? (paid / total) * 100 : 0;
+
+        let bgColorClass = "bg-gray-300";
+        if (percentage === 100) bgColorClass = "bg-emerald-500";
+        else if (percentage >= 75) bgColorClass = "bg-green-500";
+        else if (percentage >= 50) bgColorClass = "bg-amber-500";
+        else if (percentage > 0) bgColorClass = "bg-orange-500";
+        else bgColorClass = "bg-red-500";
+
+        return (
+          <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+            <motion.div
+              className={`h-full rounded-full ${bgColorClass}`}
+              initial={{ width: "0%" }}
+              animate={{ width: `${percentage}%` }}
+              transition={{ duration: 0.8, ease: "easeInOut" }} // Smooth animation
+            ></motion.div>
+          </div>
+        );
+      })()}
+    </div>
+  ) : "-"}
+</td>
+      <td className=' p-4'>
+        <div className="flex items-center gap-2 justify-center">
           <Link href={`students/${item.id}`}>
             <button className="w-7 h-7 flex items-center justify-center rounded-full bg-lamaSky">
-              <Eye className="w-4 h-4 text-white"/>
+              <Eye className="w-4 h-4 text-white" />
             </button>
           </Link>
           {role === "admin" && (
             <>
               <FormModal table="student" type="update" data={item} levels={Alllevels} classes={Allclasses} schools={Allschools} />
-              <FormModal table="student" type="delete" id={item.id} route="students"/>
+              <FormModal table="student" type="delete" id={item.id} route="students" />
             </>
           )}
         </div>
@@ -158,14 +207,14 @@ const StudentListPage = ({ students, Allclasses, Alllevels, Allschools, filters:
             value={filters.search}
             onChange={(value) => setFilters((prev) => ({ ...prev, search: value }))}
           />
-          
+
           <div className="flex items-center gap-4 self-end">
-          <button
+            <button
               onClick={clearFilters}
               className="w-8 h-8 flex  items-center justify-center rounded-full bg-lamaYellow"
             >
-              <RotateCcw className="w-4 h-4 text-black"/>
-             
+              <RotateCcw className="w-4 h-4 text-black" />
+
             </button>
             <button
               onClick={toggleFilters}
@@ -173,7 +222,7 @@ const StudentListPage = ({ students, Allclasses, Alllevels, Allschools, filters:
             >
               <img src="/filter.png" alt="Filter" width={14} height={14} />
             </button>
-           
+
             <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
               <img src="/sort.png" alt="Sort" width={14} height={14} />
             </button>

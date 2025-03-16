@@ -2,6 +2,7 @@ import Announcements from "@/Components/Announcements";
 import BigCalendar from "@/Components/BigCalender";
 import FormModal from "@/Components/FormModal";
 import Performance from "@/Components/Performance";
+import TeacherProfile from "@/Components/TeacherProfile";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 
 import { Link, usePage } from "@inertiajs/react";
@@ -69,7 +70,7 @@ const SingleTeacherPage = ({ teacher, classes, subjects, schools }) => {
             {role === "admin" && (
                   <FormModal
                     table="teacher"
-                    type="update"
+                    type="updateIcon2"
                     data={teacher}
                     schools={schools}
                     groups={classes}
@@ -86,7 +87,9 @@ const SingleTeacherPage = ({ teacher, classes, subjects, schools }) => {
             <InfoCard icon="/singleClass.png" label="Classes" value="6" />
           </div>
         </div>
-
+          <div className="mt-4 ">
+            <TeacherProfile invoices={teacher.invoices}/>
+          </div>
         {/* BOTTOM */}
         <div className="mt-4 bg-white rounded-md p-4 h-[800px]">
           <h1>Teacher&apos;s Schedule</h1>

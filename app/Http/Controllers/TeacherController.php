@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Storage;
 use App\Models\Subject;
 use App\Models\School;
 use App\Models\Classes;
+use App\Models\Membership;
 
 class TeacherController extends Controller
 {
@@ -137,37 +138,71 @@ class TeacherController extends Controller
      * Display the specified resource.
      */
     public function show($id)
-    {
-        $teacher = Teacher::with(['subjects', 'classes', 'schools'])->find($id); 
-        $schools = School::all();
-        $classes = Classes::all();
-        $subjects = Subject::all();
-        if (!$teacher) {
-            abort(404);
-        }
-
-        return Inertia::render('Menu/SingleTeacherPage', [
-            'teacher' => [
-                'id' => $teacher->id,
-                'first_name' => $teacher->first_name,
-                'last_name' => $teacher->last_name,
-                'address' => $teacher->address,
-                'phone_number' => $teacher->phone_number,
-                'email' => $teacher->email,
-                'status' => $teacher->status,
-                'wallet' => $teacher->wallet,
-                'profile_image' => $teacher->profile_image ? URL::asset('storage/' . $teacher->profile_image) : null,
-                'subjects' => $teacher->subjects,
-                'classes' => $teacher->classes, 
-                'schools' => $teacher->schools,
-                'created_at' => $teacher->created_at,
-            ],
-            'schools' => $schools,
-            'subjects' => $subjects,
-            'classes' => $classes,
-        ]);
+{
+    // Fetch the teacher with related data
+    $teacher = Teacher::with(['subjects', 'classes', 'schools'])->find($id);
+    if (!$teacher) {
+        abort(404);
     }
 
+    // Fetch all memberships where the teacher is involved
+    $memberships = Membership::where('payment_status', 'paid')
+        ->whereJsonContains('teachers', [['teacherId' => (string) $teacher->id]])
+        ->with(['invoices', 'student'])
+        ->get();
+
+    // Extract invoices from memberships
+    $invoices = $memberships->flatMap(function ($membership) {
+        return $membership->invoices->map(function ($invoice) use ($membership) {
+            return [
+                'id' => $invoice->id,
+                'membership_id' => $invoice->membership_id,
+                'student_id' => $invoice->student_id,
+                'student_name' => $membership->student->firstName . ' ' . $membership->student->lastName, // Assuming student has a 'name' attribute
+                'student_class' => $membership->student->class->name,
+                'billDate' => $invoice->billDate,
+                'months' => $invoice->months,
+                'creationDate' => $invoice->creationDate,
+                'totalAmount' => $invoice->totalAmount,
+                'amountPaid' => $invoice->amountPaid,
+                'rest' => $invoice->rest,
+                'offer_id' => $invoice->offer_id,
+                'offer_name' => $invoice->offer ? $invoice->offer->offer_name : null,
+                'endDate' => $invoice->endDate,
+                'includePartialMonth' => $invoice->includePartialMonth,
+                'partialMonthAmount' => $invoice->partialMonthAmount,
+            ];
+        });
+    });
+
+    // Fetch other necessary data
+    $schools = School::all();
+    $classes = Classes::all();
+    $subjects = Subject::all();
+
+    return Inertia::render('Menu/SingleTeacherPage', [
+        'teacher' => [
+            'id' => $teacher->id,
+            'first_name' => $teacher->first_name,
+            'last_name' => $teacher->last_name,
+            'address' => $teacher->address,
+            'phone_number' => $teacher->phone_number,
+            'email' => $teacher->email,
+            'status' => $teacher->status,
+            'wallet' => $teacher->wallet,
+            'profile_image' => $teacher->profile_image ? URL::asset('storage/' . $teacher->profile_image) : null,
+            'subjects' => $teacher->subjects,
+            'classes' => $teacher->classes,
+            'schools' => $teacher->schools,
+            'created_at' => $teacher->created_at,
+            'invoices' => $invoices
+        ],
+        'invoices' => $invoices, // Pass the invoices to the frontend
+        'schools' => $schools,
+        'subjects' => $subjects,
+        'classes' => $classes,
+    ]);
+}
     /**
      * Show the form for editing the specified resource.
      */

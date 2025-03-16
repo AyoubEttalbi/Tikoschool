@@ -4,7 +4,7 @@ import { format, parseISO } from "date-fns";
 import { Printer } from 'lucide-react';
 import { useState } from 'react';
 
-const InvoicesTable = ({ invoices, Student_memberships, studentId }) => {
+const InvoicesTable = ({ invoices = [], Student_memberships = [], studentId = null }) => {
   const [loading, setLoading] = useState(false); // Global loading state
 
   const formatDate = (dateString, formatType) => {

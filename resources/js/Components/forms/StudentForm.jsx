@@ -80,17 +80,17 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
       schoolId: formData.schoolId.toString(),
     }
     console.log("Form submitted with data:", formData)
-    // if (type === "create") {
-    //   // Send a POST request to create a new student
-    //   router.post("/students", updatedFormData, {
-    //     onSuccess: () => setOpen(false),
-    //   })
-    // } else if (type === "update") {
-    //   // Send a PUT request to update an existing student
-    //   router.put(`/students/${data.id}`, updatedFormData, {
-    //     onSuccess: () => setOpen(false),
-    //   })
-    // }
+      if (type === "create") {
+        // Send a POST request to create a new student
+        router.post("/students", updatedFormData, {
+          onSuccess: () => setOpen(false),
+        })
+      } else if (type === "update") {
+        // Send a PUT request to update an existing student
+        router.put(`/students/${data.id}`, updatedFormData, {
+          onSuccess: () => setOpen(false),
+        })
+      }
   }
 
   return (

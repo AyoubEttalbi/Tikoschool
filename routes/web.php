@@ -18,14 +18,13 @@ use App\Http\Controllers\SubjectController;
 use App\Http\Controllers\Auth\RegisteredUserController;
 use App\Http\Controllers\TeacherController;
 use App\Http\Controllers\MembershipController;
+use App\Http\Controllers\StatsController;
 Route::get('/', function () {
     return Inertia::render('Auth/Login' );
 });
 
 
-Route::get('/dashboard', function () {
-    return Inertia::render('Dashboard');
-})->middleware(['auth', 'verified'])->name('dashboard');
+Route::get('/dashboard', [StatsController::class, 'index'])->middleware(['auth', 'verified'])->name('dashboard');
 
 
 Route::middleware('auth')->group(function () {
@@ -69,6 +68,10 @@ Route::middleware('auth')->group(function () {
         return Inertia::render('Menu/AnnouncementsPage');
     });
     Route::delete('/students/invoices/{invoiceId}', [InvoiceController::class, 'destroy'])->name('invoices.destroy');
+    Route::get('/invoices/{id}/download', [InvoiceController::class, 'download'])->name('invoices.download');
+    Route::post('/invoices/bulk-download', [InvoiceController::class, 'bulkDownload'])
+    ->name('invoices.bulk.download')
+    ->middleware('web'); // Ensure all web middleware is applied
 });
 
 

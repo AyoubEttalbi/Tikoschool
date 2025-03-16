@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Invoice;
 use App\Models\Membership;
 use App\Models\Teacher;
+use App\Models\Classes;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
@@ -260,4 +261,53 @@ class InvoiceController extends Controller
         // Return the PDF as a downloadable file
         return $pdf->download('invoice_' . $invoice->id . '.pdf');
     }
+        public function download($id)
+    {
+        // Fetch the invoice by ID
+        $invoice = Invoice::with(['student.class', 'offer'])->findOrFail($id);
+        $className = $invoice->student->class->name;
+
+        // Add the class name to the invoice object
+        $invoice->className = $className;
+        // Generate the PDF
+        $pdf = Pdf::loadView('invoices.teacher_invoicePdf', compact('invoice'));
+
+        // Download the PDF
+        return $pdf->download("TeacherInvoice-{$invoice->id}.pdf");
+    }
+
+    public function bulkDownload(Request $request)
+{
+    // Get the selected invoice IDs from the request
+    $invoiceIds = $request->input('invoiceIds', []);
+    
+    if (empty($invoiceIds)) {
+        return redirect()->back()->with('error', 'No invoices selected for download');
+    }
+    
+    // Log for debugging
+    \Log::info('Selected Invoice IDs:', $invoiceIds);
+
+    $invoices = Invoice::with(['student', 'offer'])
+        ->whereIn('id', $invoiceIds)
+        ->get();
+
+    if ($invoices->isEmpty()) {
+        return redirect()->back()->with('error', 'No invoices found');
+    }
+    
+    // Fetch class names for each invoice
+    $invoices->each(function ($invoice) {
+        $invoice->className = Classes::find($invoice->student->classId)->name;
+    });
+
+    // Generate the PDF with proper headers
+    $pdf = Pdf::loadView('invoices.teacher-bulk-invoices', compact('invoices'));
+    
+    // Make sure proper headers are set for download
+    return $pdf->download("teacher-bulk-invoices-" . date('Y-m-d') . ".pdf", [
+        'Content-Type' => 'application/pdf',
+        'Content-Disposition' => 'attachment; filename="teacher-bulk-invoices-' . date('Y-m-d') . '.pdf"'
+    ]);
+}
 }
