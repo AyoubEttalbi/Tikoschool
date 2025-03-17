@@ -78,6 +78,7 @@ class InvoiceController extends Controller
             'endDate' => 'nullable|date',
             'includePartialMonth' => 'nullable|boolean',
             'partialMonthAmount' => 'nullable|numeric',
+            'last_payment_date' => 'nullable|date',
         ]);
 
         // Create the invoice
@@ -178,10 +179,20 @@ class InvoiceController extends Controller
             'endDate' => 'nullable|date',
             'includePartialMonth' => 'nullable|boolean',
             'partialMonthAmount' => 'nullable|numeric',
+            'last_payment_date' => 'nullable|date',
         ]);
 
         $invoice = Invoice::findOrFail($id);
         $previousAmountPaid = $invoice->amountPaid;
+
+        // Check if amountPaid has changed
+        if ($validated['amountPaid'] != $previousAmountPaid) {
+            // Update last_payment_date only if amountPaid has changed
+            $validated['last_payment_date'] = now()->toDateTimeString();
+        } else {
+            // Keep the existing last_payment_date if amountPaid hasn't changed
+            $validated['last_payment_date'] = $invoice->last_payment_date;
+        }
 
         // Update the invoice
         $invoice->update($validated);
@@ -222,7 +233,6 @@ class InvoiceController extends Controller
         return redirect()->back()->withErrors(['error' => 'An error occurred while updating the invoice.']);
     }
 }
-
     /**
      * Remove the specified invoice from the database.
      */

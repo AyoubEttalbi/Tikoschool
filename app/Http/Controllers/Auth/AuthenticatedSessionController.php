@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
+use App\Models\Teacher; // Import the Teacher model
+use App\Models\Assistant; // Import the Assistant model
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -29,10 +31,35 @@ class AuthenticatedSessionController extends Controller
      */
     public function store(LoginRequest $request): RedirectResponse
     {
+        // Authenticate the user
         $request->authenticate();
 
+        // Regenerate the session
         $request->session()->regenerate();
 
+        // Get the authenticated user
+        $user = Auth::user();
+
+        // Redirect based on the user's role
+        if ($user->role === 'teacher') {
+            // Find the teacher by email
+            $teacher = Teacher::where('email', $user->email)->first();
+
+            if ($teacher) {
+                return redirect()->route('teachers.show', $teacher->id);
+            }
+        }
+
+        if ($user->role === 'assistant') {
+            // Find the assistant by email
+            $assistant = Assistant::where('email', $user->email)->first();
+
+            if ($assistant) {
+                return redirect()->route('assistants.show', $assistant->id);
+            }
+        }
+
+        // Default redirect for other roles (e.g., admin)
         return redirect()->intended(route('dashboard', absolute: false));
     }
 

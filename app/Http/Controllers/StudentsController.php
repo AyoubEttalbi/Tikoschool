@@ -223,6 +223,8 @@ public function show($id)
             'endDate' => $invoice->endDate,
             'includePartialMonth' => $invoice->includePartialMonth,
             'partialMonthAmount' => $invoice->partialMonthAmount,
+            'last_payment' => $invoice->updated_at,
+            'created_at' => $invoice->created_at,
         ];
     });
 

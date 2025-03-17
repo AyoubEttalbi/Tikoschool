@@ -7,12 +7,13 @@ import DashboardLayout from "@/Layouts/DashboardLayout";
 
 import { Link, usePage } from "@inertiajs/react";
 
-const SingleTeacherPage = ({ teacher, classes, subjects, schools }) => {
+const SingleTeacherPage = ({ teacher, classes, subjects, schools,invoices }) => {
   const role = usePage().props.auth.user.role;
-  console.log(teacher)
+  console.log('teacher',teacher)
   console.log("schools " ,teacher.schools.map((school) => school.name).join(", "))
   console.log("schools " ,teacher.schools[0].name)
   console.log("classes " ,classes)
+  console.log("invoices links" ,invoices.links)
   return (
     <div className="flex-1 p-4 flex flex-col gap-4 xl:flex-row">
       {/* LEFT */}
@@ -90,7 +91,7 @@ const SingleTeacherPage = ({ teacher, classes, subjects, schools }) => {
           </div>
         </div>
           <div className="mt-4 ">
-            <TeacherProfile invoices={teacher.invoices}/>
+            <TeacherProfile invoices={invoices.data} paginate={invoices.links}/>
           </div>
         {/* BOTTOM */}
         <div className="mt-4 bg-white rounded-md p-4 h-[800px]">

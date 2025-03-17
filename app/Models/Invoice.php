@@ -22,6 +22,7 @@ class Invoice extends Model
         'endDate',
         'includePartialMonth',
         'partialMonthAmount',
+        'last_payment_date',
     ];
 
     protected $casts = [

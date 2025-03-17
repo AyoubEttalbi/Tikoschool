@@ -3,13 +3,15 @@ import AttendanceChart from "@/Components/AttendanceChart";
 import CountChart from "@/Components/CountChart";
 import FinanceChart from "@/Components/FinanceChart";
 import UserCard from "@/Components/UserCard";
+
 import React from "react";
 import EventCalendar from "@/Components/EventCalendar";
 import { usePage } from "@inertiajs/react";
+import MostSellingOffersChart from "@/Components/MostSellingOffersChart";
 
 const Content = () => {
   const { props } = usePage();
-  console.log(props);
+
 
   return (
     <div className="p-4 flex gap-4 flex-col md:flex-row">
@@ -47,9 +49,13 @@ const Content = () => {
             <AttendanceChart />
           </div>
         </div>
-        {/* BOTTOM CHART */}
+        {/* BOTTOM CHARTS */}
         <div className="w-full bg-white h-[500px]">
           <FinanceChart />
+        </div>
+        {/* MOST SELLING OFFERS CHART */}
+        <div className="w-full bg-white h-[400px]">
+          <MostSellingOffersChart />
         </div>
       </div>
       {/* RIGHT */}

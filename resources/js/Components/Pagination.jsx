@@ -1,6 +1,6 @@
 import { Link } from "@inertiajs/react";
 
-const Pagination = ({ links, filters }) => {
+const Pagination = ({ links = [], filters={} }) => {
   if (!links || !Array.isArray(links)) {
     return null; 
   }

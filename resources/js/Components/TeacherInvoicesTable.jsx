@@ -4,7 +4,8 @@ import Pagination from "@/Components/Pagination";
 import { Eye, Download, Search, Calendar, FileText, ChevronDown, X, Filter, ArrowUpDown } from "lucide-react";
 import { Link, router } from '@inertiajs/react';
 
-const TeacherInvoicesTable = ({ invoices }) => {
+const TeacherInvoicesTable = ({ invoices=[], invoiceslinks=[] }) => {
+    console.log('invoices',invoices);
     // Filters State
     const [search, setSearch] = useState("");
     const [classFilter, setClassFilter] = useState("all");
@@ -406,7 +407,7 @@ const TeacherInvoicesTable = ({ invoices }) => {
 
             {/* Pagination */}
             <div className="mt-6">
-                <Pagination links={invoices.links} />
+                <Pagination links={invoiceslinks} />
             </div>
         </div>
     );

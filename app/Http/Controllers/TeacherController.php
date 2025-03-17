@@ -151,14 +151,14 @@ class TeacherController extends Controller
         ->with(['invoices', 'student'])
         ->get();
 
-    // Extract invoices from memberships
+    // Extract invoices from memberships and paginate them
     $invoices = $memberships->flatMap(function ($membership) {
         return $membership->invoices->map(function ($invoice) use ($membership) {
             return [
                 'id' => $invoice->id,
                 'membership_id' => $invoice->membership_id,
                 'student_id' => $invoice->student_id,
-                'student_name' => $membership->student->firstName . ' ' . $membership->student->lastName, // Assuming student has a 'name' attribute
+                'student_name' => $membership->student->firstName . ' ' . $membership->student->lastName,
                 'student_class' => $membership->student->class->name,
                 'billDate' => $invoice->billDate,
                 'months' => $invoice->months,
@@ -174,6 +174,17 @@ class TeacherController extends Controller
             ];
         });
     });
+
+    // Paginate the invoices
+    $perPage = 100; // Number of invoices per page
+    $currentPage = request()->get('page', 1); // Get the current page from the request
+    $paginatedInvoices = new \Illuminate\Pagination\LengthAwarePaginator(
+        $invoices->forPage($currentPage, $perPage),
+        $invoices->count(),
+        $perPage,
+        $currentPage,
+        ['path' => request()->url(), 'query' => request()->query()]
+    );
 
     // Fetch other necessary data
     $schools = School::all();
@@ -195,9 +206,9 @@ class TeacherController extends Controller
             'classes' => $teacher->classes,
             'schools' => $teacher->schools,
             'created_at' => $teacher->created_at,
-            'invoices' => $invoices
+            'invoices' => $paginatedInvoices->items() // Pass the paginated invoices
         ],
-        'invoices' => $invoices, // Pass the invoices to the frontend
+        'invoices' => $paginatedInvoices, // Pass the paginator object to the frontend
         'schools' => $schools,
         'subjects' => $subjects,
         'classes' => $classes,

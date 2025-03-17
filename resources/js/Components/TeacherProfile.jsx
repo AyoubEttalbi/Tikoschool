@@ -1,12 +1,13 @@
-import React from 'react'
-import TeacherInvoicesTable from './TeacherInvoicesTable'
+import React from 'react';
+import TeacherInvoicesTable from './TeacherInvoicesTable';
 
+export default function TeacherProfile({ invoices = [], paginate = [] }) {
+    console.log('Invoices:', invoices);
+    console.log('Paginate:', paginate);
 
-export default function TeacherProfile({invoices}) {
-    console.log(invoices)
-  return (
-    <div>
-      <TeacherInvoicesTable invoices={invoices} />
-    </div>
-  )
+    return (
+        <div>
+            <TeacherInvoicesTable invoices={invoices} invoiceslinks={paginate} />
+        </div>
+    );
 }

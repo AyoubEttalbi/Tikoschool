@@ -18,36 +18,31 @@ class StatsController extends Controller
      */
     public function index()
 {
-    // Fetch counts of teachers grouped by school (distinct by teacher_id)
+    // Fetch counts of teachers, students, and assistants (existing logic)
     $teacherCounts = DB::table('school_teacher')
         ->select('school_id', DB::raw('COUNT(DISTINCT teacher_id) as count'))
         ->groupBy('school_id')
         ->get()
         ->keyBy('school_id');
 
-    // Fetch total count of distinct teachers across all schools
     $totalTeacherCount = DB::table('school_teacher')
         ->select(DB::raw('COUNT(DISTINCT teacher_id) as count'))
         ->first()
         ->count;
 
-    // Fetch counts of students grouped by school
     $studentCounts = Student::select('schoolId', DB::raw('COUNT(*) as count'))
         ->groupBy('schoolId')
         ->get()
         ->keyBy('schoolId');
 
-    // Fetch total count of students across all schools
     $totalStudentCount = Student::count();
 
-    // Fetch counts of assistants grouped by school (distinct by assistant_id)
     $assistantCounts = DB::table('assistant_school')
         ->select('school_id', DB::raw('COUNT(DISTINCT assistant_id) as count'))
         ->groupBy('school_id')
         ->get()
         ->keyBy('school_id');
 
-    // Fetch total count of distinct assistants across all schools
     $totalAssistantCount = DB::table('assistant_school')
         ->select(DB::raw('COUNT(DISTINCT assistant_id) as count'))
         ->first()
@@ -56,7 +51,7 @@ class StatsController extends Controller
     // Fetch all schools
     $schools = School::all();
 
-    // Fetch monthly incomes
+    // Fetch monthly incomes (existing logic)
     $monthlyIncomes = Invoice::join('students', 'invoices.student_id', '=', 'students.id')
         ->select(
             DB::raw('SUM(invoices.totalAmount) as income'),
@@ -76,6 +71,19 @@ class StatsController extends Controller
             ];
         });
 
+    // Fetch most selling offers, students count, and total price
+    $mostSellingOffers = DB::table('invoices')
+        ->join('offers', 'invoices.offer_id', '=', 'offers.id')
+        ->select(
+            'offers.offer_name as name',
+            DB::raw('COUNT(DISTINCT invoices.student_id) as student_count'),
+            DB::raw('SUM(invoices.totalAmount) as total_price')
+        )
+        ->groupBy('offers.id', 'offers.offer_name')
+        ->orderByDesc('student_count')
+        ->limit(5) // Limit to top 5 most selling offers
+        ->get();
+
     return Inertia::render('Dashboard', [
         'teacherCounts' => $teacherCounts,
         'totalTeacherCount' => $totalTeacherCount,
@@ -85,6 +93,7 @@ class StatsController extends Controller
         'totalAssistantCount' => $totalAssistantCount,
         'schools' => $schools,
         'monthlyIncomes' => $monthlyIncomes,
+        'mostSellingOffers' => $mostSellingOffers, // Pass the most selling offers data
     ]);
 }
 }

@@ -43,6 +43,7 @@ const InvoicesTable = ({ invoices = [], Student_memberships = [], studentId = nu
           <tr className="bg-gray-200">
             <th className="p-2 border text-left">Bill Date</th>
             <th className="p-2 border text-left">Creation Date</th>
+            <th className="p-2 border text-left">Last Payment</th>
             <th className="p-2 border text-left">Amount</th>
             <th className="p-2 border text-left">Rest</th>
             <th className="p-2 border text-left">Offer</th>
@@ -53,7 +54,8 @@ const InvoicesTable = ({ invoices = [], Student_memberships = [], studentId = nu
           {invoices.map((invoice, index) => (
             <tr key={index} className="hover:bg-gray-100 transition-all duration-200">
               <td className="p-2 border">{formatDate(invoice.billDate, "yyyy-MM")}</td>
-              <td className="p-2 border">{formatDate(invoice.creationDate, "dd-MMM-yyyy HH:mm")}</td>
+              <td className="p-2 border">{formatDate(invoice.created_at, "dd-MMM-yyyy HH:mm")}</td>
+              <td className="p-2 border">{formatDate(invoice.last_payment, "dd-MMM-yyyy HH:mm")}</td>
               <td className="p-2 border">{invoice.amountPaid}</td>
               <td className="p-2 border">{invoice.rest}</td>
               <td className="p-2 border">

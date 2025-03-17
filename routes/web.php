@@ -1,15 +1,13 @@
 <?php
-use App\http\Middleware\AdminMiddleware;
+
+use App\Http\Middleware\AdminMiddleware;
+use App\Http\Middleware\RoleRedirect;
 use App\Http\Controllers\ProfileController;
-use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
-use App\Models\Student;
 use App\Http\Controllers\StudentsController;
 use App\Http\Controllers\LevelController;
 use App\Http\Controllers\UserController;
-use App\Models\Level;
-
 use App\Http\Controllers\ClassesController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\OfferController;
@@ -19,62 +17,65 @@ use App\Http\Controllers\Auth\RegisteredUserController;
 use App\Http\Controllers\TeacherController;
 use App\Http\Controllers\MembershipController;
 use App\Http\Controllers\StatsController;
+
+// Redirect to dashboard if authenticated, otherwise to login
 Route::get('/', function () {
-    return Inertia::render('Auth/Login' );
+    return auth()->check() ? redirect('/dashboard') : redirect('/login');
 });
 
-
-Route::get('/dashboard', [StatsController::class, 'index'])->middleware(['auth', 'verified'])->name('dashboard');
-
-
+// Authenticated routes
 Route::middleware('auth')->group(function () {
+    // Dashboard route with RoleRedirect middleware
+    Route::get('/dashboard', [StatsController::class, 'index'])
+        ->middleware(RoleRedirect::class) // Apply RoleRedirect first
+        ->name('dashboard');
+
+    // Profile routes
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+
+    // Resource routes
     Route::resource('students', StudentsController::class);
     Route::resource('teachers', TeacherController::class);
     Route::resource('classes', ClassesController::class);
-    
     Route::resource('assistants', AssistantController::class);
-    Route::delete('/othersettings/levels/{level}', [LevelController::class, 'destroy'])->name('othersettings.destroy');
-
-    Route::resource('othersettings', LevelController::class );
-    Route::resource('offers', OfferController::class );
-    Route::resource('invoices', InvoiceController ::class );
-    Route::get('/invoices/{id}/pdf', [InvoiceController::class, 'generateInvoicePdf'])->name('invoices.pdf');
-    Route::post('/othersettings', [SubjectController::class, 'store'])->name('othersettings.store');
-
-    Route::put('/othersettings/{subject}', [SubjectController::class, 'update'])->name('othersettings.update');
-    Route::delete('/othersettings/subjects/{subject}', [SubjectController::class, 'destroy'])->name('othersettings.destroy');
-    Route::get('/setting', [RegisteredUserController::class, 'show'])->name('register')->middleware(AdminMiddleware::class);
-    Route::post('/setting', [RegisteredUserController::class, 'store'])->name('register.store')->middleware(AdminMiddleware::class);
-    
-
-    Route::post('/othersettings/levels', [LevelController::class, 'store'])->name('othersettings.levels.store');
-
-
-    Route::post('/othersettings/subjects', [SubjectController::class, 'store'])->name('othersettings.subjects.store');
-    Route::delete('/classes/students/{student}', [ClassesController::class, 'removeStudent'])->name('classes.removeStudent');
+    Route::resource('offers', OfferController::class);
+    Route::resource('invoices', InvoiceController::class);
     Route::resource('memberships', MembershipController::class);
-    Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update')->middleware(AdminMiddleware::class);
-    Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('users.destroy')->middleware(AdminMiddleware::class);
-    Route::get('/results',function(){
+
+
+
+    // Admin-only routes
+    Route::middleware(AdminMiddleware::class)->group(function () {
+        Route::resource('othersettings', LevelController::class);
+        Route::delete('/othersettings/levels/{level}', [LevelController::class, 'destroy'])->name('othersettings.destroy');
+        Route::post('/othersettings', [SubjectController::class, 'store'])->name('othersettings.store');
+        Route::put('/othersettings/{subject}', [SubjectController::class, 'update'])->name('othersettings.update');
+        Route::delete('/othersettings/subjects/{subject}', [SubjectController::class, 'destroy'])->name('othersettings.destroy');
+        Route::post('/othersettings/levels', [LevelController::class, 'store'])->name('othersettings.levels.store');
+        Route::post('/othersettings/subjects', [SubjectController::class, 'store'])->name('othersettings.subjects.store');
+        Route::get('/setting', [RegisteredUserController::class, 'show'])->name('register');
+        Route::post('/setting', [RegisteredUserController::class, 'store'])->name('register.store');
+        Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');
+        Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
+    });
+
+    // Additional routes
+    Route::delete('/classes/students/{student}', [ClassesController::class, 'removeStudent'])->name('classes.removeStudent');
+    Route::delete('/students/invoices/{invoiceId}', [InvoiceController::class, 'destroy'])->name('invoices.destroy');
+
+    // Inertia pages
+    Route::get('/results', function () {
         return Inertia::render('Menu/ResultsPage');
     });
-    Route::get('/attendance',function(){
+    Route::get('/attendance', function () {
         return Inertia::render('Menu/AttendancePage');
     });
-    Route::get('/announcements',function(){
+    Route::get('/announcements', function () {
         return Inertia::render('Menu/AnnouncementsPage');
     });
-    Route::delete('/students/invoices/{invoiceId}', [InvoiceController::class, 'destroy'])->name('invoices.destroy');
-    Route::get('/invoices/{id}/download', [InvoiceController::class, 'download'])->name('invoices.download');
-    Route::post('/invoices/bulk-download', [InvoiceController::class, 'bulkDownload'])
-    ->name('invoices.bulk.download')
-    ->middleware('web'); // Ensure all web middleware is applied
 });
 
-
-require __DIR__.'/auth.php';
-
-
+// Authentication routes
+require __DIR__ . '/auth.php';
