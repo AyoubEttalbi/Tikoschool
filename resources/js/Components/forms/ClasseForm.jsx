@@ -2,16 +2,14 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import InputField from "../InputField";
-import { router } from "@inertiajs/react"; // Import Inertia's router
+import { router } from "@inertiajs/react";
 
-// Define the schema for the class form
 const schema = z.object({
   name: z.string().min(1, { message: "Class name is required!" }),
   level_id: z.string().min(1, { message: "Level is required!" }),
-
 });
 
-const ClassesForm = ({ type, data, levels, setOpen }) => {
+const ClassesForm = ({ type = "", data = [], levels = [], setOpen }) => {
   const {
     register,
     handleSubmit,
@@ -21,45 +19,45 @@ const ClassesForm = ({ type, data, levels, setOpen }) => {
     defaultValues: {
       name: data?.name || "",
       level_id: data?.level_id || "",
-
     },
   });
 
-  // Handle form submission
   const onSubmit = (formData) => {
     if (type === "create") {
       router.post("/classes", formData, {
         onSuccess: () => {
           setOpen(false);
-        }
+        },
       });
     } else if (type === "update") {
-      // Send a PUT request to update an existing class
       router.put(`/classes/${data.id}`, formData);
     }
   };
 
   return (
     <form
-      className="flex flex-col gap-8 p-6 bg-white shadow-lg rounded-lg"
+      className="flex flex-col gap-6 p-6 bg-white shadow-lg rounded-lg w-full"
       onSubmit={handleSubmit(onSubmit)}
     >
       <h1 className="text-2xl font-semibold text-gray-800">
         {type === "create" ? "Create a New Class" : "Update Class"}
       </h1>
 
-      {/* Class Information */}
-      <span className="text-xs text-gray-400 font-medium">Class Information</span>
+      <span className="text-xs text-gray-400 font-medium">
+        Class Information
+      </span>
 
-      <div className="flex flex-wrap gap-4">
-        <InputField
-          label="Class Name"
-          name="name"
-          register={register}
-          error={errors.name}
-          defaultValue={data?.name}
-        />
-        <div className="flex flex-col gap-2 w-full md:w-1/4">
+      <div className="flex flex-wrap md:flex-nowrap gap-4 w-full">
+        <div className="flex-1">
+          <InputField
+            label="Class Name"
+            name="name"
+            register={register}
+            error={errors.name}
+            defaultValue={data?.name}
+          />
+        </div>
+        <div className="flex flex-col gap-2 w-full md:w-1/3">
           <label className="text-xs text-gray-600">Level</label>
           <select
             className="ring-[1.5px] ring-gray-300 p-2 rounded-md text-sm w-full"
@@ -73,14 +71,15 @@ const ClassesForm = ({ type, data, levels, setOpen }) => {
               </option>
             ))}
           </select>
-          {errors.level_id?.message && <p className="text-xs text-red-400">{errors.level_id.message}</p>}
+          {errors.level_id?.message && (
+            <p className="text-xs text-red-400">{errors.level_id.message}</p>
+          )}
         </div>
-
       </div>
 
       <button
         type="submit"
-        className="bg-blue-500 text-white p-3 rounded-md mt-6 hover:bg-blue-600 transition duration-200"
+        className="bg-blue-500 text-white p-3 rounded-md mt-4 hover:bg-blue-600 transition duration-200"
       >
         {type === "create" ? "Create" : "Update"}
       </button>
