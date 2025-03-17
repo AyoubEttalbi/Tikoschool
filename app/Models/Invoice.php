@@ -30,6 +30,7 @@ class Invoice extends Model
         'creationDate' => 'date',
         'endDate' => 'date',
         'includePartialMonth' => 'boolean',
+        'last_payment_date' => 'datetime',
     ];
 
     // Relationship with Membership (assuming it exists)

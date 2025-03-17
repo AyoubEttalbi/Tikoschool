@@ -21,6 +21,7 @@ return new class extends Migration {
             $table->date('endDate')->nullable();
             $table->boolean('includePartialMonth')->default(false);
             $table->decimal('partialMonthAmount', 10, 2)->nullable();
+            $table->dateTime('last_payment_date')->nullable();
             $table->timestamps();
             $table->softDeletes();
         });

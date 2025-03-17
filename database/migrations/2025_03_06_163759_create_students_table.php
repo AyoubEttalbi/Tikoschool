@@ -27,7 +27,6 @@ return new class extends Migration
             $table->string('profile_image')->nullable();
             $table->timestamps();
             $table->softDeletes();
-            $table->dateTime('last_payment_date')->nullable();
             $table->foreign('levelId')->references('id')->on('levels')->onDelete('set null'); 
             $table->foreign('classId')->references('id')->on('classes')->onDelete('set null'); 
             $table->foreign('schoolId')->references('id')->on('schools')->onDelete('set null');
