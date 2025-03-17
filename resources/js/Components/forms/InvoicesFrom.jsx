@@ -19,7 +19,7 @@ const invoiceSchema = z.object({
     endDate: z.string().optional(),
     includePartialMonth: z.boolean().optional(),
     partialMonthAmount: z.number().optional(),
-    last_payment_date : z.any().optional()
+    last_payment_date: z.any().optional()
 });
 
 const InvoicesForm = ({ type, data, setOpen, StudentMemberships = [], studentId }) => {
@@ -194,7 +194,11 @@ const InvoicesForm = ({ type, data, setOpen, StudentMemberships = [], studentId 
     // Calculate formatted dates for display
     const nextMonthLastDay = new Date(today.getFullYear(), today.getMonth() + 1 + 1, 0);
     const formattedNextMonthName = nextMonthLastDay.toLocaleDateString('en-US', { month: 'long' })
-
+    const handleAutoFill = () => {
+        
+        setValue("amountPaid", totalAmount);
+        setValue("rest", 0);
+    }
     return (
         <form
             className="flex flex-col gap-6 p-6 bg-white shadow-lg rounded-lg"
@@ -237,7 +241,7 @@ const InvoicesForm = ({ type, data, setOpen, StudentMemberships = [], studentId 
                 {/* Membership Selection Section */}
                 <div className="bg-gray-50 p-4 rounded-lg">
                     <h2 className="text-lg font-medium text-gray-800 mb-4">Membership Details</h2>
-                    
+
                     <div className="space-y-4">
                         {/* Membership Select Field */}
                         <div className="flex flex-col gap-2">
@@ -248,22 +252,22 @@ const InvoicesForm = ({ type, data, setOpen, StudentMemberships = [], studentId 
                                 id="membership_id"
                                 {...register("membership_id")}
                                 className="p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                >
+                            >
                                 {
                                     type === "update" ? (
-                                        <option  value={data.membership_id}>{StudentMemberships.find((membership) => membership.id === data.membership_id).offer_name} (Price: {Math.round(StudentMemberships.find((membership) => membership.id === data.membership_id).price)} DH)</option>
+                                        <option value={data.membership_id}>{StudentMemberships.find((membership) => membership.id === data.membership_id).offer_name} (Price: {Math.round(StudentMemberships.find((membership) => membership.id === data.membership_id).price)} DH)</option>
                                     ) : (
                                         <>
-                                        <option value="">Select a membership</option>
-                                {StudentMemberships.filter((membership) => membership.payment_status !== "paid").map((membership) => (
-                                    <option key={membership.id} value={membership.id}>
-                                    {membership.offer_name} (Price: {Math.round(membership.price)} DH)
-                                    </option>
-                                ))}
+                                            <option value="">Select a membership</option>
+                                            {StudentMemberships.filter((membership) => membership.payment_status !== "paid").map((membership) => (
+                                                <option key={membership.id} value={membership.id}>
+                                                    {membership.offer_name} (Price: {Math.round(membership.price)} DH)
+                                                </option>
+                                            ))}
                                         </>
                                     )
                                 }
-                                
+
                             </select>
                             {errors.membership_id && (
                                 <span className="text-sm text-red-500">{errors.membership_id.message}</span>
@@ -318,17 +322,17 @@ const InvoicesForm = ({ type, data, setOpen, StudentMemberships = [], studentId 
                                         Include partial month payment (today until end of this month)
                                     </label>
                                 </div>
-                                
+
                                 {/* Partial Month Amount Display */}
                                 {includePartialMonth && selectedMembership && (
                                     <div className="bg-blue-50 p-3 rounded-md border border-blue-200 mt-2">
                                         <div className="flex items-center">
-                                        <svg className="h-5 w-5 text-blue-500 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <svg className="h-5 w-5 text-blue-500 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                             </svg>
                                             <div>
                                                 <p className="text-sm text-blue-800">
-                                                    Partial month payment: <span className="font-medium">{partialMonthAmount} DH</span> 
+                                                    Partial month payment: <span className="font-medium">{partialMonthAmount} DH</span>
                                                     ({Math.ceil((firstOfNextMonth - today) / (1000 * 60 * 60 * 24))} days remaining in current month)
                                                 </p>
                                             </div>
@@ -343,7 +347,7 @@ const InvoicesForm = ({ type, data, setOpen, StudentMemberships = [], studentId 
                 {/* Billing Details Section */}
                 <div className="bg-gray-50 p-4 rounded-lg">
                     <h2 className="text-lg font-medium text-gray-800 mb-4">Billing Details</h2>
-                    
+
                     <div className="space-y-4">
                         {/* Bill Date Field */}
                         <div className="flex flex-col gap-2">
@@ -394,24 +398,53 @@ const InvoicesForm = ({ type, data, setOpen, StudentMemberships = [], studentId 
                                         readOnly
                                     />
                                     <p className="text-xs text-gray-500">
-                                        {includePartialMonth ? 
-                                            `${partialMonthAmount} DH (partial month) + ${fullMonthsAmount} DH (${months} ${parseInt(months) === 1 ? 'month' : 'months'})` : 
+                                        {includePartialMonth ?
+                                            `${partialMonthAmount} DH (partial month) + ${fullMonthsAmount} DH (${months} ${parseInt(months) === 1 ? 'month' : 'months'})` :
                                             `${fullMonthsAmount} DH (${months} ${parseInt(months) === 1 ? 'month' : 'months'})`}
                                     </p>
                                 </div>
 
                                 {/* Amount Paid Field */}
                                 <div className="flex flex-col gap-2">
+                                    {/* Label */}
                                     <label htmlFor="amountPaid" className="text-sm font-medium text-gray-700">
                                         Amount Paid (DH)
                                     </label>
-                                    <input
-                                        type="number"
-                                        id="amountPaid"
-                                        placeholder="0"
-                                        {...register("amountPaid")}
-                                        className="p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    />
+
+                                    {/* Input Container */}
+                                    <div className="relative">
+                                        {/* Amount Paid Input */}
+                                        <input
+                                            type="number"
+                                            id="amountPaid"
+                                            placeholder="0"
+                                            {...register("amountPaid")}
+                                            className="block w-full p-2 pr-10 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        />
+
+                                        {/* Button with Icon */}
+                                        <button
+                                            type="button"
+                                            onClick={handleAutoFill}
+                                            id="autoFillButton"
+                                            className="absolute inset-y-0 right-0 px-3 py-2 bg-blue-600 text-white rounded-r-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                                        >
+                                            <svg
+                                                xmlns="http://www.w3.org/2000/svg"
+                                                className="h-5 w-5"
+                                                fill="none"
+                                                viewBox="0 0 24 24"
+                                                stroke="currentColor"
+                                            >
+                                                <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    strokeWidth="2"
+                                                    d="M8 7h12m0 0l-4 4m4-4l-4-4m0 10H4m0 0l4 4m-4-4l4-4"
+                                                />
+                                            </svg>
+                                        </button>
+                                    </div>
                                 </div>
 
                                 {/* Remaining Amount (Read-only) */}
@@ -445,9 +478,8 @@ const InvoicesForm = ({ type, data, setOpen, StudentMemberships = [], studentId 
                 <button
                     type="submit"
                     disabled={loading}
-                    className={`px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                        loading ? "opacity-70 cursor-not-allowed" : ""
-                    }`}
+                    className={`px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 ${loading ? "opacity-70 cursor-not-allowed" : ""
+                        }`}
                 >
                     {loading ? (
                         <div className="flex items-center justify-center">
