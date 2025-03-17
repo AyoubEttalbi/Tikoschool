@@ -60,6 +60,13 @@ Route::middleware('auth')->group(function () {
         Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');
         Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
     });
+    // Invoice PDF route
+    Route::get('/invoices/{id}/pdf', [InvoiceController::class, 'generateInvoicePdf'])->name('invoices.pdf');
+    Route::delete('/students/invoices/{invoiceId}', [InvoiceController::class, 'destroy'])->name('invoices.destroy');
+    Route::get('/invoices/{id}/download', [InvoiceController::class, 'download'])->name('invoices.download');
+    Route::post('/invoices/bulk-download', [InvoiceController::class, 'bulkDownload'])
+    ->name('invoices.bulk.download')
+    ->middleware('web'); // Ensure all web middleware is applied
 
     // Additional routes
     Route::delete('/classes/students/{student}', [ClassesController::class, 'removeStudent'])->name('classes.removeStudent');
