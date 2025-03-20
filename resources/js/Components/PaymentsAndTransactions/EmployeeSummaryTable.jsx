@@ -107,7 +107,7 @@ const EmployeeSummaryTable = ({ employeePayments = [], onEdit, onDelete, onView,
           </select>
           
           <select
-            className="bg-white border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+            className="bg-white border border-gray-300 rounded-md shadow-sm py-2  focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
             value={selectedYear}
             onChange={(e) => setSelectedYear(parseInt(e.target.value))}
           >

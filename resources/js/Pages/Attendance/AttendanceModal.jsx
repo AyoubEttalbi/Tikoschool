@@ -88,7 +88,7 @@ const AttendanceModal = ({ table, type, id, data, classes, students, onClose }) 
                 placeholder="Reason for absence"
                 value={formData.reason}
                 onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
-                className="w-full p-2 border rounded-md"
+                className="w-full p-2  border rounded-md"
               />
             </div>
           )}

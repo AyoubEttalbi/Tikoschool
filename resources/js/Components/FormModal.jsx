@@ -63,7 +63,7 @@ const FormModal = ({ table, type,icon, data, id, levels, route,subjects,classes,
       ) 
       : table === "invoice" && type === "create" ? (
         <button
-          className="bg-blue-500 hover:bg-blue-600 text-white rounded-full px-3 py-1 h-8 flex items-center"
+          className="bg-black hover:bg-neutral-700 text-white rounded-full px-3 py-1 h-8 flex items-center"
           onClick={() => setOpen(true)}
         >
           <Plus className="h-4 w-4 mr-1" />

@@ -14,6 +14,7 @@ use App\Models\Offer;
 use App\Models\Teacher;
 use App\Models\Membership;
 use App\Models\Invoice;
+use App\Models\Attendance;
 class StudentsController extends Controller
 {
     /**
@@ -228,7 +229,24 @@ public function show($id)
         ];
     });
 
-    // Format the student data, including memberships
+    // Fetch attendance records for the student
+    $attendances = Attendance::with(['classe', 'recordedBy'])
+        ->where('student_id', $student->id)
+        ->latest()
+        ->get()
+        ->map(function ($attendance) {
+            return [
+                'id' => $attendance->id,
+                'date' => $attendance->date,
+                'status' => $attendance->status,
+                'classe' => $attendance->classe ? $attendance->classe->name : null,
+                'recordedBy' => $attendance->recordedBy ? $attendance->recordedBy->name : null,
+                'created_at' => $attendance->created_at,
+                'reason' => $attendance->reason
+            ];
+        });
+
+    // Format the student data, including memberships, invoices, and attendances
     $studentData = [
         'id' => $student->id,
         'name' => $student->firstName . ' ' . $student->lastName,
@@ -253,6 +271,7 @@ public function show($id)
         'created_at' => $student->created_at,
         'memberships' => $memberships, // Embed memberships in the student data
         'invoices' => $invoices, // Include invoices in the response
+        'attendances' => $attendances, // Include attendances in the response
     ];
 
     // Fetch schools and classes

@@ -184,7 +184,7 @@ const AttendancePage = ({ attendances,  assistants, schools, classes, students, 
                       <select
                         value={attendanceData[index]?.status || 'present'}
                         onChange={(e) => handleStatusChange(index, e.target.value)}
-                        className="px-3  py-1 border rounded-md"
+                        className="pl-3 pr-8 py-1  border rounded-md"
                       >
                         <option value="present">Present</option>
                         <option value="absent">Absent</option>
