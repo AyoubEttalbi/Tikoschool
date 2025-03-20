@@ -76,7 +76,7 @@ class AssistantController extends Controller
                ],
            ],
            // Add public_id for better organization (optional)
-           'public_id' => 'assistant_' . time() . '_' . rand(1000, 9999),
+           'public_id' => 'assistant_' . time() . '_' . random_int(1000, 9999),
            // Optional: Add these for even more optimization
            'resource_type' => 'image',
            'flags' => 'lossy', // Apply lossy compression

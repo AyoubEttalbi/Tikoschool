@@ -75,12 +75,19 @@ class Teacher extends Model
 
     public function classes(): BelongsToMany
     {
-        return $this->belongsToMany(Classes::class, 'classes_teacher')->withTimestamps();
+        return $this->belongsToMany(Classes::class, 'classes_teacher', 'teacher_id', 'classes_id')
+        ->withTimestamps();
     }
 
     public function schools(): BelongsToMany
     {
         return $this->belongsToMany(School::class)->withTimestamps();
     }
+
+public function user()
+{
+    return $this->belongsTo(User::class, 'email', 'email');
+}
+
     
 }

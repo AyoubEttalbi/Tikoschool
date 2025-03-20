@@ -1,0 +1,634 @@
+import React, { useState, useEffect } from 'react';
+import { router } from '@inertiajs/react';
+import PageHeader from '@/Components/PaymentsAndTransactions/PageHeader';
+import Alert from '@/Components/PaymentsAndTransactions/Alert';
+import DashboardLayout from '@/Layouts/DashboardLayout';
+import { Calendar as CalendarIcon, ChevronDown, ChevronUp, X } from 'lucide-react';
+import { Calendar, Filter, CheckCircle, ChevronLeft, CreditCard, ArrowRight } from 'lucide-react';
+const RecurringTransactionsPage = ({
+  recurringTransactions = [],
+  selectedMonth,
+  availableMonths = {},
+  flash,
+  errors,
+  isEmbedded = false
+}) => {
+  const [selectedTransactions, setSelectedTransactions] = useState([]);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
+  
+  // Initialize with selectedMonth from props or current month
+  const [month, setMonth] = useState(() => {
+    if (selectedMonth) return selectedMonth;
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  
+  const [showUnpaidOnly, setShowUnpaidOnly] = useState(false);
+  
+  // If recurringTransactions or month changes, reset selections
+  useEffect(() => {
+    setSelectedTransactions([]);
+  }, [recurringTransactions, month]);
+
+  // Toggle all transactions selection
+  const toggleSelectAll = (e) => {
+    if (e.target.checked) {
+      const visibleTransactions = getFilteredTransactions().map(transaction => transaction.id);
+      setSelectedTransactions(visibleTransactions);
+    } else {
+      setSelectedTransactions([]);
+    }
+  };
+
+  // Toggle individual transaction selection
+  const toggleSelect = (id) => {
+    if (selectedTransactions.includes(id)) {
+      setSelectedTransactions(selectedTransactions.filter(transactionId => transactionId !== id));
+    } else {
+      setSelectedTransactions([...selectedTransactions, id]);
+    }
+  };
+
+  // Format date for display
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    return date.toLocaleDateString(undefined, { 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric' 
+    });
+  };
+ 
+  // Get more descriptive month label based on current date
+  const getMonthDescription = (monthStr) => {
+    if (!monthStr) return 'All Months';
+    
+    const selectedDate = new Date(`${monthStr}-01`);
+    const currentDate = new Date();
+    const currentMonth = currentDate.getMonth();
+    const currentYear = currentDate.getFullYear();
+    
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    
+    const monthName = monthNames[selectedDate.getMonth()];
+    const yearValue = selectedDate.getFullYear();
+    
+    // Determine if it's past, current or future month
+    if (selectedDate.getMonth() === currentMonth && selectedDate.getFullYear() === currentYear) {
+      return `Current Month (${monthName} ${yearValue})`;
+    } else if (selectedDate < new Date(currentYear, currentMonth, 1)) {
+      return `Past Month (${monthName} ${yearValue})`;
+    } else {
+      return `Future Month (${monthName} ${yearValue})`;
+    }
+  };
+  
+  // Handle month selection change 
+  const handleMonthChange = (e) => {
+    const newMonth = e.target.value;
+    setMonth(newMonth);
+    
+    // Reset selected transactions
+    setSelectedTransactions([]);
+    
+    // Reload data with the new month
+    router.get(route('transactions.recurring', { month: newMonth }), {}, {
+      preserveState: true,
+      replace: true
+    });
+  };
+
+  // Clear the month filter
+  const clearMonthFilter = () => {
+    // Reset to current month instead of clearing
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    
+    setMonth(currentMonth);
+    router.get(route('transactions.recurring', { month: currentMonth }), {}, {
+      preserveState: true,
+      replace: true
+    });
+  };
+ 
+  // Enhanced MonthFilter component
+  const MonthFilter = () => (
+    <div className="w-full sm:w-64">
+      <label htmlFor="month-filter" className="block text-sm font-medium text-gray-700 mb-1">
+        Transaction Period
+      </label>
+      <div className="relative rounded-md shadow-sm">
+        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+          <CalendarIcon className="h-4 w-4 text-gray-500" />
+        </div>
+        <input
+          id="month-filter"
+          type="month"
+          className="block w-full pl-10 pr-10 py-2 sm:text-sm border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+          value={month}
+          onChange={handleMonthChange}
+          aria-label="Select month to filter transactions"
+        />
+        {month && (
+          <button
+            onClick={clearMonthFilter}
+            className="absolute inset-y-0 right-0 pr-3 flex items-center"
+            aria-label="Clear month filter"
+          >
+            <X className="h-4 w-4 text-gray-500 hover:text-gray-700" />
+          </button>
+        )}
+      </div>
+      {month && (
+        <p className="mt-1 text-xs text-gray-500">
+          {getMonthDescription(month)}
+        </p>
+      )}
+    </div>
+  );
+
+  // Process single transaction
+  const handleProcessTransaction = (id) => {
+    setIsProcessing(true);
+    router.post(route('transactions.process-single-recurring', {
+      id: id,
+      month: month
+    }), {}, {
+      onSuccess: () => {
+        setSuccessMessage(`Transaction #${id} processed successfully`);
+        setIsProcessing(false);
+        setTimeout(() => setSuccessMessage(''), 3000);
+        router.reload();
+      },
+      onError: (errors) => {
+        setErrorMessage(errors.message || 'Error processing transaction');
+        setIsProcessing(false);
+        setTimeout(() => setErrorMessage(''), 3000);
+      }
+    });
+  };
+
+  // Handle batch processing of selected transactions
+  const handleProcessSelected = () => {
+    if (selectedTransactions.length === 0) {
+      setErrorMessage('Please select at least one transaction to process');
+      setTimeout(() => setErrorMessage(''), 3000);
+      return;
+    }
+    setIsProcessing(true);
+    router.post(route('transactions.process-selected-recurring'), { 
+      transactions: selectedTransactions,
+      month: month
+    }, {
+      onSuccess: () => {
+        setSuccessMessage(`${selectedTransactions.length} transaction(s) processed successfully`);
+        setSelectedTransactions([]);
+        setIsProcessing(false);
+        setTimeout(() => setSuccessMessage(''), 3000);
+        router.reload();
+      },
+      onError: (errors) => {
+        setErrorMessage(errors.message || 'Error processing transactions');
+        setIsProcessing(false);
+        setTimeout(() => setErrorMessage(''), 3000);
+      }
+    });
+  };
+
+  // Handle processing all recurring transactions
+  const handleProcessAll = () => {
+    setIsProcessing(true);
+    router.post(route('transactions.process-all-recurring'), {}, {
+      onSuccess: () => {
+        setSuccessMessage('All recurring transactions processed successfully');
+        setIsProcessing(false);
+        setTimeout(() => setSuccessMessage(''), 3000);
+        router.reload();
+      },
+      onError: (errors) => {
+        setErrorMessage(errors.message || 'Error processing transactions');
+        setIsProcessing(false);
+        setTimeout(() => setErrorMessage(''), 3000);
+      }
+    });
+  };
+
+  // Handle processing all month's recurring transactions
+  const handleProcessMonth = () => {
+    setIsProcessing(true);
+    router.post(route('transactions.process-month-recurring'), { month }, {
+      onSuccess: () => {
+        setSuccessMessage(`All transactions for ${getMonthDescription(month)} processed successfully`);
+        setIsProcessing(false);
+        setTimeout(() => setSuccessMessage(''), 3000);
+        router.reload();
+      },
+      onError: (errors) => {
+        setErrorMessage(errors.message || 'Error processing transactions');
+        setIsProcessing(false);
+        setTimeout(() => setErrorMessage(''), 3000);
+      }
+    });
+  };
+
+  // Handle cancel/back navigation
+  const handleCancel = () => {
+    router.get(route('transactions.index'));
+  };
+
+  // Get transaction status based on next payment date
+  const getTransactionStatus = (nextPaymentDate) => {
+    if (!nextPaymentDate) return 'N/A';
+    
+    const today = new Date();
+    const paymentDate = new Date(nextPaymentDate);
+    
+    if (paymentDate < today) {
+      return 'Overdue';
+    } else {
+      const diffTime = Math.abs(paymentDate - today);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (diffDays <= 7) {
+        return 'Due Soon';
+      } else {
+        return 'Scheduled';
+      }
+    }
+  };
+
+  // Get status color class
+  const getStatusColorClass = (status) => {
+    switch (status) {
+      case 'Overdue':
+        return 'text-red-600';
+      case 'Due Soon':
+        return 'text-orange-500';
+      case 'Scheduled':
+        return 'text-green-600';
+      default:
+        return 'text-gray-500';
+    }
+  };
+
+  // Determine payment status based on available data
+  const getPaymentStatus = (transaction) => {
+    // Check if last payment date exists and is within the current month
+    if (transaction.payment_date) {
+      const lastPayment = new Date(transaction.payment_date);
+      
+      // Check if the last payment was in the selected month and year
+      const selectedDate = month ? new Date(`${month}-01`) : new Date(); 
+      
+      if (lastPayment.getMonth() === selectedDate.getMonth() && 
+          lastPayment.getFullYear() === selectedDate.getFullYear()) {
+        return 'Paid';
+      }
+    }
+    
+    return 'Unpaid';
+  };
+
+  // Get payment status color class
+  const getPaymentStatusColorClass = (status) => {
+    return status === 'Paid' ? 'bg-green-100 text-green-800'
+      : status === 'Unpaid' ? 'bg-yellow-100 text-yellow-800'
+      : 'bg-gray-100 text-gray-800';
+  };
+
+  // Filter transactions based on date criteria
+  // Fixed getFilteredTransactions function
+const getFilteredTransactions = () => {
+  const currentDate = new Date();
+  const currentMonth = currentDate.getMonth();
+  const currentYear = currentDate.getFullYear();
+  
+  // Parse selected month if available
+  let selectedMonth, selectedYear, selectedDate;
+  if (month) {
+    selectedDate = new Date(`${month}-01`);
+    selectedMonth = selectedDate.getMonth();
+    selectedYear = selectedDate.getFullYear();
+  }
+
+  return recurringTransactions.filter(transaction => {
+    // Get dates we'll need for comparisons
+    const nextPaymentDate = transaction.next_payment_date ? new Date(transaction.next_payment_date) : null;
+    const lastPaymentDate = transaction.payment_date ? new Date(transaction.payment_date) : null;
+    const paymentStatus = getPaymentStatus(transaction);
+    const isRecurring = transaction.is_recurring;
+    
+    // Apply "show unpaid only" filter if enabled
+    if (showUnpaidOnly && paymentStatus === 'Paid') {
+      return false;
+    }
+    
+    // Always include unpaid recurring transactions regardless of month
+    const isUnpaidRecurring = isRecurring && paymentStatus !== 'Paid';
+    
+    // If no month filter is applied, show all transactions
+    if (!month) {
+      return true;
+    }
+    
+    // For past months: show transactions that were paid in that month
+    if (selectedDate < new Date(currentYear, currentMonth, 1)) {
+      const paidInSelectedMonth = lastPaymentDate && 
+        lastPaymentDate.getMonth() === selectedMonth && 
+        lastPaymentDate.getFullYear() === selectedYear;
+        
+      return paidInSelectedMonth || isUnpaidRecurring;
+    } 
+    
+    // For current month: 
+    // 1. Show transactions with next payment date in this month
+    // 2. OR show overdue transactions
+    // 3. OR show transactions already paid this month
+    // 4. Always show unpaid recurring transactions
+    else if (selectedMonth === currentMonth && selectedYear === currentYear) {
+      const dueThisMonth = nextPaymentDate && 
+        nextPaymentDate.getMonth() === currentMonth && 
+        nextPaymentDate.getFullYear() === currentYear;
+      
+      const isOverdue = nextPaymentDate && nextPaymentDate < currentDate;
+      
+      const alreadyPaidThisMonth = lastPaymentDate && 
+        lastPaymentDate.getMonth() === currentMonth && 
+        lastPaymentDate.getFullYear() === currentYear;
+      
+      return dueThisMonth || isOverdue || alreadyPaidThisMonth || isUnpaidRecurring;
+    } 
+    
+    // For future months: 
+    // 1. Show recurring transactions with next payment date in that future month
+    // 2. OR show any unpaid recurring transactions
+    else {
+      const dueInSelectedMonth = nextPaymentDate && 
+        nextPaymentDate.getMonth() === selectedMonth && 
+        nextPaymentDate.getFullYear() === selectedYear;
+      
+      return dueInSelectedMonth || isUnpaidRecurring;
+    }
+  });
+};
+const [showFilters, setShowFilters] = useState(false);
+  // The content to be rendered
+  const content = (
+    <>
+      {!isEmbedded && (
+         <PageHeader
+         title="Recurring Transactions"
+         description="View and process your recurring transactions"
+       >
+         <div className="flex flex-col space-y-4 w-full">
+           <button 
+             onClick={() => setShowFilters(!showFilters)}
+             className="flex items-center justify-center px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md ml-auto"
+           >
+             <Filter className="h-4 w-4 mr-2" />
+             Filters
+             {showFilters ? 
+               <ChevronUp className="h-4 w-4 ml-2" /> : 
+               <ChevronDown className="h-4 w-4 ml-2" />
+             }
+           </button>
+           
+           {showFilters && (
+             <div className="flex flex-col sm:flex-row justify-end items-center space-y-2 sm:space-y-0 sm:space-x-4 p-3 bg-gray-50 rounded-md border border-gray-200">
+               <MonthFilter />
+               
+               <div className="flex items-center">
+                 <input
+                   id="unpaid-only"
+                   type="checkbox"
+                   checked={showUnpaidOnly}
+                   onChange={() => setShowUnpaidOnly(!showUnpaidOnly)}
+                   className="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                 />
+                 <label htmlFor="unpaid-only" className="ml-2 text-sm font-medium text-gray-700">
+                   Show Unpaid Only
+                 </label>
+               </div>
+             </div>
+           )}
+           
+           <div className="flex flex-wrap gap-2 mt-2">
+             <button
+               onClick={handleProcessSelected}
+               disabled={isProcessing || selectedTransactions.length === 0}
+               className={`flex items-center px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed`}
+             >
+               <CheckCircle className="h-4 w-4 mr-2" />
+               Process Selected ({selectedTransactions.length})
+             </button>
+             
+             <button
+               onClick={handleProcessMonth}
+               disabled={isProcessing || getFilteredTransactions().length === 0}
+               className={`flex items-center px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50 disabled:cursor-not-allowed`}
+             >
+               <Calendar className="h-4 w-4 mr-2" />
+               Process {getMonthDescription(month).split(' ')[0]} Transactions
+             </button>
+             
+             <button
+               onClick={handleProcessAll}
+               disabled={isProcessing || recurringTransactions.length === 0}
+               className={`flex items-center px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed`}
+             >
+               <ArrowRight className="h-4 w-4 mr-2" />
+               Process All Due
+             </button>
+             
+             <button
+               onClick={handleCancel}
+               className="flex items-center px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400"
+             >
+               <ChevronLeft className="h-4 w-4 mr-2" />
+               Back
+             </button>
+           </div>
+         </div>
+       </PageHeader>
+      )}
+
+      {(flash?.success || successMessage) && (
+        <Alert type="success" message={flash?.success || successMessage} className="mb-6" />
+      )}
+      
+      {(errors?.message || errorMessage) && (
+        <Alert type="error" message={errors?.message || errorMessage} className="mb-6" />
+      )}
+
+      <div className={isEmbedded ? "" : "bg-white shadow-sm sm:rounded-lg"}>
+        <div className={isEmbedded ? "" : "p-6 bg-white border-b border-gray-200"}>
+          {isProcessing && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white p-6 rounded-lg shadow-lg">
+                <p className="text-lg font-semibold">Processing transactions...</p>
+                <div className="mt-4 flex justify-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {getFilteredTransactions().length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <input
+                        type="checkbox"
+                        checked={selectedTransactions.length === getFilteredTransactions().length && getFilteredTransactions().length > 0}
+                        onChange={toggleSelectAll}
+                        className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                      />
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      ID
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      User
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Type
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Amount
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Description
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Frequency
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Last Payment
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Next Payment
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Payment Status
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {getFilteredTransactions().map((transaction) => {
+                    const status = getTransactionStatus(transaction.next_payment_date);
+                    const statusColorClass = getStatusColorClass(status);
+                    const paymentStatus = getPaymentStatus(transaction);
+                    const paymentStatusColorClass = getPaymentStatusColorClass(paymentStatus);
+                    
+                    return (
+                      <tr key={transaction.id}>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <input
+                            type="checkbox"
+                            checked={selectedTransactions.includes(transaction.id)}
+                            onChange={() => toggleSelect(transaction.id)}
+                            className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                          />
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {transaction.id}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {transaction.user_name || `User #${transaction.user_id}`}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                            transaction.type === 'payment' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                          }`}>
+                            {transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          ${parseFloat(transaction.amount).toFixed(2)}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">
+                          {transaction.description}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {transaction.frequency.charAt(0).toUpperCase() + transaction.frequency.slice(1)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {formatDate(transaction.payment_date)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {formatDate(transaction.next_payment_date)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${paymentStatusColorClass}`}>
+                            {paymentStatus}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          <span className={`font-medium ${statusColorClass}`}>
+                            {status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          <button
+                            onClick={() => handleProcessTransaction(transaction.id)}
+                            disabled={isProcessing || paymentStatus === 'Paid'}
+                            className={`text-blue-600 hover:text-blue-900 mr-4 ${
+                              (isProcessing || paymentStatus === 'Paid') ? 'opacity-50 cursor-not-allowed' : ''
+                            }`}
+                          >
+                            {paymentStatus === 'Paid' ? 'Already Processed' : 'Process Now'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <p className="text-gray-500 text-lg">
+                {showUnpaidOnly 
+                  ? 'No unpaid recurring transactions found for this period.' 
+                  : month 
+                    ? `No recurring transactions found for ${getMonthDescription(month)}.` 
+                    : 'No recurring transactions found.'}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+
+  // Return different layouts based on whether the component is embedded or standalone
+  if (isEmbedded) {
+    return content;
+  }
+
+  return (
+    <div className="py-6">
+      <div className="mx-20 sm:px-6 lg:px-8">
+        {content}
+      </div>
+    </div>
+  );
+};
+
+RecurringTransactionsPage.layout = (page) => <DashboardLayout>{page}</DashboardLayout>;
+
+export default RecurringTransactionsPage;

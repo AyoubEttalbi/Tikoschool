@@ -28,6 +28,12 @@ class Assistant extends Model
     return $this->belongsToMany(School::class, 'assistant_school')->withTimestamps();
 }
 
+
+public function user()
+{
+    return $this->belongsTo(User::class, 'email', 'email');
+}
+
   
    
 }

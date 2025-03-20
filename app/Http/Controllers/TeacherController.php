@@ -146,14 +146,23 @@ class TeacherController extends Controller
     }
 
     // Fetch all memberships where the teacher is involved
-    $memberships = Membership::where('payment_status', 'paid')
+    $memberships = Membership::whereIn('payment_status', ['paid', 'pending'])
         ->whereJsonContains('teachers', [['teacherId' => (string) $teacher->id]])
         ->with(['invoices', 'student'])
         ->get();
 
-    // Extract invoices from memberships and paginate them
-    $invoices = $memberships->flatMap(function ($membership) {
-        return $membership->invoices->map(function ($invoice) use ($membership) {
+    // Extract invoices from memberships and calculate the teacher's share
+    $invoices = $memberships->flatMap(function ($membership) use ($teacher) {
+        return $membership->invoices->map(function ($invoice) use ($membership, $teacher) {
+            // Calculate the payment percentage
+            $paymentPercentage = ($invoice->amountPaid / $invoice->totalAmount) * 100;
+
+            // Find the teacher's data in the membership
+            $teacherData = collect($membership->teachers)->firstWhere('teacherId', (string) $teacher->id);
+
+            // Calculate the teacher's share
+            $teacherAmount = $teacherData ? ($teacherData['amount'] * $invoice->months) * ($paymentPercentage / 100) : 0;
+
             return [
                 'id' => $invoice->id,
                 'membership_id' => $invoice->membership_id,
@@ -171,6 +180,7 @@ class TeacherController extends Controller
                 'endDate' => $invoice->endDate,
                 'includePartialMonth' => $invoice->includePartialMonth,
                 'partialMonthAmount' => $invoice->partialMonthAmount,
+                'teacher_amount' => $teacherAmount, // Add the teacher's share
             ];
         });
     });

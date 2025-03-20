@@ -3,7 +3,7 @@ import Pagination from "@/Components/Pagination";
 import Table from "@/Components/Table";
 import TableSearch from "@/Components/TableSearch";
 import DashboardLayout from "@/Layouts/DashboardLayout";
-import { Link ,usePage} from '@inertiajs/react';
+import { Link ,router,usePage} from '@inertiajs/react';
 import { Eye, UserRoundPen } from "lucide-react";
 const columns = [
   {
@@ -50,10 +50,11 @@ const TeacherListPage = ({teachers,subjects,classes,schools}) => {
   const renderRow = (item) => (
     
     <tr
+   
       key={item.id}
       className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
     >
-      <td className="flex items-center gap-4 p-4">
+      <td className="flex items-center gap-4 p-4 cursor-pointer"  onClick={() => router.visit(`/teachers/${item.id}`)}>
         <img
           src={item.photo ? item.photo : "/teacherPrfile2.png"}
           alt=""

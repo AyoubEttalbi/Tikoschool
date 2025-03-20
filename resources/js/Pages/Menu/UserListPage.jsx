@@ -1,4 +1,4 @@
-import { Link ,usePage} from '@inertiajs/react';
+import { Link ,router,usePage} from '@inertiajs/react';
 import TableSearch from "../../Components/TableSearch";
 import Table from "../../Components/Table";
 import Pagination from "../../Components/Pagination";
@@ -7,7 +7,7 @@ import FormModal from "../../Components/FormModal";
 import Register from "../Auth/Register";
 import { useState } from "react";
 import { useParams } from 'react-router-dom';
-import { Edit, Plus, PlusIcon } from 'lucide-react';
+import { Edit, Eye, Plus, PlusIcon } from 'lucide-react';
 import UpdateUser from '../Auth/UpdateUser';
 // Define table columns for users
 const columns = [
@@ -51,7 +51,17 @@ const UserListPage = ({users}) => {
 
   // Now you can access the data
 
-    
+  const handleViewAs = (userId) => {
+    router.post(`/admin/view-as/${userId}`, {}, {
+      onSuccess: () => {
+        // Redirect to the dashboard after successfully switching accounts
+        router.visit('/dashboard');
+      },
+      onError: (errors) => {
+        console.error('Error viewing as user:', errors);
+      },
+    });
+  };
   // Format the created_at date to YYYY-MM-DD
   const formatDate = (dateString) => {
     return new Date(dateString).toISOString().split("T")[0];
@@ -100,6 +110,13 @@ const UserListPage = ({users}) => {
           {/* Admin-only actions */}
           {role === "admin" && (
             <>
+              <button
+                disabled={user.role === "admin"}
+                onClick={() => handleViewAs(user.id)}
+                className={`p-2 bg-blue-500 ${user.role === "admin" ? "opacity-50 cursor-not-allowed" : ""} text-white rounded-full hover:bg-blue-600 transition duration-200`}
+              >
+                <Eye className="w-4 h-4 text-white" />
+              </button>
               {/* Update User */}
               <button
                 onClick={() => setIsUpdateOpen({...isUpdateOpen,isOpen: true, id: user.id})}

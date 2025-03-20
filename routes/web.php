@@ -17,12 +17,22 @@ use App\Http\Controllers\Auth\RegisteredUserController;
 use App\Http\Controllers\TeacherController;
 use App\Http\Controllers\MembershipController;
 use App\Http\Controllers\StatsController;
+use App\Http\Controllers\TransactionController;
+use App\Http\Controllers\AdminController;
+use App\Http\Middleware\CheckImpersonation;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\AttendanceController;
 
 // Redirect to dashboard if authenticated, otherwise to login
 Route::get('/', function () {
     return auth()->check() ? redirect('/dashboard') : redirect('/login');
 });
-
+Route::post('/admin/switch-back', [AdminController::class, 'switchBack'])
+    ->middleware(['auth', CheckImpersonation::class])
+    ->name('admin.switch-back');
+Route::post('/admin/view-as/{user}', [AdminController::class, 'viewAs'])
+    ->middleware(['auth', AdminMiddleware::class])
+    ->name('admin.view-as');
 // Authenticated routes
 Route::middleware('auth')->group(function () {
     // Dashboard route with RoleRedirect middleware
@@ -43,8 +53,8 @@ Route::middleware('auth')->group(function () {
     Route::resource('offers', OfferController::class);
     Route::resource('invoices', InvoiceController::class);
     Route::resource('memberships', MembershipController::class);
-
-
+    Route::resource('transactions', TransactionController::class);
+    Route::resource('attendances', AttendanceController::class);
 
     // Admin-only routes
     Route::middleware(AdminMiddleware::class)->group(function () {
@@ -68,19 +78,40 @@ Route::middleware('auth')->group(function () {
     ->name('invoices.bulk.download')
     ->middleware('web'); // Ensure all web middleware is applied
 
-    // Additional routes
+
+
+
+    // Batch payment routes
+    Route::get('/batch-payment', [TransactionController::class, 'batchPaymentForm'])->name('transactions.batch-payment-form');
+    Route::post('/batch-payment', [TransactionController::class, 'batchPayEmployees'])->name('transactions.batch-pay');
+
+    // Recurring transactions
+    Route::get('/recurring-transactions', [TransactionController::class, 'showRecurringTransactions'])->name('transactions.recurring');
+    Route::post('/recurring-transactions/process/{id}', [TransactionController::class, 'processSingleRecurringTransaction'])->name('transactions.process-single-recurring');
+    Route::post('/recurring-transactions/process-selected', [TransactionController::class, 'processSelectedRecurringTransactions'])->name('transactions.process-selected-recurring');
+    Route::post('/recurring-transactions/process-all', [TransactionController::class, 'processAllRecurringTransactions'])->name('transactions.process-all-recurring');
+    Route::post('/recurring-transactions/process-month', [TransactionController::class, 'processMonthRecurringTransactions'])->name('transactions.process-month-recurring');
+
+    // Transaction routes
+    Route::get('employee-transactions/{employee}', [TransactionController::class, 'employeeTransactions'])
+        ->name('employee.transactions');
+
+
+    // Class routes
     Route::delete('/classes/students/{student}', [ClassesController::class, 'removeStudent'])->name('classes.removeStudent');
     Route::delete('/students/invoices/{invoiceId}', [InvoiceController::class, 'destroy'])->name('invoices.destroy');
-
+    Route::get('/employees/{employee}/transactions', [TransactionController::class, 'transactions'])->name('employees.transactions'); 
     // Inertia pages
     Route::get('/results', function () {
         return Inertia::render('Menu/ResultsPage');
     });
-    Route::get('/attendance', function () {
-        return Inertia::render('Menu/AttendancePage');
-    });
+   
+   
     Route::get('/announcements', function () {
         return Inertia::render('Menu/AnnouncementsPage');
+    });
+    Route::get('/payments', function () {
+        return Inertia::render('Menu/PaymentsPage');
     });
 });
 

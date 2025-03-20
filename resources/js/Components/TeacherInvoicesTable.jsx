@@ -55,14 +55,14 @@ const TeacherInvoicesTable = ({ invoices=[], invoiceslinks=[] }) => {
 
     // Calculate summary metrics
     const totalInvoices = filteredInvoices.length;
-    const totalAmount = filteredInvoices.reduce((sum, invoice) => sum + parseFloat(invoice.totalAmount), 0);
+    const totalAmount = filteredInvoices.reduce((sum, invoice) => sum + parseFloat(invoice.teacher_amount), 0);
     // Calculate the best offer (offer with the highest total amount)
     const bestOffer = useMemo(() => {
         const offerTotals = filteredInvoices.reduce((acc, invoice) => {
             if (!acc[invoice.offer_name]) {
                 acc[invoice.offer_name] = 0;
             }
-            acc[invoice.offer_name] += parseFloat(invoice.totalAmount);
+            acc[invoice.offer_name] += parseFloat(invoice.teacher_amount);
             return acc;
         }, {});
 
@@ -82,7 +82,7 @@ const TeacherInvoicesTable = ({ invoices=[], invoiceslinks=[] }) => {
     const currentMonth = new Date().toISOString().slice(0, 7);
     const totalAmountThisMonth = filteredInvoices
         .filter(invoice => invoice.billDate.startsWith(currentMonth))
-        .reduce((sum, invoice) => sum + parseFloat(invoice.totalAmount), 0);
+        .reduce((sum, invoice) => sum + parseFloat(invoice.teacher_amount), 0);
 
     // Reset all filters
     const resetFilters = () => {
@@ -221,7 +221,7 @@ const TeacherInvoicesTable = ({ invoices=[], invoiceslinks=[] }) => {
             <td className="p-4 hidden md:table-cell">{item.student_class}</td>
             <td className="p-4 hidden lg:table-cell">{item.offer_name || "—"}</td>
             <td className="p-4 hidden md:table-cell">{new Date(item.billDate).toLocaleDateString()}</td>
-            <td className="p-4 hidden md:table-cell font-semibold text-green-500">+ {parseFloat(item.totalAmount).toFixed(1)} DH</td>
+            <td className="p-4 hidden md:table-cell font-semibold text-green-500">+ {parseFloat(item.teacher_amount).toFixed(1)} DH</td>
             <td className="p-4">
                 <div className="flex items-center gap-2">
                     {/* <Link href={`/invoices/${item.id}`}>

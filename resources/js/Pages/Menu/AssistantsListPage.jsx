@@ -1,5 +1,5 @@
 
-import { Link, usePage } from '@inertiajs/react';
+import { Link, router, usePage } from '@inertiajs/react';
 
 import TableSearch from "../../Components/TableSearch";
 import Table from "../../Components/Table";
@@ -7,7 +7,6 @@ import Pagination from "../../Components/Pagination";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import FormModal from "../../Components/FormModal";
 import { Eye } from "lucide-react";
-
 // Define table columns for assistants
 const columns = [
   {
@@ -45,8 +44,9 @@ const AssistantsListPage = ({assistants = [], schools}) => {
   console.log("assistants list",assistants);
   const renderRow = (assistant) => (
     <tr
+      onClick={() => router.visit(`/assistants/${assistant.id}`)}
       key={assistant.id}
-      className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
+      className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight cursor-pointer"
     >
       <td className="flex items-center gap-4 p-4">
         <img

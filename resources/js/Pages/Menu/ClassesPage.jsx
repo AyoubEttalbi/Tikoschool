@@ -1,5 +1,5 @@
 
-import { Link, usePage } from "@inertiajs/react";
+import { Link, router, usePage } from "@inertiajs/react";
 import FormModal from "../../Components/FormModal";
 import TableSearch from "../../Components/TableSearch";
 import Table from "../../Components/Table";
@@ -23,6 +23,7 @@ const ClassesPage = ({ classes, levels }) => {
 
   const renderRow = (classe) => (
     <tr
+    onClick={() => router.visit(`/classes/${classe.id}`)}
       key={classe.id}
       className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
     >

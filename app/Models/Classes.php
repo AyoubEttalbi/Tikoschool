@@ -31,6 +31,7 @@ class Classes extends Model
     // Relationship to Teachers (if applicable)
     public function teachers()
     {
-        return $this->hasMany(Teacher::class,'classes_teacher');
+        return $this->belongsToMany(Teacher::class, 'classes_teacher', 'classes_id', 'teacher_id')
+        ->withTimestamps();
     }
 }
