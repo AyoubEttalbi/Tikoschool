@@ -40,6 +40,7 @@ const PaymentsList = ({
           totalExpenses: 0,
           netBalance: 0,
           transactions: [],
+          wallet: userInfo.wallet || 0
         };
       }
       
@@ -53,7 +54,7 @@ const PaymentsList = ({
       
       return acc;
     }, {});
-    
+    console.log('user data', transactionsByUser);
     // Second pass: Calculate totalOwed and totalPaid based on collected transactions
     Object.values(transactionsByUser).forEach(userData => {
       // Set totalOwed based on role
@@ -61,9 +62,7 @@ const PaymentsList = ({
         userData.totalOwed = userData.baseSalary; // For assistants, totalOwed is their salary
       } else if (userData.role === 'teacher') {
         // For teachers, totalOwed is sum of wallet transactions
-        userData.totalOwed = userData.transactions
-          .filter(t => t.type === 'wallet')
-          .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+        userData.totalOwed = userData.wallet;
       }
       
       // Calculate totalPaid from salary transactions for all users

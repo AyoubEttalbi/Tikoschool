@@ -11,6 +11,7 @@ import Alert from '@/Components/PaymentsAndTransactions/Alert';
 import BatchPaymentForm from '@/Components/PaymentsAndTransactions/BatchPaymentForm'; // We'll create this component
 import RecurringTransactionsPage from '../Payments/RecurringTransactionsPage';
 import Pagination from '@/Components/Pagination';
+import AdminEarningsSection from '@/Components/PaymentsAndTransactions/AdminEarningsSection';
 
 const PaymentsPage = ({
   transactions,
@@ -23,7 +24,8 @@ const PaymentsPage = ({
   assistantCount,
   totalWallet,
   totalSalary,
-  recurringTransactions
+  recurringTransactions,
+  adminEarnings
 }) => {
   console.log('userrrr', users);
   console.log('transactions', transactions);
@@ -222,6 +224,7 @@ const PaymentsPage = ({
           </div>
         </div>
         <Pagination links={transactions.links} />
+        {adminEarnings && <AdminEarningsSection adminEarnings={adminEarnings} />}
         {/* <UserSelect users={users}/> */}
         {/* <TransactionAnalytics transactions={transactions} /> */}
       </div>

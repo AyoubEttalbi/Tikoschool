@@ -6,8 +6,7 @@ import { z } from "zod"
 import InputField from "../InputField"
 import { router } from "@inertiajs/react" // Import Inertia's router
 import { useEffect, useState } from "react"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select"
-
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 // Define the schema with assurance as a boolean
 const schema = z.object({
   firstName: z.string().min(1, { message: "First name is required!" }),
@@ -38,6 +37,9 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
   const [selectedSchool, setSelectedSchool] = useState(data?.schoolId?.toString() || "")
   const [selectedStatus, setSelectedStatus] = useState(data?.status || "active")
   const [selectedAssurance, setSelectedAssurance] = useState(data?.assurance === 1 ? "1" : "0")
+  
+  // State to hold filtered classes based on selected level
+  const [filteredClasses, setFilteredClasses] = useState([])
 
   const {
     register,
@@ -67,6 +69,25 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
       setSelectedAssurance(data.assurance === 1 ? "1" : "0")
     }
   }, [data, setValue])
+  
+  // Filter classes when level changes
+  useEffect(() => {
+    if (selectedLevel && classes) {
+      // Filter classes that match the selected level_id
+      const classesForLevel = classes.filter(
+        (cls) => cls.level_id.toString() === selectedLevel
+      )
+      setFilteredClasses(classesForLevel)
+      
+      // If current selected class is not in filtered list, reset it
+      if (selectedClass && !classesForLevel.some(cls => cls.id.toString() === selectedClass)) {
+        setSelectedClass("")
+        setValue("classId", "")
+      }
+    } else {
+      setFilteredClasses([])
+    }
+  }, [selectedLevel, classes, setValue])
   
   // Handle form submission
   const onSubmit = (formData) => {
@@ -185,6 +206,9 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
             onValueChange={(value) => {
               setSelectedLevel(value)
               setValue("levelId", value)
+              // Reset class when level changes
+              setSelectedClass("")
+              setValue("classId", "")
             }}
           >
             <SelectTrigger className="w-full bg-white ring-1 ring-gray-300 p-2 rounded-md text-sm">
@@ -210,16 +234,23 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
               setSelectedClass(value)
               setValue("classId", value)
             }}
+            disabled={!selectedLevel || filteredClasses.length === 0}
           >
             <SelectTrigger className="w-full bg-white ring-1 ring-gray-300 p-2 rounded-md text-sm">
-              <SelectValue placeholder="Select Class" />
+              <SelectValue placeholder={!selectedLevel ? "Select Level first" : (filteredClasses.length === 0 ? "No classes for this level" : "Select Class")} />
             </SelectTrigger>
             <SelectContent>
-              {classes?.map((classe) => (
-                <SelectItem key={classe.id} value={classe.id.toString()}>
-                  {classe.name}
-                </SelectItem>
-              ))}
+              {filteredClasses.length > 0 ? (
+                filteredClasses.map((classe) => (
+                  <SelectItem key={classe.id} value={classe.id.toString()}>
+                    {classe.name}
+                  </SelectItem>
+                ))
+              ) : (
+                <div className="p-2 text-sm text-gray-500">
+                  {!selectedLevel ? "Select Level first" : "No classes for this level"}
+                </div>
+              )}
             </SelectContent>
           </Select>
           {errors.classId?.message && <p className="text-xs text-red-400">{errors.classId.message}</p>}
@@ -300,4 +331,3 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
 }
 
 export default StudentForm
-

@@ -17,11 +17,11 @@ use Illuminate\Support\Facades\Mail;
 class TransactionController extends Controller
 {
     /**
-     * Common data needed for most views
-     *
-     * @return array
-     */
-    private function getCommonData()
+ * Common data needed for most views
+ *
+ * @return array
+ */
+private function getCommonData()
 {
     // Get all users with their id, name, email, and role
     $users = User::with(['teacher', 'assistant'])->get();
@@ -48,31 +48,207 @@ class TransactionController extends Controller
     $transactions = Transaction::with('user')
         ->orderBy('payment_date', 'desc')
         ->simplePaginate(20000);
-        
+    
+    // Calculate admin earnings based on invoices, grouped by month
+    $adminEarnings = $this->calculateAdminEarningsPerMonth();
+    
     return [
         'users' => $usersWithDetails,
         'transactions' => $transactions,
         'teacherCount' => $teacherCount,
         'assistantCount' => $assistantCount,
         'totalWallet' => $totalWallet,
-        'totalSalary' => $totalSalary
+        'totalSalary' => $totalSalary,
+        'adminEarnings' => $adminEarnings
     ];
 }
 
-
-    /**
-     * Display a listing of transactions.
-     *
-     * @return \Illuminate\Http\Response
-     */
-    public function index()
-    {
-        $data = $this->getCommonData();
-        $data['formType'] = null;
-        $data['transaction'] = null;
-        
-        return Inertia::render('Menu/PaymentsPage', $data);
+/**
+ * Calculate admin earnings based on invoices, grouped by month
+ *
+ * @return array
+ */
+private function calculateAdminEarningsPerMonth()
+{
+    // Get current year
+    $currentYear = now()->year;
+    
+    // Get invoices from last 12 months
+    $startDate = now()->subMonths(11)->startOfMonth();
+    
+    // Get all paid amounts from invoices, grouped by month
+    $monthlyEarnings = DB::table('invoices')
+        ->select(
+            DB::raw('YEAR(billDate) as year'),
+            DB::raw('MONTH(billDate) as month'),
+            DB::raw('SUM(amountPaid) as totalPaid')
+        )
+        ->whereNull('deleted_at')
+        ->where('billDate', '>=', $startDate)
+        ->groupBy('year', 'month')
+        ->orderBy('year', 'desc')
+        ->orderBy('month', 'desc')
+        ->get();
+    
+    // Initialize array for all months (including months with zero earnings)
+    $allMonths = [];
+    for ($i = 0; $i < 12; $i++) {
+        $date = now()->subMonths($i);
+        $yearMonth = $date->format('Y-m');
+        $allMonths[$yearMonth] = [
+            'year' => $date->year,
+            'month' => $date->month,
+            'monthName' => $date->format('F'),
+            'totalPaid' => 0
+        ];
     }
+    
+    // Fill in actual earnings data
+    foreach ($monthlyEarnings as $earning) {
+        $yearMonth = $earning->year . '-' . sprintf('%02d', $earning->month);
+        if (isset($allMonths[$yearMonth])) {
+            $allMonths[$yearMonth]['totalPaid'] = $earning->totalPaid;
+        }
+    }
+    
+    // Calculate additional metrics for each month
+    $processedEarnings = [];
+    foreach ($allMonths as $yearMonth => $data) {
+        // Get total expenses for this month (teacher wallets + assistant salaries)
+        $monthDate = Carbon::createFromDate($data['year'], $data['month'], 1);
+        
+        $monthlyExpenses = DB::table('transactions')
+            ->where(function ($query) {
+                $query->where('type', 'salary')
+                      ->orWhere('type', 'payment')
+                      ->orWhere('type', 'expense');
+            })
+            ->whereYear('payment_date', $data['year'])
+            ->whereMonth('payment_date', $data['month'])
+            ->sum('amount');
+        
+        // Calculate profit
+        $profit = $data['totalPaid'] - $monthlyExpenses;
+        
+        $processedEarnings[] = [
+            'year' => $data['year'],
+            'month' => $data['month'],
+            'monthName' => $data['monthName'],
+            'totalRevenue' => $data['totalPaid'],  // Change from totalPaid to totalRevenue
+            'totalExpenses' => $monthlyExpenses,
+            'profit' => $profit,
+            'yearMonth' => $yearMonth  // This is fine to keep but not required by the frontend
+        ];
+    }
+    
+    // Sort by year and month (descending)
+    usort($processedEarnings, function ($a, $b) {
+        if ($a['year'] != $b['year']) {
+            return $b['year'] <=> $a['year']; // Latest year first
+        }
+        return $b['month'] <=> $a['month']; // Latest month first
+    });
+    
+    return $processedEarnings;
+}
+/**
+ * Get admin earnings data for the dashboard
+ *
+ * @return \Illuminate\Http\JsonResponse
+ */
+public function getAdminEarningsDashboard()
+{
+    // Get earnings data for both current and previous year for YoY comparison
+    $currentYearStart = now()->startOfYear()->subYear(1);
+    
+    $startDate = $currentYearStart->format('Y-m-d');
+    
+    // Get all paid amounts from invoices, grouped by month
+    $monthlyEarnings = DB::table('invoices')
+        ->select(
+            DB::raw('YEAR(billDate) as year'),
+            DB::raw('MONTH(billDate) as month'),
+            DB::raw('SUM(amountPaid) as totalPaid')
+        )
+        ->whereNull('deleted_at')
+        ->where('billDate', '>=', $startDate)
+        ->groupBy('year', 'month')
+        ->orderBy('year', 'desc')
+        ->orderBy('month', 'desc')
+        ->get();
+    
+    // Initialize array for all months in the period
+    $allMonths = [];
+    
+    // Create entries for each month in the last two years
+    $endDate = now();
+    $date = Carbon::parse($startDate);
+    
+    while ($date->lte($endDate)) {
+        $yearMonth = $date->format('Y-m');
+        $allMonths[$yearMonth] = [
+            'year' => $date->year,
+            'month' => $date->month,
+            'monthName' => $date->format('F'),
+            'totalPaid' => 0
+        ];
+        $date->addMonth();
+    }
+    
+    // Fill in actual earnings data
+    foreach ($monthlyEarnings as $earning) {
+        $yearMonth = $earning->year . '-' . sprintf('%02d', $earning->month);
+        if (isset($allMonths[$yearMonth])) {
+            $allMonths[$yearMonth]['totalPaid'] = $earning->totalPaid;
+        }
+    }
+    
+    // Calculate additional metrics for each month
+    $processedEarnings = [];
+    foreach ($allMonths as $yearMonth => $data) {
+        // Get total expenses for this month (teacher wallets + assistant salaries + expenses)
+        $monthDate = Carbon::createFromDate($data['year'], $data['month'], 1);
+        
+        $monthlyExpenses = DB::table('transactions')
+            ->where(function ($query) {
+                $query->where('type', 'salary')
+                      ->orWhere('type', 'payment')
+                      ->orWhere('type', 'expense');
+            })
+            ->whereYear('payment_date', $data['year'])
+            ->whereMonth('payment_date', $data['month'])
+            ->sum('amount');
+        
+        // Calculate profit
+        $profit = $data['totalPaid'] - $monthlyExpenses;
+        
+        $processedEarnings[] = [
+            'year' => $data['year'],
+            'month' => $data['month'],
+            'monthName' => $data['monthName'],
+            'totalRevenue' => $data['totalPaid'],  // Change from totalPaid to totalRevenue
+            'totalExpenses' => $monthlyExpenses,
+            'profit' => $profit,
+            'yearMonth' => $yearMonth  // This is fine to keep but not required by the frontend
+        ];
+    }
+    
+    return response()->json($processedEarnings);
+}
+/**
+ * Display a listing of transactions.
+ *
+ * @return \Illuminate\Http\Response
+ */
+public function index()
+{
+    $data = $this->getCommonData();
+    $data['formType'] = null;
+    $data['transaction'] = null;
+    $data['adminEarnings'] = $this->calculateAdminEarningsPerMonth();
+    
+    return Inertia::render('Menu/PaymentsPage', $data);
+}
 
     /**
      * Show the form for creating a new transaction.

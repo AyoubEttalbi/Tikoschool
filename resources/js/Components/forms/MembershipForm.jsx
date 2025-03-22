@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { router } from "@inertiajs/react";
+import { router, usePage } from "@inertiajs/react";
 import { Book, Percent, UserCheck, CheckCircle, XCircle, Trash2 } from "lucide-react";
 
 // Define the Zod schema for form validation
@@ -20,7 +20,7 @@ const MembershipForm = ({ type, data, offers = [], teachers = [], setOpen, stude
   const [selectedOffer, setSelectedOffer] = useState(null);
   const [selectedSubjects, setSelectedSubjects] = useState([]);
   const [amounts, setAmounts] = useState({});
-
+  const role = usePage().props.auth.user.role;
   // Initialize react-hook-form with Zod validation
   const {
     register,
@@ -41,12 +41,12 @@ const MembershipForm = ({ type, data, offers = [], teachers = [], setOpen, stude
     if (type === "update" && data) {
       // Find the selected offer
       const offer = offers.find(o => o.id === data.offer_id);
-      
+
       if (offer) {
         setSelectedOffer(offer);
         setSelectedSubjects(offer.subjects);
         setAmounts(calculateAmounts(offer));
-        
+
         // Set initial values for teachers
         const teachersObj = {};
         data.teachers.forEach(teacher => {
@@ -54,7 +54,7 @@ const MembershipForm = ({ type, data, offers = [], teachers = [], setOpen, stude
             teacherId: teacher.teacherId
           };
         });
-        
+
         // Update form values
         reset({ teachers: teachersObj });
       }
@@ -101,7 +101,7 @@ const MembershipForm = ({ type, data, offers = [], teachers = [], setOpen, stude
 
     // Prepare data differently based on form type
     let finalData;
-    
+
     if (type === "create") {
       // For create, use the full structure with all fields
       finalData = {
@@ -122,7 +122,7 @@ const MembershipForm = ({ type, data, offers = [], teachers = [], setOpen, stude
         teachers: selectedSubjects.map(subject => {
           // Find the matching teacher entry in the original data if available
           const originalTeacher = data.teachers.find(t => t.subject === subject);
-          
+
           return {
             subject,
             teacherId: formData.teachers[subject]?.teacherId,
@@ -205,14 +205,19 @@ const MembershipForm = ({ type, data, offers = [], teachers = [], setOpen, stude
                     </option>
                   ))}
                 </select>
-                <div className="flex justify-between mt-2 text-sm">
-                  <span className="flex items-center gap-1 text-gray-600">
-                    <Percent className="w-4 h-4 text-blue-600" /> {selectedOffer?.percentage?.[subject] || 0}%
-                  </span>
-                  <span className="flex items-center gap-1 text-gray-600">
-                    <CheckCircle className="w-4 h-4 text-blue-600" /> {amounts[subject]?.toFixed(2) || 0} DH
-                  </span>
-                </div>
+                {
+                  role === 'admin' && (
+                    <div className="flex justify-between mt-2 text-sm">
+                      <span className="flex items-center gap-1 text-gray-600">
+                        <Percent className="w-4 h-4 text-blue-600" /> {selectedOffer?.percentage?.[subject] || 0}%
+                      </span>
+                      <span className="flex items-center gap-1 text-gray-600">
+                        <CheckCircle className="w-4 h-4 text-blue-600" /> {amounts[subject]?.toFixed(2) || 0} DH
+                      </span>
+                    </div>
+                  )
+                }
+
               </div>
             );
           })}

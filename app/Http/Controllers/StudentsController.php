@@ -184,9 +184,10 @@ public function show($id)
         abort(404);
     }
 
-    // Fetch all levels, offers, and teachers with their subjects
+    // Fetch all levels, and teachers with their subjects
     $levels = Level::all();
-    $offers = Offer::all();
+    // Fetch offers based on student's level
+    $offers = Offer::where('levelId', $student->levelId)->get();
     $teachers = Teacher::with('subjects')->get(); // Eager load subjects for each teacher
 
     // Fetch memberships for the student
@@ -296,7 +297,6 @@ public function show($id)
         }),
     ]);
 }
-
     /**
      * Show the form for editing the specified resource.
      */

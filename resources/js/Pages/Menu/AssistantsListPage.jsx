@@ -44,11 +44,11 @@ const AssistantsListPage = ({assistants = [], schools}) => {
   console.log("assistants list",assistants);
   const renderRow = (assistant) => (
     <tr
-      onClick={() => router.visit(`/assistants/${assistant.id}`)}
+     
       key={assistant.id}
       className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight cursor-pointer"
     >
-      <td className="flex items-center gap-4 p-4">
+      <td  onClick={() => router.visit(`/assistants/${assistant.id}`)} className="flex items-center gap-4 p-4">
         <img
           src={assistant.profile_image ? assistant.profile_image : "/assistantProfile.png"}
           alt={`${assistant.first_name} ${assistant.last_name}`}

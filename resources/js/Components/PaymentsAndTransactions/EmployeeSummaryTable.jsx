@@ -18,7 +18,7 @@ const EmployeeSummaryTable = ({ employeePayments = [], onEdit, onDelete, onView,
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [filteredData, setFilteredData] = useState(employeePayments);
-  
+  console.log(employeePayments);
   // Generate months for dropdown
   const months = [
     { value: 0, label: 'January' },
@@ -51,27 +51,29 @@ const EmployeeSummaryTable = ({ employeePayments = [], onEdit, onDelete, onView,
         );
       }) : [];
       
-      // Calculate monthly totals based on filtered transactions
-      // Ensure all values are converted to numbers before summing
-      const monthlyOwed = filteredTransactions
-        .filter(t => t.type === 'salary')
-        .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+      // Use baseSalary as the fixed monthly salary amount (it doesn't change per month)
+      // Ensure value is a number (using Number() for conversion)
+      const monthlySalary = Number(employee.baseSalary) || 0;
       
+      // Calculate payments and expenses from filtered transactions
       const monthlyPaid = filteredTransactions
-        .filter(t => t.type === 'payment')
+        .filter(t => t.type === 'payment' || t.type === 'salary')
         .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
       
       const monthlyExpenses = filteredTransactions
         .filter(t => t.type === 'expense')
         .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
       
+      // Calculate monthly balance (salary - payments - expenses)
+      const monthlyBalance = monthlySalary - monthlyPaid - monthlyExpenses;
+      
       return {
         ...employee,
         transactions: filteredTransactions,
-        monthlyOwed: monthlyOwed || 0,
+        monthlyOwed: employee.role === 'teacher' ? employee.wallet : employee.baseSalary, // Fixed salary amount
         monthlyPaid: monthlyPaid || 0,
         monthlyExpenses: monthlyExpenses || 0,
-        monthlyBalance: (monthlyOwed || 0) - (monthlyPaid || 0) - (monthlyExpenses || 0)
+        monthlyBalance: monthlyBalance
       };
     });
     
@@ -86,7 +88,7 @@ const EmployeeSummaryTable = ({ employeePayments = [], onEdit, onDelete, onView,
   const totalMonthlySalaries = filteredData.reduce((total, emp) => total + (Number(emp.monthlyOwed) || 0), 0);
   const totalMonthlyPayments = filteredData.reduce((total, emp) => total + (Number(emp.monthlyPaid) || 0), 0);
   const totalMonthlyExpenses = filteredData.reduce((total, emp) => total + (Number(emp.monthlyExpenses) || 0), 0);
-  const totalMonthlyBalance = totalMonthlySalaries - totalMonthlyPayments - totalMonthlyExpenses;
+  const totalMonthlyBalance = 0;
 
   return (
     <div className="space-y-4">
@@ -140,7 +142,7 @@ const EmployeeSummaryTable = ({ employeePayments = [], onEdit, onDelete, onView,
                   <th scope="col" className="px-6 py-4 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
                     <div className="flex flex-col">
                       <span>Monthly Salary</span>
-                      <span className="text-gray-400 text-xxs normal-case">For {months.find(m => m.value === selectedMonth)?.label}</span>
+                      <span className="text-gray-400 text-xxs normal-case">Fixed Amount</span>
                     </div>
                   </th>
                   <th scope="col" className="px-6 py-4 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
@@ -167,10 +169,9 @@ const EmployeeSummaryTable = ({ employeePayments = [], onEdit, onDelete, onView,
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredData.map((employee) => {
+                  // Use the totalOwed and totalPaid from employee data for the total balance calculation
                   const totalBalance = (Number(employee.totalOwed) || 0) - (Number(employee.totalPaid) || 0) - (Number(employee.totalExpenses) || 0);
                   const hasMonthlyTransactions = employee.transactions && employee.transactions.length > 0;
-                  const lastTransaction = hasMonthlyTransactions ? 
-                    employee.transactions.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0] : null;
 
                   return (
                     <tr key={employee.userId} className="hover:bg-gray-50 transition-colors duration-200">
@@ -194,9 +195,9 @@ const EmployeeSummaryTable = ({ employeePayments = [], onEdit, onDelete, onView,
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-gray-900">
-                          {hasMonthlyTransactions ? formatCurrency(employee.monthlyOwed) : '—'}
+                          {employee.role === 'teacher' ? formatCurrency(employee.wallet) : formatCurrency(employee.baseSalary)}
                         </div>
-                        <div className="text-xs text-gray-500">Salary</div>
+                        <div className="text-xs text-gray-500">Fixed Salary</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-gray-900">
@@ -215,14 +216,12 @@ const EmployeeSummaryTable = ({ employeePayments = [], onEdit, onDelete, onView,
                           employee.monthlyBalance > 0 ? 'text-red-600' : 
                             employee.monthlyBalance < 0 ? 'text-green-600' : 'text-gray-600'
                         }`}>
-                          {hasMonthlyTransactions ? formatCurrency(employee.monthlyBalance) : '—'}
+                          {hasMonthlyTransactions ? formatCurrency(employee.monthlyBalance) : formatCurrency(employee.baseSalary)}
                         </div>
                         <div className="text-xs text-gray-500">
-                          {hasMonthlyTransactions
-                            ? employee.monthlyBalance > 0
-                              ? 'Outstanding'
-                              : 'Settled'
-                            : 'No data'
+                          {employee.monthlyBalance > 0
+                            ? 'Outstanding'
+                            : 'Settled'
                           }
                         </div>
                       </td>
