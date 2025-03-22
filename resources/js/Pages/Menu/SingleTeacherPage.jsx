@@ -1,4 +1,4 @@
-import Announcements from "@/Components/Announcements";
+import Announcements from "@/Pages/Menu/Announcements/Announcements";
 import BigCalendar from "@/Components/BigCalender";
 import FormModal from "@/Components/FormModal";
 import Performance from "@/Components/Performance";

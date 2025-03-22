@@ -7,16 +7,19 @@ use App\Models\Teacher;
 use App\Models\Assistant;
 use App\Models\Invoice;
 use App\Models\School;
+use App\Models\Announcement;
 use Inertia\Inertia;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Redirect;
+use Carbon\Carbon;
 class StatsController extends Controller
 {
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
 {
     // Fetch counts of teachers, students, and assistants (existing logic)
     $teacherCounts = DB::table('school_teacher')
@@ -84,6 +87,52 @@ class StatsController extends Controller
         ->limit(5) // Limit to top 5 most selling offers
         ->get();
 
+    // Fetch announcements
+    
+     $status = $request->query('status', 'all'); // 'all', 'active', 'upcoming', 'expired'
+        
+     // Base query
+     $query = Announcement::query();
+     
+     // Apply date filtering based on status parameter
+     $now = Carbon::now();
+     
+     if ($status === 'active') {
+         $query->where(function($q) use ($now) {
+             $q->where(function($q) use ($now) {
+                 $q->whereNull('date_start')
+                   ->orWhere('date_start', '<=', $now);
+             })->where(function($q) use ($now) {
+                 $q->whereNull('date_end')
+                   ->orWhere('date_end', '>=', $now);
+             });
+         });
+     } elseif ($status === 'upcoming') {
+         $query->where('date_start', '>', $now);
+     } elseif ($status === 'expired') {
+         $query->where('date_end', '<', $now);
+     }
+     
+     // Get user role for role-based visibility
+     $userRole = Auth::user() ? Auth::user()->role : null;
+     
+     // Apply role-based visibility filter based on user role
+     if ($userRole === 'admin') {
+         // Admin sees all announcements (no visibility filter needed)
+     } else {
+         // Teachers and assistants only see announcements with visibility 'all' or matching their role
+         $query->where(function($q) use ($userRole) {
+             $q->where('visibility', 'all')
+               ->orWhere('visibility', $userRole);
+         });
+     }
+     
+     // Order by announcement date (most recent first)
+     $query->orderBy('date_announcement', 'desc');
+     
+     // Execute query
+     $announcements = $query->get();
+
     return Inertia::render('Dashboard', [
         'teacherCounts' => $teacherCounts,
         'totalTeacherCount' => $totalTeacherCount,
@@ -94,6 +143,12 @@ class StatsController extends Controller
         'schools' => $schools,
         'monthlyIncomes' => $monthlyIncomes,
         'mostSellingOffers' => $mostSellingOffers, // Pass the most selling offers data
+        'announcements' => $announcements,
+        'announcements' => $announcements,
+            'filters' => [
+                'status' => $status,
+            ],
+            'userRole' => $userRole, // Pass user role to frontend
     ]);
 }
 }

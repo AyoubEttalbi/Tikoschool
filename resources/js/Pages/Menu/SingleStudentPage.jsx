@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, usePage } from '@inertiajs/react';
-import Announcements from "@/Components/Announcements";
+import Announcements from "@/Pages/Menu/Announcements/Announcements";
 import BigCalendar from "@/Components/BigCalender";
 import Performance from "@/Components/Performance";
 import DashboardLayout from '@/Layouts/DashboardLayout';
@@ -156,7 +156,7 @@ const SingleStudentPage = ({ student, Alllevels, Allclasses, Allschools, Alloffe
         
 
         
-        <StudentProfile Student_memberships={student.memberships} invoices={student.invoices}   studentId={student.id}   attendances={student.attendances}  />
+        <StudentProfile Student_memberships={student.memberships} invoices={student.invoices}   studentId={student.id} studentClassId={student.classId}   attendances={student.attendances}  />
 
       </div>
       {/* RIGHT */}

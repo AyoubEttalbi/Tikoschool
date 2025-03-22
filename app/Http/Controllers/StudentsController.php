@@ -129,6 +129,7 @@ protected function transformStudentData($student)
         'assurance' => $student->assurance,
         'guardianNumber' => $student->guardianNumber,
         'profileImage' => $student->profileImage ? URL::asset('storage/' . $student->profileImage) : null,
+        'phoneNumber' => $student->phoneNumber,
     ];
 }
 

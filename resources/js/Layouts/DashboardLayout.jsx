@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { Link, usePage, router } from '@inertiajs/react'; // Import Inertia router
 import Menu from '@/Components/Menu';
 import Navbar from '@/Components/Navbar';
+import Chat from '@/Components/Chat';
 
 export default function DashboardLayout({ children }) {
   const { props } = usePage();
@@ -19,6 +20,10 @@ export default function DashboardLayout({ children }) {
 
   return (
     <div className="flex">
+      <div className=" ">
+        <Chat />
+      </div>
+      
       {/* LEFT - Sidebar */}
       <div className="w-[14%] md:w-[8%] lg:w-[16%] xl:w-[14%] p-4">
         <Link href="/dashboard" className="flex items-center justify-center lg:justify-start gap-2">

@@ -2,7 +2,7 @@ import AbsenceLogTable from "./AbsenceLogTable";
 import InvoicesTable from "./InvoicesTable";
 import ScoresTable from "./ScoresTable";
 
-const StudentProfile = ({Student_memberships,invoices = [],studentId ,attendances}) => {
+const StudentProfile = ({Student_memberships,invoices = [],studentId ,studentClassId,attendances}) => {
   
   
 
@@ -31,7 +31,7 @@ const StudentProfile = ({Student_memberships,invoices = [],studentId ,attendance
     <div className="p-8 bg-white">
       
       <InvoicesTable invoices={invoices} Student_memberships={Student_memberships} studentId={studentId}/>
-      <AbsenceLogTable absences={attendances} />
+      <AbsenceLogTable absences={attendances} studentId={studentId} studentClassId={studentClassId}/>
       <ScoresTable scores={scores} />
     </div>
   );

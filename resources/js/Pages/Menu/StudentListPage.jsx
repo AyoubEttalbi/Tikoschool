@@ -115,11 +115,12 @@ const StudentListPage = ({ students, Allclasses, Alllevels, Allschools, filters:
   // Render table rows
   const renderRow = (item) => (
     <tr
-    onClick={() => router.visit(`/students/${item.id}`)}
+    
       key={item.id}
       className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
     >
-      <td className="flex items-center gap-4 p-4">
+      <td  onClick={() => router.visit(`/students/${item.id}`)} className="flex items-center gap-4 p-4">
+     
         <img
           src="/studentProfile.png"
           alt={item.name}

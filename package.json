@@ -38,6 +38,7 @@
         "date-fns": "^4.1.0",
         "framer-motion": "^12.5.0",
         "lucide-react": "^0.477.0",
+        "mdb-react-ui-kit": "^9.0.0",
         "qrcode.react": "^4.2.0",
         "react-big-calendar": "^1.18.0",
         "react-calendar": "^5.1.0",

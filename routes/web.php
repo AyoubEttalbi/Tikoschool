@@ -22,6 +22,7 @@ use App\Http\Controllers\AdminController;
 use App\Http\Middleware\CheckImpersonation;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\AttendanceController;
+use App\Http\Controllers\AnnouncementController;
 
 // Redirect to dashboard if authenticated, otherwise to login
 Route::get('/', function () {
@@ -55,6 +56,7 @@ Route::middleware('auth')->group(function () {
     Route::resource('memberships', MembershipController::class);
     Route::resource('transactions', TransactionController::class);
     Route::resource('attendances', AttendanceController::class);
+    Route::resource('announcements', AnnouncementController::class);
 
     // Admin-only routes
     Route::middleware(AdminMiddleware::class)->group(function () {
@@ -106,10 +108,9 @@ Route::middleware('auth')->group(function () {
         return Inertia::render('Menu/ResultsPage');
     });
    
-   
-    Route::get('/announcements', function () {
-        return Inertia::render('Menu/AnnouncementsPage');
-    });
+    // Route::get('/announcements', function () {
+    //     return Inertia::render('Menu/AnnouncementsPage');
+    // });
     Route::get('/payments', function () {
         return Inertia::render('Menu/PaymentsPage');
     });

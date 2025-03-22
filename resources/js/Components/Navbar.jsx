@@ -1,5 +1,6 @@
 import { router,usePage } from '@inertiajs/react';
 
+
 const Navbar = ({ auth }) => {
   
   // Check if the admin is viewing as another user
@@ -32,10 +33,7 @@ const Navbar = ({ auth }) => {
 
       {/* ICONS AND USER */}
       <div className='flex items-center gap-6 justify-end w-full'>
-        {/* Message Icon */}
-        <div className='bg-white rounded-full w-7 h-7 flex items-center justify-center cursor-pointer'>
-          <img src="/message.png" alt="" width={20} height={20} />
-        </div>
+       
 
         {/* Announcement Icon */}
         <div className='bg-white rounded-full w-7 h-7 flex items-center justify-center cursor-pointer relative'>

@@ -2,13 +2,14 @@ import { useState } from "react";
 import { router,usePage } from "@inertiajs/react";
 
 const AttendanceModal = ({ table, type, id, data, classes, students, onClose }) => {
+  console.log('data',data);
   console.log('errors',usePage().props.errors);
   const [formData, setFormData] = useState({
     student_id: data?.student_id || "",
     status: data?.status || "present",
     reason: data?.reason || "",
     date: data?.date || new Date().toISOString().split("T")[0],
-    class_id: data?.classId || "",
+    class_id: data?.classId || data?.class_id || "",
   });
 
   const handleSubmit = (e) => {

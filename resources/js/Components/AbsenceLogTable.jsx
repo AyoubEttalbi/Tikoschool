@@ -1,11 +1,14 @@
-import { FaCalendarAlt, FaEdit, FaExclamationTriangle } from 'react-icons/fa';
+import { FaCalendarAlt, FaExclamationTriangle } from 'react-icons/fa';
 import { format } from 'date-fns';
 import FormModal from './FormModal';
 import AttendanceModal from '@/Pages/Attendance/AttendanceModal';
 import { useState } from 'react';
 import { Edit } from 'lucide-react';
-const AbsenceLogTable = ({ absences }) => {
+
+const AbsenceLogTable = ({ absences, studentId, studentClassId }) => {
   const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [selectedAbsence, setSelectedAbsence] = useState(null);
+  
   // Function to format the date
   const formatDate = (dateString) => {
     try {
@@ -15,6 +18,13 @@ const AbsenceLogTable = ({ absences }) => {
     }
   };
   
+  // Enrich absence data with student_id and class_id
+  const enrichedAbsences = absences.map(absence => ({
+    ...absence,
+    student_id: studentId,
+    class_id: studentClassId
+  }));
+  console.log(enrichedAbsences);
   // Function to determine status badge style
   const getStatusBadge = (status) => {
     switch (status.toLowerCase()) {
@@ -46,6 +56,11 @@ const AbsenceLogTable = ({ absences }) => {
     }
   };
 
+  const handleEditClick = (absence) => {
+    setSelectedAbsence(absence);
+    setShowUpdateModal(true);
+  };
+
   return (
     <div className="mb-8 bg-white rounded-lg shadow-md overflow-hidden">
       <div className="p-4 bg-gray-200 text-black">
@@ -67,7 +82,7 @@ const AbsenceLogTable = ({ absences }) => {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
-            {absences.map((absence) => (
+            {enrichedAbsences.map((absence) => (
               <tr key={absence.id} className="hover:bg-gray-50 transition-colors duration-150">
                 <td className="p-3 text-sm text-gray-900">{formatDate(absence.date)}</td>
                 <td className="p-3 text-sm text-gray-900">{absence.classe}</td>
@@ -75,28 +90,25 @@ const AbsenceLogTable = ({ absences }) => {
                 <td className="p-3 text-sm text-gray-900">{getStatusBadge(absence.status)}</td>
                 <td className="p-3 text-sm text-gray-900">{absence.reason || '---'}</td>
                 <td className="p-3 text-sm text-gray-900">
-                  { showUpdateModal &&(
+                  {showUpdateModal && selectedAbsence && selectedAbsence.id === absence.id && (
                     <AttendanceModal 
-                    table = 'attendances'
-                    id = {absence.id}
-                    data={absence}
-                    type="update"
-                    onClose={() => setShowUpdateModal(false)}
-                    
-                  />
+                      table="attendances"
+                      id={absence.id}
+                      data={enrichedAbsences.find(a => a.id === absence.id)}
+                      type="update"
+                      onClose={() => setShowUpdateModal(false)}
+                    />
                   )} 
                   {
                     absence.status !== 'present' && (
                       <button
-                        onClick={() => setShowUpdateModal(true)}
+                        onClick={() => handleEditClick(absence)}
                         className="flex items-center justify-center rounded-full w-7 h-7 bg-lamaYellow text-white"
                       >
                         <Edit className="w-4 h-4" />
-                        
                       </button>
                     )
                   }
-                  
                 </td>
               </tr>
             ))}
