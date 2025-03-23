@@ -1,9 +1,9 @@
 import { format } from 'date-fns';
 
-
 export const formatCurrency = (amount) => {
   return `${amount.toLocaleString()} DH`;
 };
+
 export const formatDate = (dateString) => {
   if (!dateString) return '—';
   return format(new Date(dateString), 'MMM dd, yyyy');
@@ -51,4 +51,14 @@ export const getTransactionTypeLabel = (type) => {
     default:
       return type.charAt(0).toUpperCase() + type.slice(1);
   }
+};
+
+export const calculateChange = (current, previous) => {
+  if (!previous) return { percentage: 0, direction: 'neutral' };
+  
+  const change = ((current - previous) / previous) * 100;
+  return {
+    percentage: Math.abs(change).toFixed(1),
+    direction: change > 0 ? 'up' : change < 0 ? 'down' : 'neutral'
+  };
 };

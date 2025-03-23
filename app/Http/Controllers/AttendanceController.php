@@ -13,6 +13,7 @@ use App\Models\School;
 use App\Models\Teacher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Spatie\Activitylog\Models\Activity;
 
 class AttendanceController extends Controller
 {
@@ -20,31 +21,60 @@ class AttendanceController extends Controller
     {
         $teacherId = $request->input('teacher_id');
         $classId = $request->input('class_id');
-
+        $date = $request->input('date', now()->toDateString());
+        $search = $request->input('search');
+    
+        // Get basic data
         $levels = Level::all();
         $assistants = Assistant::with(['schools'])->get();
         $teachers = Teacher::with(['subjects', 'classes', 'schools'])->get();
         $schools = School::all();
+    
         // Get classes for selected teacher
         $classes = $teacherId
-            ? Classes::whereHas('teachers', function ($q) use ($teacherId) {
-                $q->where('classes_teacher.teacher_id', $teacherId);
-            })->get()
+            ? Classes::whereHas('teachers', fn($q) => $q->where('teacher_id', $teacherId))->get()
             : [];
-
-        // Get students for selected class
+    
+        // Get students for selected class (with search filter)
         $students = $classId
-            ? Student::where('classId', $classId)->get()
-            : [];
-
-        // Get attendances for selected class
-        $attendances = $classId
-            ? Attendance::with(['student', 'classe', 'recordedBy'])
-            ->where('classId', $classId)
-            ->latest()
-            ->paginate(10)
-            : [];
-
+            ? Student::with('class')
+                ->where('classId', $classId)
+                ->when($search, function ($query) use ($search) {
+                    $query->where(function ($q) use ($search) {
+                        $q->where('firstName', 'like', "%{$search}%")
+                          ->orWhere('lastName', 'like', "%{$search}%");
+                    });
+                })
+                ->get()
+            : collect();
+    
+        // Get existing attendance for selected date
+        $existingAttendances = $classId
+            ? Attendance::with('class')
+                ->where('classId', $classId)
+                ->whereDate('date', $date)
+                ->get()
+                ->keyBy('student_id')
+            : collect();
+    
+        // Merge students with attendance status and class info
+        $studentsWithAttendance = $students->map(function ($student) use ($existingAttendances, $date) {
+            $attendance = $existingAttendances->get($student->id);
+    
+            return [
+                'id' => $attendance ? $attendance->id : null,
+                'student_id' => $student->id,
+                'firstName' => $student->firstName,
+                'lastName' => $student->lastName,
+                'status' => $attendance ? $attendance->status : 'present',
+                'reason' => $attendance?->reason,
+                'date' => $date,
+                'classId' => $student->classId,
+                'class' => $student->class,
+                'exists_in_db' => (bool)$attendance
+            ];
+        });
+    
         return Inertia::render('Menu/AttendancePage', [
             'teachers' => $teachers,
             'levels' => $levels,
@@ -52,9 +82,55 @@ class AttendanceController extends Controller
             'assistants' => $assistants,
             'classes' => $classes,
             'students' => $students,
-            'attendances' => $attendances,
-            'filters' => $request->all('teacher_id', 'class_id'),
+            'attendances' => $studentsWithAttendance,
+            'filters' => $request->all('teacher_id', 'class_id', 'date', 'search'),
         ]);
+    }
+
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'attendances' => 'required|array|min:1',
+            'attendances.*.student_id' => 'required|exists:students,id',
+            'attendances.*.status' => 'required|in:present,absent,late',
+            'attendances.*.reason' => 'nullable|string|max:255',
+            'date' => 'required|date',
+            'class_id' => 'required|exists:classes,id',
+        ]);
+ 
+        try {
+            DB::beginTransaction();
+
+            $filtered = collect($validated['attendances'])->filter(fn($att) => $att['status'] !== 'present');
+
+            foreach ($filtered as $attendance) {
+                Attendance::updateOrCreate(
+                    [
+                        'student_id' => $attendance['student_id'],
+                        'date' => $validated['date'],
+                        'classId' => $validated['class_id']
+                    ],
+                    [
+                        'status' => $attendance['status'],
+                        'reason' => $attendance['reason'],
+                        'recorded_by' => auth()->id()
+                    ]
+                );
+            }
+
+            // Remove any existing present records
+            Attendance::where('classId', $validated['class_id'])
+                ->whereDate('date', $validated['date'])
+                ->where('status', 'present')
+                ->delete();
+
+            DB::commit();
+
+            return redirect()->back()->with('success', 'Attendance saved successfully');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return redirect()->back()->with('error', 'Error saving attendance: ' . $e->getMessage());
+        }
     }
 
     public function show($id)
@@ -74,54 +150,8 @@ class AttendanceController extends Controller
             'studentAttendances' => $studentAttendances,
         ]);
     }
-    public function store(Request $request)
-    {
-        // Validate the request data
-        $validated = $request->validate([
-            'attendances' => 'required|array|min:1',
-            'attendances.*.student_id' => 'required|exists:students,id',
-            'attendances.*.status' => 'required|in:present,absent,late',
-            'attendances.*.reason' => 'nullable|string|max:255',
-            'attendances.*.date' => 'required|date',
-            'attendances.*.class_id' => 'required|exists:classes,id',
-        ]);
 
-        // Log the validated data for debugging
-        Log::info('Validated Attendance Data:', $validated);
 
-        try {
-            DB::beginTransaction();
-
-            // Loop through each attendance record and create it
-            foreach ($validated['attendances'] as $attendance) {
-                $record = Attendance::create([
-                    'student_id' => $attendance['student_id'],
-                    'classId' => $attendance['class_id'],
-                    'status' => $attendance['status'],
-                    'reason' => $attendance['status'] !== 'present' ? $attendance['reason'] : null,
-                    'date' => $attendance['date'],
-                    'recorded_by' => auth()->id(),
-                ]);
-
-                // Log each created record for debugging
-                Log::info('Created Attendance Record:', $record->toArray());
-            }
-
-            DB::commit();
-
-            return redirect()->back()->with('success', 'Attendance records created successfully');
-        } catch (\Exception $e) {
-            DB::rollBack();
-
-            // Log the error for debugging
-            Log::error('Error creating attendance records:', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-
-            return redirect()->back()->with('error', 'Failed to create attendance records: ' . $e->getMessage());
-        }
-    }
     public function update(Request $request, $id)
     {
         // Validate the request data
@@ -132,12 +162,22 @@ class AttendanceController extends Controller
             'date' => 'required|date',
             'class_id' => 'required|exists:classes,id',
         ]);
-
+    
         try {
             // Find the attendance record
             $attendance = Attendance::findOrFail($id);
-
-            // Update the record
+    
+            // Capture old data before update
+            $oldData = $attendance->toArray();
+    
+            // If status is "present", delete the record
+            if ($validated['status'] === 'present') {
+                $attendance->delete();
+                $this->logActivity('deleted', $attendance, $oldData, null);
+                return redirect()->back()->with('success', 'Attendance record removed (marked as present)');
+            }
+    
+            // Update the record for "absent" or "late"
             $attendance->update([
                 'student_id' => $validated['student_id'],
                 'classId' => $validated['class_id'],
@@ -146,7 +186,10 @@ class AttendanceController extends Controller
                 'date' => $validated['date'],
                 'recorded_by' => auth()->id(),
             ]);
-
+    
+            // Log the activity for the updated record
+            $this->logActivity('updated', $attendance, $oldData, $attendance->toArray());
+    
             return redirect()->back()->with('success', 'Attendance record updated successfully');
         } catch (\Exception $e) {
             // Log the error for debugging
@@ -154,7 +197,7 @@ class AttendanceController extends Controller
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
-
+    
             return redirect()->back()->with('error', 'Failed to update attendance record: ' . $e->getMessage());
         }
     }
@@ -164,6 +207,9 @@ class AttendanceController extends Controller
         try {
             // Find the attendance record
             $attendance = Attendance::findOrFail($id);
+
+            // Log the activity before deletion
+            $this->logActivity('deleted', $attendance, $attendance->toArray(), null);
 
             // Delete the record
             $attendance->delete();
@@ -179,4 +225,48 @@ class AttendanceController extends Controller
             return redirect()->back()->with('error', 'Failed to delete attendance record: ' . $e->getMessage());
         }
     }
+
+    /**
+     * Log activity for a model.
+     */
+    protected function logActivity($action, $model, $oldData = null, $newData = null)
+{
+    $description = ucfirst($action) . ' ' . class_basename($model) . ' (' . $model->id . ')';
+    $tableName = $model->getTable();
+
+    $properties = [
+        'TargetName' => $model->student->name,
+        'action' => $action,
+        'table' => $tableName,
+        'user' => auth()->user()->name,
+    ];
+
+    if ($action === 'updated' && $oldData && $newData) {
+        $changedFields = [];
+        foreach ($newData as $key => $value) {
+            if ($oldData[$key] !== $value) {
+                $changedFields[$key] = [
+                    'old' => $oldData[$key],
+                    'new' => $value,
+                ];
+            }
+        }
+        $properties['changed_fields'] = $changedFields;
+    }
+
+    if ($action === 'deleted') {
+        $properties['deleted_data'] = [
+            'student_id' => $oldData['student_id'],
+            'classId' => $oldData['classId'],
+            'status' => $oldData['status'],
+            'date' => $oldData['date'],
+        ];
+    }
+
+    activity()
+        ->causedBy(auth()->user())
+        ->performedOn($model)
+        ->withProperties($properties)
+        ->log($description);
+}
 }

@@ -1,28 +1,51 @@
 import { useState } from "react";
-import { router,usePage } from "@inertiajs/react";
+import { router, usePage } from "@inertiajs/react";
 
 const AttendanceModal = ({ table, type, id, data, classes, students, onClose }) => {
-  console.log('data',data);
-  console.log('errors',usePage().props.errors);
+  console.log("data", data);
+  const { errors } = usePage().props;
   const [formData, setFormData] = useState({
     student_id: data?.student_id || "",
     status: data?.status || "present",
     reason: data?.reason || "",
     date: data?.date || new Date().toISOString().split("T")[0],
-    class_id: data?.classId || data?.class_id || "",
+    class_id: data?.classId || "",
   });
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (type === "create") {
-      router.post(route(`${table}.store`), { attendances: [formData] }, {
-        onSuccess: () => onClose(),
-      });
-    } else if (type === "update") {
-      router.put(route(`${table}.update`, id), formData, {
-        onSuccess: () => onClose(),
-      });
-      console.log('formData',formData);
+  
+    // For virtual records (exists_in_db === false)
+    if (data?.exists_in_db === false) {
+      if (formData.status !== "present") {
+        router.post(route('attendances.store'), {
+          // Top-level date and class_id
+          date: formData.date,
+          class_id: data.classId,
+          // Attendances array structure
+          attendances: [{
+            student_id: data.student_id,
+            status: formData.status,
+            reason: formData.reason
+          }]
+        }, {
+          onSuccess: () => onClose(),
+          preserveScroll: true
+        });
+      } else {
+        onClose();
+      }
+    } else {
+      // Handle existing records
+      if (type === "create") {
+        router.post(route(`${table}.store`), { attendances: [formData] }, {
+          onSuccess: () => onClose(),
+        });
+      } else {
+        router.put(route(`${table}.update`, id), formData, {
+          onSuccess: () => onClose(),
+        });
+      }
     }
   };
 
@@ -80,7 +103,7 @@ const AttendanceModal = ({ table, type, id, data, classes, students, onClose }) 
             </select>
           </div>
 
-          {/* Reason Input (Only for absent status) */}
+          {/* Reason Input (Only for absent/late status) */}
           {formData.status !== "present" && (
             <div>
               <label className="block text-sm font-medium mb-1">Reason</label>
@@ -89,9 +112,14 @@ const AttendanceModal = ({ table, type, id, data, classes, students, onClose }) 
                 placeholder="Reason for absence"
                 value={formData.reason}
                 onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
-                className="w-full p-2  border rounded-md"
+                className="w-full p-2 border rounded-md"
               />
             </div>
+          )}
+
+          {/* Error Display */}
+          {errors.attendances && (
+            <div className="text-red-500 text-sm">{errors.attendances}</div>
           )}
 
           {/* Submit and Cancel Buttons */}

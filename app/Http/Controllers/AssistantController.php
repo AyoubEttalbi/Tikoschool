@@ -1,8 +1,8 @@
 <?php
 
 namespace App\Http\Controllers;
-
-use App\Events\CheckEmailUnique;
+use Spatie\Activitylog\Models\Activity;
+use App\Models\User;
 use App\Models\Assistant;
 use App\Models\School;
 use App\Models\Subject;
@@ -221,17 +221,32 @@ class AssistantController extends Controller
     /**
      * Display the specified resource.
      */
+    
     public function show($id)
     {
         $assistant = Assistant::with(['schools'])->find($id);
         $schools = School::all();
         $classes = Classes::all();
         $subjects = Subject::all();
-
+    
         if (!$assistant) {
             abort(404);
         }
-
+    
+        // Find the user by email
+        $user = User::where('email', $assistant->email)->first();
+    
+        if (!$user) {
+            // If no user is found, return an empty log array
+            $logs = [];
+        } else {
+            // Fetch the assistant's activity logs based on the user's ID
+            $logs = Activity::where('causer_type', User::class) // Use User::class as the causer type
+                ->where('causer_id', $user->id) // Use the user's ID as the causer ID
+                ->latest()
+                ->paginate(10);
+        }
+    
         return Inertia::render('Menu/SingleAssistantPage', [
             'assistant' => [
                 'id' => $assistant->id,
@@ -249,9 +264,9 @@ class AssistantController extends Controller
             'schools' => $schools,
             'subjects' => $subjects,
             'classes' => $classes,
+            'logs' => $logs, // Pass the logs to the frontend
         ]);
     }
-
     /**
      * Show the form for editing the specified resource.
      */

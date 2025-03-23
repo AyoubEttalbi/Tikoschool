@@ -6,6 +6,7 @@ import Pagination from '@/Components/Pagination';
 
 const PaymentsList = ({
   transactions = [],
+  adminEarnings = [],
   users = [],
   onView,
   onEdit,
@@ -115,6 +116,7 @@ const PaymentsList = ({
           <Tab.Panel>
             <EmployeeSummaryTable 
               employeePayments={employeePayments} 
+              adminEarnings={adminEarnings}
               onView={onView} 
               onEdit={onEditEmployee}
               onDelete={onDeleteEmployee}

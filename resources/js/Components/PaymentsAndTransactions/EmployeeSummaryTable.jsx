@@ -13,12 +13,14 @@ const formatCurrency = (amount) => {
   return isNaN(numAmount) ? '0 DH' : `${numAmount.toLocaleString()} DH`;
 };
 
-const EmployeeSummaryTable = ({ employeePayments = [], onEdit, onDelete, onView, onMakePayment, onAddExpense }) => {
+const EmployeeSummaryTable = ({ employeePayments = [], adminEarnings = [], onEdit, onDelete, onView, onMakePayment, onAddExpense }) => {
   const [viewingEmployeeId, setViewingEmployeeId] = useState(null);
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [filteredData, setFilteredData] = useState(employeePayments);
   console.log(employeePayments);
+  console.log('adminEarnings', adminEarnings);
+  
   // Generate months for dropdown
   const months = [
     { value: 0, label: 'January' },
@@ -88,7 +90,17 @@ const EmployeeSummaryTable = ({ employeePayments = [], onEdit, onDelete, onView,
   const totalMonthlySalaries = filteredData.reduce((total, emp) => total + (Number(emp.monthlyOwed) || 0), 0);
   const totalMonthlyPayments = filteredData.reduce((total, emp) => total + (Number(emp.monthlyPaid) || 0), 0);
   const totalMonthlyExpenses = filteredData.reduce((total, emp) => total + (Number(emp.monthlyExpenses) || 0), 0);
-  const totalMonthlyBalance = 0;
+  
+  // Find the matching adminEarnings entry for the selected month and year
+  const currentMonthEarnings = adminEarnings.earnings.find(
+    earnings => earnings.month === selectedMonth + 1 && earnings.year === selectedYear
+  );
+  console.log('currentMonthEarnings', currentMonthEarnings);
+  // Calculate totalMonthlyBalance based on adminEarnings data
+  // If we have matching data, use the profit from adminEarnings, otherwise calculate from filtered data
+  const totalMonthlyBalance = currentMonthEarnings 
+    ? Number(currentMonthEarnings.profit) 
+    : Number(currentMonthEarnings?.totalRevenue || 0) - totalMonthlyPayments - totalMonthlyExpenses;
 
   return (
     <div className="space-y-4">
@@ -277,9 +289,9 @@ const EmployeeSummaryTable = ({ employeePayments = [], onEdit, onDelete, onView,
             </p>
           </div>
           
-          <div className="bg-gray-50 rounded-lg p-4">
-            <p className="text-sm text-gray-700">Monthly Balance</p>
-            <p className="text-2xl font-bold text-gray-900">
+          <div className={`${totalMonthlyBalance >= 0 ? 'bg-green-50' : 'bg-red-50'} rounded-lg p-4`}>
+            <p className={`text-sm ${totalMonthlyBalance >= 0 ? 'text-green-700' : 'text-red-700'}`}>Monthly Balance</p>
+            <p className={`text-2xl font-bold ${totalMonthlyBalance >= 0 ? 'text-green-900' : 'text-red-900'}`}>
               {formatCurrency(totalMonthlyBalance)}
             </p>
           </div>

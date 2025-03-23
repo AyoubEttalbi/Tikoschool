@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Spatie\Activitylog\Models\Activity;
 
 class MembershipController extends Controller
 {
@@ -38,7 +39,6 @@ class MembershipController extends Controller
             'students' => $students,
             'offers' => $offers,
             'teachers' => $teachers,
-            
         ]);
     }
 
@@ -69,11 +69,12 @@ class MembershipController extends Controller
                 'is_active' => false // Membership is inactive until paid
             ]);
 
+            // Log the activity
+            $this->logActivity('created', $membership, null, $membership->toArray());
+
             DB::commit();
-            
-            // Redirect to the invoice creation page for this membership
-            // return redirect()->route('member', ['membership_id' => $membership->id])
-            //                  ->with('success', 'Membership created successfully! Please create an invoice.');
+
+            return redirect()->back()->with('success', 'Membership created successfully!');
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error creating membership:', ['error' => $e->getMessage()]);
@@ -134,6 +135,9 @@ class MembershipController extends Controller
             // Find the membership
             $membership = Membership::findOrFail($id);
 
+            // Capture old data before update
+            $oldData = $membership->toArray();
+
             // Only update teacher wallets if the membership was previously paid
             if ($membership->payment_status === 'paid') {
                 // Decrement the wallet for old teachers
@@ -143,7 +147,7 @@ class MembershipController extends Controller
                         $teacher->decrement('wallet', $oldTeacher['amount']);
                     }
                 }
-                
+
                 // Increment the wallet for new teachers after update
                 foreach ($validated['teachers'] as $newTeacher) {
                     $teacher = Teacher::find($newTeacher['teacherId']);
@@ -160,9 +164,11 @@ class MembershipController extends Controller
                 'teachers' => $validated['teachers'],
             ]);
 
+            // Log the activity
+            $this->logActivity('updated', $membership, $oldData, $membership->toArray());
+
             DB::commit();
             return redirect()->back()->with('success', 'Membership updated successfully.');
-            
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error updating membership:', ['error' => $e->getMessage()]);
@@ -177,31 +183,89 @@ class MembershipController extends Controller
     {
         DB::beginTransaction();
 
-        // try {
+        try {
             // Find the membership
-            // $membership = Membership::findOrFail($id);
+            $membership = Membership::findOrFail($id);
+
+            // Log the activity before deletion
+            $this->logActivity('deleted', $membership, $membership->toArray(), null);
 
             // Only decrement wallets if the membership was paid
-            // if ($membership->payment_status === 'paid') {
-            //     // Decrement the wallet for associated teachers
-            //     foreach ($membership->teachers as $teacherData) {
-            //         $teacher = Teacher::find($teacherData['teacherId']);
-            //         if ($teacher) {
-            //             $teacher->decrement('wallet', $teacherData['amount']);
-            //         }
-            //     }
-            // }
-            
+            if ($membership->payment_status === 'paid') {
+                // Decrement the wallet for associated teachers
+                foreach ($membership->teachers as $teacherData) {
+                    $teacher = Teacher::find($teacherData['teacherId']);
+                    if ($teacher) {
+                        $teacher->decrement('wallet', $teacherData['amount']);
+                    }
+                }
+            }
+
             // Delete the membership
-            // $membership->delete();
-            $membership = Membership::findOrFail($id);
             $membership->delete();
+
             DB::commit();
             return redirect()->back()->with('success', 'Membership deleted successfully.');
-        // } catch (\Exception $e) {
-        //     DB::rollBack();
-        //     Log::error('Error deleting membership:', ['error' => $e->getMessage()]);
-        //     return redirect()->back()->withErrors(['error' => 'An error occurred while deleting the membership.']);
-        // }
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error deleting membership:', ['error' => $e->getMessage()]);
+            return redirect()->back()->withErrors(['error' => 'An error occurred while deleting the membership.']);
+        }
+    }
+
+    /**
+     * Log activity for a model.
+     */
+    protected function logActivity($action, $model, $oldData = null, $newData = null)
+    {
+        $description = ucfirst($action) . ' ' . class_basename($model) . ' (' . $model->id . ')';
+        $tableName = $model->getTable();
+
+        // Define the properties to log
+        $properties = [
+            'TargetName' => $model->student->firstName . ' ' . $model->student->lastName, // Name of the target student
+            'action' => $action, // Type of action (created, updated, deleted)
+            'table' => $tableName, // Table where the action occurred
+            'user' => auth()->user()->name, // User who performed the action
+        ];
+
+        // For updates, show only the changed fields
+        if ($action === 'updated' && $oldData && $newData) {
+            $changedFields = [];
+            foreach ($newData as $key => $value) {
+                if ($oldData[$key] !== $value) {
+                    $changedFields[$key] = [
+                        'old' => $oldData[$key],
+                        'new' => $value,
+                    ];
+                }
+            }
+            $properties['changed_fields'] = $changedFields;
+        }
+
+        // For creations, show only the key fields
+        if ($action === 'created') {
+            $properties['new_data'] = [
+                'student_id' => $model->student_id,
+                'offer_id' => $model->offer_id,
+                'teachers' => $model->teachers,
+            ];
+        }
+
+        // For deletions, show the key fields of the deleted entity
+        if ($action === 'deleted') {
+            $properties['deleted_data'] = [
+                'student_id' => $oldData['student_id'],
+                'offer_id' => $oldData['offer_id'],
+                'teachers' => $oldData['teachers'],
+            ];
+        }
+
+        // Log the activity
+        activity()
+            ->causedBy(auth()->user())
+            ->performedOn($model)
+            ->withProperties($properties)
+            ->log($description);
     }
 }

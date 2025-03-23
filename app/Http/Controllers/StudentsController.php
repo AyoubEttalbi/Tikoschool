@@ -146,27 +146,42 @@ protected function transformStudentData($student)
      */
     public function store(Request $request)
     {
-        $validatedData = $request->validate([
-            'firstName' => 'required|string|max:100',
-            'lastName' => 'required|string|max:100',
-            'dateOfBirth' => 'required|date',
-            'billingDate' => 'required|date',
-            'address' => 'nullable|string',
-            'guardianNumber' => 'nullable|string|max:255',
-            'CIN' => 'nullable|string|max:50|unique:students,CIN',
-            'phoneNumber' => 'nullable|string|max:20',
-            'email' => 'nullable|string|email|max:255|unique:students,email',
-            'massarCode' => 'nullable|string|max:50|unique:students,massarCode',
-            'levelId' => 'nullable|exists:levels,id', // Ensure levelId exists in levels table
-            'classId' => 'nullable|exists:classes,id', // Ensure classId exists in classes table
-            'schoolId' => 'nullable|exists:schools,id', // Ensure schoolId exists in schools table
-            'status' => 'required|in:active,inactive',
-            'assurance' => 'required|boolean',
-        ]);
-    
-        Student::create($validatedData);
-    
-        return redirect()->route('students.index')->with('success','true');
+        try {
+            // Validate the incoming request data
+            $validatedData = $request->validate([
+                'firstName' => 'required|string|max:100',
+                'lastName' => 'required|string|max:100',
+                'dateOfBirth' => 'required|date',
+                'billingDate' => 'required|date',
+                'address' => 'nullable|string',
+                'guardianNumber' => 'nullable|string|max:255',
+                'CIN' => 'nullable|string|max:50|unique:students,CIN',
+                'phoneNumber' => 'nullable|string|max:20',
+                'email' => 'nullable|string|email|max:255|unique:students,email',
+                'massarCode' => 'nullable|string|max:50|unique:students,massarCode',
+                'levelId' => 'nullable|exists:levels,id',
+                'classId' => 'nullable|exists:classes,id',
+                'schoolId' => 'nullable|exists:schools,id',
+                'status' => 'required|in:active,inactive',
+                'assurance' => 'required|boolean',
+            ]);
+
+            // Create the student
+            $student = Student::create($validatedData);
+
+            // Log the activity
+            $this->logActivity('created', $student, null, $student->toArray());
+
+            return redirect()->route('students.index')->with('success', 'Student created successfully.');
+        } catch (\Exception $e) {
+            \Log::error('Error creating student', [
+                'error' => $e->getMessage(),
+                'user_id' => auth()->id(),
+                'data' => $request->all(),
+            ]);
+
+            return redirect()->back()->with('error', 'Failed to create student. Please try again.');
+        }
     }
     /**
      * Display the specified resource.
@@ -311,30 +326,44 @@ public function show($id)
      * Update the specified resource in storage.
      */
     public function update(Request $request, Student $student)
-{
-    $validatedData = $request->validate([
-        'firstName' => 'required|string|max:100',
-        'lastName' => 'required|string|max:100',
-        'dateOfBirth' => 'required|date',
-        'billingDate' => 'required|date',
-        'address' => 'nullable|string',
-        'guardianNumber' => 'nullable|string|max:255',
-        'CIN' => 'nullable|string|max:50|unique:students,CIN,' . $student->id,
-        'phoneNumber' => 'nullable|string|max:20',
-        'email' => 'nullable|string|email|max:255|unique:students,email,' . $student->id,
-        'massarCode' => 'nullable|string|max:50|unique:students,massarCode,' . $student->id,
-        'levelId' => 'nullable|integer',
-        'classId' => 'nullable|integer',
-        'schoolId' => 'nullable|integer',
-        'status' => 'required|in:active,inactive',
-        'assurance' => 'required|boolean',
-    ]);
-    
+    {
+        try {
+            $oldData = $student->toArray(); // Capture old data before update
 
-    $student->update($validatedData);
+            $validatedData = $request->validate([
+                'firstName' => 'required|string|max:100',
+                'lastName' => 'required|string|max:100',
+                'dateOfBirth' => 'required|date',
+                'billingDate' => 'required|date',
+                'address' => 'nullable|string',
+                'guardianNumber' => 'nullable|string|max:255',
+                'CIN' => 'nullable|string|max:50|unique:students,CIN,' . $student->id,
+                'phoneNumber' => 'nullable|string|max:20',
+                'email' => 'nullable|string|email|max:255|unique:students,email,' . $student->id,
+                'massarCode' => 'nullable|string|max:50|unique:students,massarCode,' . $student->id,
+                'levelId' => 'nullable|integer',
+                'classId' => 'nullable|integer',
+                'schoolId' => 'nullable|integer',
+                'status' => 'required|in:active,inactive',
+                'assurance' => 'required|boolean',
+            ]);
 
-    return redirect()->route('students.show', $student->id)->with('success', 'Student updated successfully.');
-}
+            $student->update($validatedData);
+
+            // Log the activity with old and new data
+            $this->logActivity('updated', $student, $oldData, $student->toArray());
+
+            return redirect()->route('students.show', $student->id)->with('success', 'Student updated successfully.');
+        } catch (\Exception $e) {
+            \Log::error('Error updating student', [
+                'error' => $e->getMessage(),
+                'user_id' => auth()->id(),
+                'data' => $request->all(),
+            ]);
+
+            return redirect()->back()->with('error', 'Failed to update student. Please try again.');
+        }
+    }
 
     /**
      * Remove the specified resource from storage.
@@ -352,4 +381,59 @@ public function show($id)
         // Redirect to the student list page with a success message
         return redirect()->route('students.index')->with('success', 'Student deleted successfully.');
     }
+    protected function logActivity($action, $model, $oldData = null, $newData = null)
+{
+    $description = ucfirst($action) . ' ' . class_basename($model) . ' (' . $model->id . ')';
+    $tableName = $model->getTable();
+
+    // Define the properties to log
+    $properties = [
+        'TargetName' => $model->firstName . ' ' . $model->lastName, // Name of the target entity
+        'action' => $action, // Type of action (created, updated, deleted)
+        'table' => $tableName, // Table where the action occurred
+        'user' => auth()->user()->name, // User who performed the action
+    ];
+
+    // For updates, show only the changed fields
+    if ($action === 'updated' && $oldData && $newData) {
+        $changedFields = [];
+        foreach ($newData as $key => $value) {
+            if ($oldData[$key] !== $value) {
+                $changedFields[$key] = [
+                    'old' => $oldData[$key],
+                    'new' => $value,
+                ];
+            }
+        }
+        $properties['changed_fields'] = $changedFields;
+    }
+
+    // For creations, show only the 4 most important columns
+    if ($action === 'created') {
+        $properties['new_data'] = [
+            'firstName' => $model->firstName,
+            'lastName' => $model->lastName,
+            'email' => $model->email,
+            'phoneNumber' => $model->phoneNumber,
+        ];
+    }
+
+    // For deletions, show the key fields of the deleted entity
+    if ($action === 'deleted') {
+        $properties['deleted_data'] = [
+            'firstName' => $oldData['firstName'],
+            'lastName' => $oldData['lastName'],
+            'email' => $oldData['email'],
+            'phoneNumber' => $oldData['phoneNumber'],
+        ];
+    }
+
+    // Log the activity
+    activity()
+        ->causedBy(auth()->user())
+        ->performedOn($model)
+        ->withProperties($properties)
+        ->log($description);
+}
+
 }

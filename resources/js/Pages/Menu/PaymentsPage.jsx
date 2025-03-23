@@ -181,6 +181,7 @@ const PaymentsPage = ({
                 onAddExpense={handleAddExpense}
                 onEditEmployee={handleEditEmployee}
                 onDeleteEmployee={handleDeleteEmployee}
+                adminEarnings={adminEarnings}
               />
             )}
             {activeView === 'form' && (

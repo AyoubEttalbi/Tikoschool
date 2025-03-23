@@ -1,92 +1,58 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import FinancialSummaryCards from './FinancialSummaryCards';
+import EarningsChart from './EarningsChart';
+import { calculateChange, formatCurrency } from './Utils';
 
-/**
- * Format currency values with Moroccan Dirham (DH) symbol
- */
-const formatCurrency = (amount) => {
-  if (amount === undefined || amount === null) {
-    return '0 DH';
-  }
-  const numAmount = Number(amount);
-  return isNaN(numAmount) ? '0 DH' : `${numAmount.toLocaleString()} DH`;
-};
-
-/**
- * Calculate percentage change between two values
- */
-const calculateChange = (current, previous) => {
-  if (!previous) return { percentage: 0, direction: 'neutral' };
-  
-  const change = ((current - previous) / previous) * 100;
-  return {
-    percentage: Math.abs(change).toFixed(1),
-    direction: change > 0 ? 'up' : change < 0 ? 'down' : 'neutral'
-  };
-};
-
-/**
- * Enhanced Admin Earnings Dashboard component
- */
 const AdminEarningsSection = ({ adminEarnings }) => {
+  const earningsData = Array.isArray(adminEarnings) ? adminEarnings : (adminEarnings?.earnings || []);
   const [viewMode, setViewMode] = useState('monthly');
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [visualizationType, setVisualizationType] = useState('bar');
   const [page, setPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(6);
   const [showTrend, setShowTrend] = useState(false);
-  
-  // Set initial year to most recent year in data
-  useEffect(() => {
-    if (adminEarnings.length > 0) {
-      // Extract years and convert to numbers
-      const years = adminEarnings.map(item => Number(item.year));
-      // Find the maximum year even if data is not sorted
-      const maxYear = Math.max(...years);
-      // Ensure we have a valid year before updating state
-      if (!isNaN(maxYear) && maxYear > 0) {
-        setSelectedYear(maxYear);
-      }
-    }
-  }, [adminEarnings]);
-  
-  // Get available years from data for year filter
-  const availableYears = useMemo(() => {
-    const years = [...new Set(adminEarnings.map(item => Number(item.year)))];
-    return years.sort((a, b) => b - a);
-  }, [adminEarnings]);
-  
+
+ // Get all available years from the data
+ const availableYears = useMemo(() => {
+  // Extract all unique years from the earningsData
+  const years = [...new Set(earningsData.map(item => Number(item.year)))];
+  return years.sort((a, b) => b - a); // Sort in descending order
+}, [earningsData]);
+
+// Set the selected year to the most recent year with data
+useEffect(() => {
+  if (earningsData.length > 0 && availableYears.length > 0) {
+    setSelectedYear(availableYears[0]); // Set to the most recent year
+  }
+}, [earningsData, availableYears]);
+
   const monthOrder = ["January", "February", "March", "April", "May", "June", 
                       "July", "August", "September", "October", "November", "December"];
-  
-  // Sort function for months
+
   const sortByMonth = (a, b) => {
     const monthOrderA = monthOrder.indexOf(a.monthName);
     const monthOrderB = monthOrder.indexOf(b.monthName);
     return monthOrderA - monthOrderB;
   };
+
+    // And update these two useMemo functions:
+    const filteredEarnings = useMemo(() => {
+      return earningsData
+        .filter(item => Number(item.year) === selectedYear)
+        .sort(sortByMonth);
+    }, [earningsData, selectedYear]);
   
-  // Filter data by selected year
-  const filteredEarnings = useMemo(() => {
-    return adminEarnings
-      .filter(item => Number(item.year) === selectedYear)
-      .sort(sortByMonth);
-  }, [adminEarnings, selectedYear]);
-  
-  // Get previous year's data for comparison
-  const previousYearEarnings = useMemo(() => {
-    return adminEarnings
-      .filter(item => Number(item.year) === selectedYear - 1)
-      .sort(sortByMonth);
-  }, [adminEarnings, selectedYear]);
-  
-  // Pagination for monthly data
+    const previousYearEarnings = useMemo(() => {
+      return earningsData
+        .filter(item => Number(item.year) === selectedYear - 1)
+        .sort(sortByMonth);
+    }, [earningsData, selectedYear]);
+
   const paginatedEarnings = useMemo(() => {
     const startIndex = (page - 1) * itemsPerPage;
     return filteredEarnings.slice(startIndex, startIndex + itemsPerPage);
   }, [filteredEarnings, page, itemsPerPage]);
-  
-  // Derived state calculations
+
   const { 
     chartData, 
     yearlyData, 
@@ -98,7 +64,6 @@ const AdminEarningsSection = ({ adminEarnings }) => {
     profitChange,
     expenseBreakdown
   } = useMemo(() => {
-    // For monthly view - all months
     const chartData = filteredEarnings
       .map(item => ({
         name: item.monthName,
@@ -108,8 +73,7 @@ const AdminEarningsSection = ({ adminEarnings }) => {
         prevYearRevenue: previousYearEarnings.find(prev => prev.monthName === item.monthName)?.totalRevenue || 0,
         prevYearProfit: previousYearEarnings.find(prev => prev.monthName === item.monthName)?.profit || 0
       }));
-    
-    // For yearly view - aggregate by quarters
+
     const quarterData = {};
     filteredEarnings.forEach(item => {
       const monthIndex = monthOrder.indexOf(item.monthName);
@@ -132,22 +96,18 @@ const AdminEarningsSection = ({ adminEarnings }) => {
     
     const yearlyData = Object.values(quarterData);
     
-    // Calculate totals
     const totalRevenue = filteredEarnings.reduce((sum, item) => sum + Number(item.totalRevenue || 0), 0);
     const totalExpenses = filteredEarnings.reduce((sum, item) => sum + Number(item.totalExpenses || 0), 0);
     const totalProfit = filteredEarnings.reduce((sum, item) => sum + Number(item.profit || 0), 0);
-    
-    // Calculate previous year totals for comparison
+  
     const prevYearRevenue = previousYearEarnings.reduce((sum, item) => sum + Number(item.totalRevenue || 0), 0);
     const prevYearExpenses = previousYearEarnings.reduce((sum, item) => sum + Number(item.totalExpenses || 0), 0);
     const prevYearProfit = previousYearEarnings.reduce((sum, item) => sum + Number(item.profit || 0), 0);
     
-    // Calculate year-over-year changes
     const revenueChange = calculateChange(totalRevenue, prevYearRevenue);
     const expensesChange = calculateChange(totalExpenses, prevYearExpenses);
     const profitChange = calculateChange(totalProfit, prevYearProfit);
     
-    // Create expense breakdown for the pie chart
     const expenseBreakdown = [
       { name: 'Salaries', value: totalExpenses * 0.45 },
       { name: 'Instructor Payments', value: totalExpenses * 0.25 },
@@ -168,69 +128,8 @@ const AdminEarningsSection = ({ adminEarnings }) => {
       expenseBreakdown
     };
   }, [filteredEarnings, previousYearEarnings]);
-  
-  // Calculate total pages for pagination
+
   const totalPages = Math.ceil(filteredEarnings.length / itemsPerPage);
-  
-  // Custom tooltip for the chart
-  const CustomTooltip = ({ active, payload, label }) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-white p-4 shadow-lg rounded-md border border-gray-200">
-          <p className="font-medium text-gray-900">{label}</p>
-          {payload.map((entry, index) => (
-            <p key={index} style={{ color: entry.color }} className="text-sm">
-              {entry.name}: {formatCurrency(entry.value)}
-            </p>
-          ))}
-        </div>
-      );
-    }
-    return null;
-  };
-  
-  // Year-over-year comparison tooltip
-  const ComparisonTooltip = ({ active, payload, label }) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-white p-4 shadow-lg rounded-md border border-gray-200">
-          <p className="font-medium text-gray-900">{label}</p>
-          {payload.map((entry, index) => (
-            <p key={index} style={{ color: entry.color }} className="text-sm">
-              {entry.name === 'revenue' ? 'Current Revenue: ' : 'Current Profit: '}
-              {formatCurrency(entry.value)}
-            </p>
-          ))}
-          {payload.map((entry, index) => {
-            if (entry.name === 'revenue' || entry.name === 'profit') {
-              const prevValue = entry.name === 'revenue' ? 
-                payload.find(p => p.name === 'prevYearRevenue')?.value : 
-                payload.find(p => p.name === 'prevYearProfit')?.value;
-              
-              if (prevValue) {
-                const change = calculateChange(entry.value, prevValue);
-                return (
-                  <p key={`prev-${index}`} className="text-xs mt-1" style={{ color: entry.color }}>
-                    {entry.name === 'revenue' ? 'Previous Year: ' : 'Previous Year: '}
-                    {formatCurrency(prevValue)}
-                    <span className={`ml-2 ${
-                      change.direction === 'up' ? 'text-green-600' : 
-                      change.direction === 'down' ? 'text-red-600' : 'text-gray-600'
-                    }`}>
-                      {change.direction === 'up' ? '↑' : change.direction === 'down' ? '↓' : ''}
-                      {change.percentage}%
-                    </span>
-                  </p>
-                );
-              }
-            }
-            return null;
-          })}
-        </div>
-      );
-    }
-    return null;
-  };
 
   return (
     <div className="bg-white shadow-md rounded-lg p-6 mt-6">
@@ -319,208 +218,23 @@ const AdminEarningsSection = ({ adminEarnings }) => {
         </div>
       </div>
       
-      {/* Summary cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-5 shadow-sm border border-blue-100">
-          <div className="flex items-center mb-2">
-            <div className="rounded-full bg-blue-100 p-2 mr-3">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <p className="text-sm font-medium text-blue-800">Total Revenue</p>
-          </div>
-          <div className="flex items-baseline">
-            <p className="text-2xl font-bold text-blue-900 mb-1">
-              {formatCurrency(totalRevenue)}
-            </p>
-            {revenueChange.percentage > 0 && (
-              <span className={`ml-2 text-xs font-medium ${
-                revenueChange.direction === 'up' ? 'text-green-600' : 
-                revenueChange.direction === 'down' ? 'text-red-600' : 'text-gray-600'
-              }`}>
-                {revenueChange.direction === 'up' ? '↑' : revenueChange.direction === 'down' ? '↓' : ''}
-                {revenueChange.percentage}%
-              </span>
-            )}
-          </div>
-          <p className="text-xs text-blue-700">
-            From student payments & course enrollments
-          </p>
-        </div>
-        
-        <div className="bg-gradient-to-br from-red-50 to-orange-50 rounded-xl p-5 shadow-sm border border-red-100">
-          <div className="flex items-center mb-2">
-            <div className="rounded-full bg-red-100 p-2 mr-3">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
-              </svg>
-            </div>
-            <p className="text-sm font-medium text-red-800">Total Expenses</p>
-          </div>
-          <div className="flex items-baseline">
-            <p className="text-2xl font-bold text-red-900 mb-1">
-              {formatCurrency(totalExpenses)}
-            </p>
-            {expensesChange.percentage > 0 && (
-              <span className={`ml-2 text-xs font-medium ${
-                expensesChange.direction === 'up' ? 'text-red-600' : 
-                expensesChange.direction === 'down' ? 'text-green-600' : 'text-gray-600'
-              }`}>
-                {expensesChange.direction === 'up' ? '↑' : expensesChange.direction === 'down' ? '↓' : ''}
-                {expensesChange.percentage}%
-              </span>
-            )}
-          </div>
-          <p className="text-xs text-red-700">
-            Salaries, operations & instructor payments
-          </p>
-        </div>
-        
-        <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-5 shadow-sm border border-green-100">
-          <div className="flex items-center mb-2">
-            <div className="rounded-full bg-green-100 p-2 mr-3">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <p className="text-sm font-medium text-green-800">Net Profit</p>
-          </div>
-          <div className="flex items-baseline">
-            <p className="text-2xl font-bold text-green-900 mb-1">
-              {formatCurrency(totalProfit)}
-            </p>
-            {profitChange.percentage > 0 && (
-              <span className={`ml-2 text-xs font-medium ${
-                profitChange.direction === 'up' ? 'text-green-600' : 
-                profitChange.direction === 'down' ? 'text-red-600' : 'text-gray-600'
-              }`}>
-                {profitChange.direction === 'up' ? '↑' : profitChange.direction === 'down' ? '↓' : ''}
-                {profitChange.percentage}%
-              </span>
-            )}
-          </div>
-          <p className="text-xs text-green-700">
-            Net earnings after all expenses
-          </p>
-        </div>
-      </div>
+      <FinancialSummaryCards 
+        totalRevenue={totalRevenue}
+        totalExpenses={totalExpenses}
+        totalProfit={totalProfit}
+        revenueChange={revenueChange}
+        expensesChange={expensesChange}
+        profitChange={profitChange}
+      />
       
-      {/* Revenue chart */}
-      <div className="bg-gray-50 rounded-xl p-5 mb-8 border border-gray-100">
-        <h3 className="text-lg font-medium text-gray-800 mb-4">
-          {viewMode === 'monthly' 
-            ? `Monthly Performance Trend (${selectedYear})` 
-            : `Quarterly Performance Trend (${selectedYear})`}
-        </h3>
-        <div className="h-80">
-          <ResponsiveContainer width="100%" height="100%">
-            {visualizationType === 'bar' ? (
-              <BarChart 
-                data={viewMode === 'monthly' ? chartData : yearlyData} 
-                margin={{ top: 10, right: 30, left: 0, bottom: 10 }}
-                barGap={8}
-                barSize={24}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
-                <XAxis 
-                  dataKey="name" 
-                  axisLine={false} 
-                  tickLine={false} 
-                  tick={{ fill: '#6b7280', fontSize: 12 }}
-                />
-                <YAxis 
-                  axisLine={false} 
-                  tickLine={false} 
-                  tick={{ fill: '#6b7280', fontSize: 12 }} 
-                  tickFormatter={(value) => `${value / 1000}k`}
-                />
-                <Tooltip content={showTrend ? <ComparisonTooltip /> : <CustomTooltip />} />
-                <Legend iconType="circle" wrapperStyle={{ paddingTop: 20 }} />
-                <Bar dataKey="revenue" name="Revenue" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="expenses" name="Expenses" fill="#ef4444" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="profit" name="Profit" fill="#10b981" radius={[4, 4, 0, 0]} />
-                {showTrend && (
-                  <>
-                    <Bar dataKey="prevYearRevenue" name="Previous Year Revenue" fill="#93c5fd" radius={[4, 4, 0, 0]} stackId="2" />
-                    <Bar dataKey="prevYearProfit" name="Previous Year Profit" fill="#6ee7b7" radius={[4, 4, 0, 0]} stackId="2" />
-                  </>
-                )}
-              </BarChart>
-            ) : (
-              <LineChart
-                data={viewMode === 'monthly' ? chartData : yearlyData}
-                margin={{ top: 10, right: 30, left: 0, bottom: 10 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
-                <XAxis 
-                  dataKey="name" 
-                  axisLine={false} 
-                  tickLine={false} 
-                  tick={{ fill: '#6b7280', fontSize: 12 }}
-                />
-                <YAxis 
-                  axisLine={false} 
-                  tickLine={false} 
-                  tick={{ fill: '#6b7280', fontSize: 12 }} 
-                  tickFormatter={(value) => `${value / 1000}k`}
-                />
-                <Tooltip content={showTrend ? <ComparisonTooltip /> : <CustomTooltip />} />
-                <Legend iconType="circle" wrapperStyle={{ paddingTop: 20 }} />
-                <Line 
-                  type="monotone" 
-                  dataKey="revenue" 
-                  name="Revenue" 
-                  stroke="#3b82f6" 
-                  strokeWidth={3} 
-                  dot={{ r: 4, fill: '#3b82f6' }} 
-                  activeDot={{ r: 6 }} 
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="expenses" 
-                  name="Expenses" 
-                  stroke="#ef4444" 
-                  strokeWidth={3} 
-                  dot={{ r: 4, fill: '#ef4444' }} 
-                  activeDot={{ r: 6 }} 
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="profit" 
-                  name="Profit" 
-                  stroke="#10b981" 
-                  strokeWidth={3} 
-                  dot={{ r: 4, fill: '#10b981' }} 
-                  activeDot={{ r: 6 }} 
-                />
-                {showTrend && (
-                  <>
-                    <Line 
-                      type="monotone" 
-                      dataKey="prevYearRevenue" 
-                      name="Previous Year Revenue" 
-                      stroke="#93c5fd" 
-                      strokeWidth={2} 
-                      strokeDasharray="5 5"
-                      dot={{ r: 3, fill: '#93c5fd' }} 
-                    />
-                    <Line 
-                      type="monotone" 
-                      dataKey="prevYearProfit" 
-                      name="Previous Year Profit" 
-                      stroke="#6ee7b7" 
-                      strokeWidth={2} 
-                      strokeDasharray="5 5"
-                      dot={{ r: 3, fill: '#6ee7b7' }} 
-                    />
-                  </>
-                )}
-              </LineChart>
-            )}
-          </ResponsiveContainer>
-        </div>
-      </div>
+      <EarningsChart 
+        viewMode={viewMode}
+        visualizationType={visualizationType}
+        chartData={chartData}
+        yearlyData={yearlyData}
+        showTrend={showTrend}
+        selectedYear={selectedYear}
+      />
       
       {/* Monthly data table */}
       {viewMode === 'monthly' && (

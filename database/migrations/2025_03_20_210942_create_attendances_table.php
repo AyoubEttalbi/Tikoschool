@@ -18,7 +18,7 @@ return new class extends Migration
             $table->date('date');
             $table->enum('status', ['present', 'absent','late']);
             $table->text('reason')->nullable();
-            $table->foreignId('recorded_by')->constrained('teachers');
+            $table->foreignId('recorded_by')->constrained('users');
             $table->timestamps();
             
             // Add foreign key constraint for classId
