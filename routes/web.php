@@ -54,9 +54,9 @@ Route::middleware('auth')->group(function () {
     Route::resource('offers', OfferController::class);
     Route::resource('invoices', InvoiceController::class);
     Route::resource('memberships', MembershipController::class);
-    Route::resource('transactions', TransactionController::class);
+    
     Route::resource('attendances', AttendanceController::class);
-    Route::resource('announcements', AnnouncementController::class);
+    
 
     // Admin-only routes
     Route::middleware(AdminMiddleware::class)->group(function () {
@@ -71,6 +71,8 @@ Route::middleware('auth')->group(function () {
         Route::post('/setting', [RegisteredUserController::class, 'store'])->name('register.store');
         Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');
         Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
+        Route::resource('announcements', AnnouncementController::class);
+        Route::resource('transactions', TransactionController::class);
     });
     // Invoice PDF route
     Route::get('/invoices/{id}/pdf', [InvoiceController::class, 'generateInvoicePdf'])->name('invoices.pdf');
@@ -108,12 +110,11 @@ Route::middleware('auth')->group(function () {
         return Inertia::render('Menu/ResultsPage');
     });
    
-    // Route::get('/announcements', function () {
-    //     return Inertia::render('Menu/AnnouncementsPage');
-    // });
+    Route::get('/ViewAllAnnouncements', [AnnouncementController::class, 'viewAllAnnouncements'])->name('ViewAllAnnouncements');
     Route::get('/payments', function () {
         return Inertia::render('Menu/PaymentsPage');
     });
+
 });
 
 // Authentication routes

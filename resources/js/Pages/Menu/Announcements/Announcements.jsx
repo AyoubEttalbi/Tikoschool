@@ -15,6 +15,7 @@ import { CalendarIcon, UsersIcon, BellIcon } from '@heroicons/react/24/outline';
  * @returns {JSX.Element} Rendered component
  */
 const Announcements = ({ announcements = [], userRole = 'all', limit = 3 }) => {
+  console.log("announcements", announcements);
   // Filter and sort announcements based on visibility, date range, and limit
   const filteredAnnouncements = useMemo(() => {
     if (!announcements?.length) return [];
@@ -142,7 +143,7 @@ const Announcements = ({ announcements = [], userRole = 'all', limit = 3 }) => {
           </span>
           
           <Link 
-            href="/announcements" 
+            href="/ViewAllAnnouncements" 
             className="text-xs text-blue-600 hover:text-blue-800 font-medium hover:underline"
           >
             View All

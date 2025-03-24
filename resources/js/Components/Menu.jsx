@@ -71,7 +71,7 @@ const menuItems = [
         icon: "/announcement.png",
         label: "Announcements",
         href: "/announcements",
-        visible: ["admin", "teacher", "assistant"],
+        visible: ["admin"],
       },
       {
         icon: "/other_settings.png",

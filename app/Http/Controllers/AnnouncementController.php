@@ -71,6 +71,61 @@ class AnnouncementController extends Controller
             'userRole' => $userRole, // Pass user role to frontend
         ]);
     }
+    public function viewAllAnnouncements(Request $request)
+    {
+        // Get query parameters for filtering
+        $status = $request->query('status', 'all'); // 'all', 'active', 'upcoming', 'expired'
+        
+        // Base query
+        $query = Announcement::query();
+        
+        // Apply date filtering based on status parameter
+        $now = Carbon::now();
+        
+        if ($status === 'active') {
+            $query->where(function($q) use ($now) {
+                $q->where(function($q) use ($now) {
+                    $q->whereNull('date_start')
+                      ->orWhere('date_start', '<=', $now);
+                })->where(function($q) use ($now) {
+                    $q->whereNull('date_end')
+                      ->orWhere('date_end', '>=', $now);
+                });
+            });
+        } elseif ($status === 'upcoming') {
+            $query->where('date_start', '>', $now);
+        } elseif ($status === 'expired') {
+            $query->where('date_end', '<', $now);
+        }
+        
+        // Get user role for role-based visibility
+        $userRole = Auth::user() ? Auth::user()->role : null;
+        
+        // Apply role-based visibility filter based on user role
+        if ($userRole === 'admin') {
+            // Admin sees all announcements (no visibility filter needed)
+        } else {
+            // Teachers and assistants only see announcements with visibility 'all' or matching their role
+            $query->where(function($q) use ($userRole) {
+                $q->where('visibility', 'all')
+                  ->orWhere('visibility', $userRole);
+            });
+        }
+        
+        // Order by announcement date (most recent first)
+        $query->orderBy('date_announcement', 'desc');
+        
+        // Execute query
+        $announcements = $query->get();
+        
+        return Inertia::render('Menu/Announcements/AllAnnouncements', [
+            'announcements' => $announcements,
+            'filters' => [
+                'status' => $status,
+            ],
+            'userRole' => $userRole, // Pass user role to frontend
+        ]);
+    }
 
     /**
      * Get announcements for dashboard widget

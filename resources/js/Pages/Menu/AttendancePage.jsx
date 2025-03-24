@@ -32,8 +32,8 @@ const AttendancePage = ({ attendances, assistants, schools, classes, students, t
     if (students?.length > 0) {
       setAttendanceData(students.map(student => ({
         student_id: student.id,
-        status: student.status || 'present',
-        reason: student.reason || '',
+        status: 'present', // Default status
+        reason: '', // Default reason
         date: filters.date || new Date().toISOString().split('T')[0],
         class_id: filters.class_id
       })));
@@ -42,14 +42,24 @@ const AttendancePage = ({ attendances, assistants, schools, classes, students, t
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    router.post(route('attendances.store'), {
-      attendances: attendanceData.filter(att => att.status !== 'present'),
-      date: formDate
-    }, {
+
+    // Always send all attendance data, including "present" records
+    const payload = {
+      attendances: attendanceData, // Include all records, regardless of status
+      date: formDate,
+      class_id: filters.class_id // Include class_id in the payload
+    };
+
+    console.log("Submitting payload:", payload);
+
+    router.post(route('attendances.store'), payload, {
       onSuccess: () => {
         setShowCreateModal(false);
         // Refresh the page with the new date after submission
         router.get(route('attendances.index'), { ...filters, date: formDate }, { preserveScroll: true });
+      },
+      onError: (errors) => {
+        console.log("errors", errors);
       },
       preserveScroll: true
     });
@@ -58,7 +68,7 @@ const AttendancePage = ({ attendances, assistants, schools, classes, students, t
   const handleStatusChange = (index, value) => {
     const newData = [...attendanceData];
     newData[index].status = value;
-    if (value !== 'absent') newData[index].reason = '';
+    if (value !== 'absent') newData[index].reason = ''; // Clear reason if status is not "absent"
     setAttendanceData(newData);
   };
 
@@ -113,7 +123,7 @@ const AttendancePage = ({ attendances, assistants, schools, classes, students, t
           className={`px-2 py-1 rounded-full text-xs font-medium ${
             attendance.status === 'present'
               ? 'bg-green-100 text-green-800'
-              : ( attendance.status === 'late' ? 'bg-yellow-100 text-yellow-800' :    'bg-rose-100 text-rose-800')
+              : (attendance.status === 'late' ? 'bg-yellow-100 text-yellow-800' : 'bg-rose-100 text-rose-800')
           }`}
         >
           {attendance.status}
@@ -127,14 +137,12 @@ const AttendancePage = ({ attendances, assistants, schools, classes, students, t
       </td>
       <td>
         <div className="flex items-center gap-2">
-            <>
-              <button
-                onClick={() => handleEditClick(attendance)}
-                className="w-7 h-7 flex items-center justify-center rounded-full bg-lamaYellow hover:bg-yellow-200 transition-colors"
-              >
-                <img src="/update.png" alt="update" className="w-4 h-4" />
-              </button>
-            </>
+          <button
+            onClick={() => handleEditClick(attendance)}
+            className="w-7 h-7 flex items-center justify-center rounded-full bg-lamaYellow hover:bg-yellow-200 transition-colors"
+          >
+            <img src="/update.png" alt="update" className="w-4 h-4" />
+          </button>
         </div>
       </td>
     </tr>
@@ -146,7 +154,6 @@ const AttendancePage = ({ attendances, assistants, schools, classes, students, t
         <h1 className="text-xl font-semibold text-gray-800">Attendance Records</h1>
         <div className="flex items-center gap-3 w-full md:w-auto">
           <TableSearch routeName="attendances.index" filters={filters} />
-        
           <button
             onClick={handleOpenCreateModal}
             className="p-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors flex items-center gap-2"
