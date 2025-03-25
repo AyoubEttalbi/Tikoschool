@@ -27,7 +27,7 @@ const SingleStudentPage = ({ student, Alllevels, Allclasses, Allschools, Alloffe
           <div className="bg-lamaSky py-6 px-4 rounded-md flex-1 flex gap-4">
             <div className="w-1/3">
               <img
-                src="/studentProfile.png"
+                src={student.profile_image ? student.profile_image : "/studentProfile.png"}
                 alt={student.name}
                 width={144}
                 height={144}

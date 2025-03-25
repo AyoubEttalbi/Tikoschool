@@ -13,22 +13,38 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules;
 use Inertia\Inertia;
 use Inertia\Response;
-
+use Illuminate\Support\Facades\DB;
 class RegisteredUserController extends Controller
 {
     /**
      * Display the registration view.
      */
     public function show(): Response
-    {
-        $users = User::all();
-        
-       
-        return Inertia::render('Menu/UserListPage', [
-            'users' => $users,
-         
-        ]);
-    }
+{
+    $users = User::all()->map(function ($user) {
+        $profileImage = null;
+
+        switch ($user->role) {
+            case 'assistant':
+                $profileImage = DB::table('assistants')
+                    ->where('email', $user->email)
+                    ->value('profile_image');
+                break;
+            case 'teacher':
+                $profileImage = DB::table('teachers')
+                    ->where('email', $user->email)
+                    ->value('profile_image');
+                break;
+        }
+
+        $user->profile_image = $profileImage;
+        return $user;
+    });
+
+    return Inertia::render('Menu/UserListPage', [
+        'users' => $users,
+    ]);
+}
     public function create(): Response
     {
         return Inertia::render('Menu/UserListPage');

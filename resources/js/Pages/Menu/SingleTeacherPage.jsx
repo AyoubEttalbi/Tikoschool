@@ -7,7 +7,7 @@ import DashboardLayout from "@/Layouts/DashboardLayout";
 
 import { Link, usePage } from "@inertiajs/react";
 
-const SingleTeacherPage = ({ teacher, classes, subjects, schools,invoices }) => {
+const SingleTeacherPage = ({ teacher = {}, announcements=[], classes, subjects, schools,invoices }) => {
   const role = usePage().props.auth.user.role;
   console.log('teacher',teacher)
   console.log("schools " ,teacher.schools.map((school) => school.name).join(", "))
@@ -24,7 +24,7 @@ const SingleTeacherPage = ({ teacher, classes, subjects, schools,invoices }) => 
           <div className="bg-lamaSky py-6 px-4 rounded-md flex-1 flex gap-4">
             <div className="w-1/3">
               <img
-                src={teacher.photo || "https://images.pexels.com/photos/2888150/pexels-photo-2888150.jpeg?auto=compress&cs=tinysrgb&w=1200"}
+                src={teacher.profile_image ? teacher.profile_image : "https://images.pexels.com/photos/2888150/pexels-photo-2888150.jpeg?auto=compress&cs=tinysrgb&w=1200"}
                 alt={teacher.last_name}
                 width={144}
                 height={144}
@@ -113,7 +113,7 @@ const SingleTeacherPage = ({ teacher, classes, subjects, schools,invoices }) => 
           </div>
         </div>
         <Performance />
-        <Announcements />
+        <Announcements announcements={announcements} userRole={role} />
       </div>
     </div>
   );

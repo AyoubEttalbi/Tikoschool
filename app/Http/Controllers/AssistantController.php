@@ -7,6 +7,7 @@ use App\Models\Assistant;
 use App\Models\School;
 use App\Models\Subject;
 use App\Models\Classes;
+use App\Models\Announcement;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\URL;
@@ -16,6 +17,8 @@ use Illuminate\Validation\ValidationException;
 use Cloudinary\Cloudinary;
 use Cloudinary\Configuration\Configuration;
 use Cloudinary\Api\Upload\UploadApi;
+use Carbon\Carbon;
+
 class AssistantController extends Controller
 {   
     // Helper function to get Cloudinary
@@ -222,51 +225,76 @@ class AssistantController extends Controller
      * Display the specified resource.
      */
     
-    public function show($id)
-    {
-        $assistant = Assistant::with(['schools'])->find($id);
-        $schools = School::all();
-        $classes = Classes::all();
-        $subjects = Subject::all();
-    
-        if (!$assistant) {
-            abort(404);
-        }
-    
-        // Find the user by email
-        $user = User::where('email', $assistant->email)->first();
-    
-        if (!$user) {
-            // If no user is found, return an empty log array
-            $logs = [];
-        } else {
-            // Fetch the assistant's activity logs based on the user's ID
-            $logs = Activity::where('causer_type', User::class) // Use User::class as the causer type
-                ->where('causer_id', $user->id) // Use the user's ID as the causer ID
-                ->latest()
-                ->paginate(10);
-        }
-    
-        return Inertia::render('Menu/SingleAssistantPage', [
-            'assistant' => [
-                'id' => $assistant->id,
-                'first_name' => $assistant->first_name,
-                'last_name' => $assistant->last_name,
-                'email' => $assistant->email,
-                'phone_number' => $assistant->phone_number,
-                'address' => $assistant->address,
-                'status' => $assistant->status,
-                'salary' => $assistant->salary,
-                'profile_image' => $assistant->profile_image ? $assistant->profile_image : null,
-                'schools_assistant' => $assistant->schools,
-                'created_at' => $assistant->created_at,
-            ],
-            'schools' => $schools,
-            'subjects' => $subjects,
-            'classes' => $classes,
-            'logs' => $logs, // Pass the logs to the frontend
-        ]);
-    }
+     public function show($id)
+     {
+         $assistant = Assistant::with(['schools'])->find($id);
+         $schools = School::all();
+         $classes = Classes::all();
+         $subjects = Subject::all();
+     
+         if (!$assistant) {
+             abort(404);
+         }
+     
+         // Find the user by email
+         $user = User::where('email', $assistant->email)->first();
+     
+         if (!$user) {
+             // If no user is found, return an empty log array
+             $logs = [];
+             $announcements = [];
+         } else {
+             // Fetch the assistant's activity logs based on the user's ID
+             $logs = Activity::where('causer_type', User::class)
+                 ->where('causer_id', $user->id)
+                 ->latest()
+                 ->paginate(10);
+     
+             // Fetch announcements for the employee
+             $now = Carbon::now();
+             $announcements = Announcement::where(function($q) use ($now) {
+                 // Active announcements: 
+                 // - No start date, or start date is in the past
+                 // - No end date, or end date is in the future
+                 $q->where(function($subq) use ($now) {
+                     $subq->whereNull('date_start')
+                          ->orWhere('date_start', '<=', $now);
+                 })->where(function($subq) use ($now) {
+                     $subq->whereNull('date_end')
+                          ->orWhere('date_end', '>=', $now);
+                 });
+             })
+             // Visibility filter
+             ->where(function($q) use ($user) {
+                 $q->where('visibility', 'all')
+                   ->orWhere('visibility', $user->role);
+             })
+             ->orderBy('date_announcement', 'desc')
+             ->limit(5) // Limit to 5 most recent announcements
+             ->get();
+         }
+     
+         return Inertia::render('Menu/SingleAssistantPage', [
+             'assistant' => [
+                 'id' => $assistant->id,
+                 'first_name' => $assistant->first_name,
+                 'last_name' => $assistant->last_name,
+                 'email' => $assistant->email,
+                 'phone_number' => $assistant->phone_number,
+                 'address' => $assistant->address,
+                 'status' => $assistant->status,
+                 'salary' => $assistant->salary,
+                 'profile_image' => $assistant->profile_image ? $assistant->profile_image : null,
+                 'schools_assistant' => $assistant->schools,
+                 'created_at' => $assistant->created_at,
+             ],
+             'schools' => $schools,
+             'subjects' => $subjects,
+             'classes' => $classes,
+             'logs' => $logs,
+             'announcements' => $announcements, // Pass the announcements to the frontend
+         ]);
+     }
     /**
      * Show the form for editing the specified resource.
      */

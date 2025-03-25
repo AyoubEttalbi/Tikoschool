@@ -12,9 +12,64 @@ use App\Models\Subject;
 use App\Models\School;
 use App\Models\Classes;
 use App\Models\Membership;
-
+use App\Models\Announcement;
+use Carbon\Carbon;
+use Illuminate\Support\Facades\Auth;
+use Cloudinary\Cloudinary;
+use Cloudinary\Configuration\Configuration;
+use Cloudinary\Api\Upload\UploadApi;
 class TeacherController extends Controller
 {
+    // Helper function to get Cloudinary
+    private function getCloudinary()
+    {
+        return new Cloudinary(
+            Configuration::instance([
+                'cloud' => [
+                    'cloud_name' => env('CLOUDINARY_CLOUD_NAME'),
+                    'api_key' => env('CLOUDINARY_API_KEY'),
+                    'api_secret' => env('CLOUDINARY_API_SECRET'),
+                ],
+                'url' => [
+                    'secure' => true
+                ]
+            ])
+        );
+    }
+
+    /**
+    * Upload file to Cloudinary
+    */
+    private function uploadToCloudinary($file, $folder = 'teachers', $width = 300, $height = 300)
+    {
+        $cloudinary = $this->getCloudinary();
+        $uploadApi = $cloudinary->uploadApi();
+        
+        $options = [
+            'folder' => $folder,
+            'transformation' => [
+                [
+                    'width' => $width, 
+                    'height' => $height, 
+                    'crop' => 'fill',
+                    'gravity' => 'auto',
+                ],
+                [
+                    'quality' => 'auto',
+                    'fetch_format' => 'auto',
+                ],
+            ],
+            'public_id' => 'teacher_' . time() . '_' . random_int(1000, 9999),
+            'resource_type' => 'image',
+        ];
+        
+        $result = $uploadApi->upload($file->getRealPath(), $options);
+        
+        return [
+            'secure_url' => $result['secure_url'],
+            'public_id' => $result['public_id'],
+        ];
+    }
     /**
      * Display a listing of the resource.
      */
@@ -67,7 +122,7 @@ class TeacherController extends Controller
             'address' => $teacher->address,
             'status' => $teacher->status,
             'wallet' => $teacher->wallet,
-            'profile_image' => $teacher->profile_image ? URL::asset('storage/' . $teacher->profile_image) : null,
+            'profile_image' => $teacher->profile_image ?? null, 
             'subjects' => $teacher->subjects,
             'classes' => $teacher->classes,
             'schools' => $teacher->schools,
@@ -97,72 +152,129 @@ class TeacherController extends Controller
         ]);
     }
 
-    /**
+     /**
      * Store a newly created resource in storage.
      */
     public function store(Request $request)
     {
-        $validatedData = $request->validate([
-            'first_name' => 'required|string|max:100',
-            'last_name' => 'required|string|max:100',
-            'address' => 'nullable|string|max:255',
-            'phone_number' => 'nullable|string|max:20',
-            'email' => 'required|string|email|max:255|unique:teachers,email',
-            'status' => 'required|in:active,inactive',
-            'wallet' => 'required|numeric|min:0',
-            'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
-            'schools' => 'array',
-            'schools.*' => 'exists:schools,id',
-            'subjects' => 'array',
-            'subjects.*' => 'exists:subjects,id',
-            'classes' => 'array', // ✅ Changed from 'groups' to 'classes'
-            'classes.*' => 'exists:classes,id', // ✅ Validation fix
-        ]);
+        try {
+            $validatedData = $request->validate([
+                'first_name' => 'required|string|max:100',
+                'last_name' => 'required|string|max:100',
+                'address' => 'nullable|string|max:255',
+                'phone_number' => 'nullable|string|max:20',
+                'email' => 'required|string|email|max:255|unique:teachers,email',
+                'status' => 'required|in:active,inactive',
+                'wallet' => 'required|numeric|min:0',
+                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120',
+                'schools' => 'array',
+                'schools.*' => 'exists:schools,id',
+                'subjects' => 'array',
+                'subjects.*' => 'exists:subjects,id',
+                'classes' => 'array',
+                'classes.*' => 'exists:classes,id',
+            ]);
 
-        // Handle profile image upload (if any)
-        if ($request->hasFile('profile_image')) {
-            $validatedData['profile_image'] = $request->file('profile_image')->store('teachers', 'public');
+            // Handle profile image upload
+            if ($request->hasFile('profile_image')) {
+                $uploadResult = $this->uploadToCloudinary($request->file('profile_image'));
+                $validatedData['profile_image'] = $uploadResult['secure_url'];
+                // If you want to store public_id for future management:
+                // $validatedData['profile_image_public_id'] = $uploadResult['public_id'];
+            }
+
+            event(new CheckEmailUnique($request->email));
+            
+            // Create the teacher record
+            $teacher = Teacher::create($validatedData);
+
+            // Sync relationships
+            $teacher->subjects()->sync($request->subjects ?? []);
+            $teacher->classes()->sync($request->classes ?? []);
+            $teacher->schools()->sync($request->schools ?? []);
+
+            return redirect()->route('teachers.index')->with('success', 'Teacher created successfully.');
+        } catch (\Exception $e) {
+            \Log::error('Error creating teacher: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Failed to create teacher. Please try again.');
         }
-        event(new CheckEmailUnique($request->email));
-        // Create the teacher record
-        $teacher = Teacher::create($validatedData);
-
-        // Sync the subjects and classes with the teacher (many-to-many relation)
-        $teacher->subjects()->sync($request->subjects);
-        $teacher->classes()->sync($request->classes); // ✅ Changed from 'groups' to 'classes'
-        $teacher->schools()->sync($request->schools);
-        return redirect()->route('teachers.index')->with('success', 'Teacher created successfully.');
     }
 
     /**
      * Display the specified resource.
      */
-    public function show($id)
+    public function show(Request $request, $id)
 {
+    // Fetch announcements first
+    $announcementStatus = $request->query('status', 'all'); // 'all', 'active', 'upcoming', 'expired'
+    
+    // Base announcement query
+    $announcementQuery = Announcement::query();
+    
+    // Apply date filtering based on status parameter
+    $now = Carbon::now();
+    
+    if ($announcementStatus === 'active') {
+        $announcementQuery->where(function($q) use ($now) {
+            $q->where(function($q) use ($now) {
+                $q->whereNull('date_start')
+                  ->orWhere('date_start', '<=', $now);
+            })->where(function($q) use ($now) {
+                $q->whereNull('date_end')
+                  ->orWhere('date_end', '>=', $now);
+            });
+        });
+    } elseif ($announcementStatus === 'upcoming') {
+        $announcementQuery->where('date_start', '>', $now);
+    } elseif ($announcementStatus === 'expired') {
+        $announcementQuery->where('date_end', '<', $now);
+    }
+    
+    // Get user role for role-based visibility
+    $userRole = Auth::user() ? Auth::user()->role : null;
+    
+    // Apply role-based visibility filter based on user role
+    if ($userRole === 'admin') {
+        // Admin sees all announcements (no visibility filter needed)
+    } else {
+        // Employees only see announcements with visibility 'all' or matching their role
+        $announcementQuery->where(function($q) use ($userRole) {
+            $q->where('visibility', 'all')
+              ->orWhere('visibility', $userRole);
+        });
+    }
+    
+    // Order announcements by date (most recent first)
+    $announcementQuery->orderBy('date_announcement', 'desc');
+    
+    // Execute announcement query
+    $announcements = $announcementQuery->get();
+
     // Fetch the teacher with related data
     $teacher = Teacher::with(['subjects', 'classes', 'schools'])->find($id);
+    
     if (!$teacher) {
         abort(404);
     }
-
+    
     // Fetch all memberships where the teacher is involved
     $memberships = Membership::whereIn('payment_status', ['paid', 'pending'])
         ->whereJsonContains('teachers', [['teacherId' => (string) $teacher->id]])
         ->with(['invoices', 'student'])
         ->get();
-
+    
     // Extract invoices from memberships and calculate the teacher's share
     $invoices = $memberships->flatMap(function ($membership) use ($teacher) {
         return $membership->invoices->map(function ($invoice) use ($membership, $teacher) {
             // Calculate the payment percentage
             $paymentPercentage = ($invoice->amountPaid / $invoice->totalAmount) * 100;
-
+            
             // Find the teacher's data in the membership
             $teacherData = collect($membership->teachers)->firstWhere('teacherId', (string) $teacher->id);
-
+            
             // Calculate the teacher's share
             $teacherAmount = $teacherData ? ($teacherData['amount'] * $invoice->months) * ($paymentPercentage / 100) : 0;
-
+            
             return [
                 'id' => $invoice->id,
                 'membership_id' => $invoice->membership_id,
@@ -184,7 +296,7 @@ class TeacherController extends Controller
             ];
         });
     });
-
+    
     // Paginate the invoices
     $perPage = 100; // Number of invoices per page
     $currentPage = request()->get('page', 1); // Get the current page from the request
@@ -195,12 +307,12 @@ class TeacherController extends Controller
         $currentPage,
         ['path' => request()->url(), 'query' => request()->query()]
     );
-
+    
     // Fetch other necessary data
     $schools = School::all();
     $classes = Classes::all();
     $subjects = Subject::all();
-
+    
     return Inertia::render('Menu/SingleTeacherPage', [
         'teacher' => [
             'id' => $teacher->id,
@@ -211,7 +323,7 @@ class TeacherController extends Controller
             'email' => $teacher->email,
             'status' => $teacher->status,
             'wallet' => $teacher->wallet,
-            'profile_image' => $teacher->profile_image ? URL::asset('storage/' . $teacher->profile_image) : null,
+            'profile_image' => $teacher->profile_image ?? null, 
             'subjects' => $teacher->subjects,
             'classes' => $teacher->classes,
             'schools' => $teacher->schools,
@@ -222,6 +334,11 @@ class TeacherController extends Controller
         'schools' => $schools,
         'subjects' => $subjects,
         'classes' => $classes,
+        'announcements' => $announcements, // Pass announcements to the frontend
+        'filters' => [
+            'status' => $announcementStatus,
+        ],
+        'userRole' => $userRole, // Pass user role to frontend
     ]);
 }
     /**
@@ -239,70 +356,85 @@ class TeacherController extends Controller
         ]);
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
     public function update(Request $request, Teacher $teacher)
     {
-        $validatedData = $request->validate([
-            'first_name' => 'required|string|max:100',
-            'last_name' => 'required|string|max:100',
-            'address' => 'nullable|string|max:255',
-            'phone_number' => 'nullable|string|max:20',
-            'email' => 'required|string|email|max:255|unique:teachers,email,' . $teacher->id,
-            'status' => 'required|in:active,inactive',
-            'wallet' => 'required|numeric|min:0',
-            'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
-            'subjects' => 'array',
-            'subjects.*' => 'exists:subjects,id',
-            'classes' => 'array',
-            'classes.*' => 'exists:classes,id',
-            'schools' => 'array',
-            'schools.*' => 'exists:schools,id',
-        ]);
-    
-        // Handle profile image upload
-        if ($request->hasFile('profile_image')) {
-            if ($teacher->profile_image) {
-                Storage::disk('public')->delete($teacher->profile_image);
+        try {
+            $validatedData = $request->validate([
+                'first_name' => 'required|string|max:100',
+                'last_name' => 'required|string|max:100',
+                'address' => 'nullable|string|max:255',
+                'phone_number' => 'nullable|string|max:20',
+                'email' => 'required|string|email|max:255|unique:teachers,email,' . $teacher->id,
+                'status' => 'required|in:active,inactive',
+                'wallet' => 'required|numeric|min:0',
+                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120',
+                'subjects' => 'array',
+                'subjects.*' => 'exists:subjects,id',
+                'classes' => 'array',
+                'classes.*' => 'exists:classes,id',
+                'schools' => 'array',
+                'schools.*' => 'exists:schools,id',
+            ]);
+
+            // Handle profile image update
+            if ($request->hasFile('profile_image')) {
+                // Delete old image if exists
+                if ($teacher->profile_image) {
+                    $publicId = $teacher->profile_image_public_id ?? null;
+                    if ($publicId) {
+                        $this->getCloudinary()->uploadApi()->destroy($publicId);
+                    }
+                }
+                
+                $uploadResult = $this->uploadToCloudinary($request->file('profile_image'));
+                $validatedData['profile_image'] = $uploadResult['secure_url'];
+                // If you want to store public_id:
+                // $validatedData['profile_image_public_id'] = $uploadResult['public_id'];
             }
-            $validatedData['profile_image'] = $request->file('profile_image')->store('teachers', 'public');
+
+            event(new CheckEmailUnique($request->email, $teacher->id));
+            
+            // Update teacher attributes
+            $teacher->update($validatedData);
+
+            // Sync relationships
+            $teacher->subjects()->sync($request->subjects ?? []);
+            $teacher->classes()->sync($request->classes ?? []);
+            $teacher->schools()->sync($request->schools ?? []);
+
+            return redirect()->route('teachers.show', $teacher->id)->with('success', 'Teacher updated successfully.');
+        } catch (\Exception $e) {
+            \Log::error('Error updating teacher: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Failed to update teacher. Please try again.');
         }
-        event(new CheckEmailUnique($request->email, $teacher->id));
-        // Update only teacher's own attributes
-        $teacher->update([
-            'first_name' => $validatedData['first_name'],
-            'last_name' => $validatedData['last_name'],
-            'address' => $validatedData['address'] ?? null,
-            'phone_number' => $validatedData['phone_number'] ?? null,
-            'email' => $validatedData['email'],
-            'status' => $validatedData['status'],
-            'wallet' => $validatedData['wallet'],
-            'profile_image' => $validatedData['profile_image'] ?? $teacher->profile_image, 
-        ]);
-    
-        // Sync relationships (prevent NULL issues by using `?? []`)
-        $teacher->subjects()->sync($request->subjects ?? []);
-        $teacher->classes()->sync($request->classes ?? []);
-        $teacher->schools()->sync($request->schools ?? []);
-    
-        return redirect()->route('teachers.show', $teacher->id)->with('success', 'Teacher updated successfully.');
     }
-    
 
     /**
      * Remove the specified resource from storage.
      */
     public function destroy(Teacher $teacher)
     {
-        if ($teacher->profile_image) {
-            Storage::disk('public')->delete($teacher->profile_image);
+        try {
+            // Delete profile image from Cloudinary if exists
+            if ($teacher->profile_image) {
+                $publicId = $teacher->profile_image_public_id ?? null;
+                if ($publicId) {
+                    $this->getCloudinary()->uploadApi()->destroy($publicId);
+                }
+            }
+
+            // Detach relationships
+            $teacher->subjects()->detach();
+            $teacher->classes()->detach();
+            $teacher->schools()->detach();
+
+            // Delete teacher
+            $teacher->delete();
+
+            return redirect()->route('teachers.index')->with('success', 'Teacher deleted successfully.');
+        } catch (\Exception $e) {
+            \Log::error('Error deleting teacher: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Failed to delete teacher. Please try again.');
         }
-
-        $teacher->subjects()->detach();
-        $teacher->classes()->detach(); // ✅ Changed from 'groups' to 'classes'
-        $teacher->delete();
-
-        return redirect()->route('teachers.index')->with('success', 'Teacher deleted successfully.');
     }
 }

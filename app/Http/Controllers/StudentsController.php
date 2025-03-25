@@ -15,8 +15,85 @@ use App\Models\Teacher;
 use App\Models\Membership;
 use App\Models\Invoice;
 use App\Models\Attendance;
+use Cloudinary\Cloudinary;
+use Cloudinary\Configuration\Configuration;
+use Cloudinary\Api\Upload\UploadApi;
 class StudentsController extends Controller
 {
+    // Helper function to get Cloudinary
+    private function getCloudinary()
+    {
+        return new Cloudinary(
+            Configuration::instance([
+                'cloud' => [
+                    'cloud_name' => env('CLOUDINARY_CLOUD_NAME'),
+                    'api_key' => env('CLOUDINARY_API_KEY'),
+                    'api_secret' => env('CLOUDINARY_API_SECRET'),
+                ],
+                'url' => [
+                    'secure' => true
+                ]
+            ])
+        );
+    }
+
+    /**
+    * @param \Illuminate\Http\UploadedFile $file
+    * @param string $folder
+    * @param int $width
+    * @param int $height
+    * @return array
+    */
+    private function uploadToCloudinary($file, $folder = 'students', $width = 300, $height = 300)
+    {
+        $cloudinary = $this->getCloudinary();
+        $uploadApi = $cloudinary->uploadApi();
+        
+        // Get file info
+        $fileSize = $file->getSize();
+        $fileExtension = $file->extension();
+        
+        // Set quality based on file size
+        $quality = 'auto';
+        if ($fileSize > 1000000) {
+            $quality = 'auto:low';
+        }
+        
+        // Upload parameters
+        $options = [
+            'folder' => $folder,
+            'transformation' => [
+                [
+                    'width' => $width, 
+                    'height' => $height, 
+                    'crop' => 'fill',
+                    'gravity' => 'auto',
+                ],
+                [
+                    'quality' => $quality,
+                    'fetch_format' => 'auto',
+                ],
+            ],
+            'public_id' => 'student_' . time() . '_' . random_int(1000, 9999),
+            'resource_type' => 'image',
+            'flags' => 'lossy',
+            'context' => 'source=laravel-app|user=student',
+        ];
+        
+        // Upload to Cloudinary
+        $result = $uploadApi->upload($file->getRealPath(), $options);
+        
+        return [
+            'secure_url' => $result['secure_url'],
+            'public_id' => $result['public_id'],
+            'format' => $result['format'],
+            'width' => $result['width'],
+            'height' => $result['height'],
+            'bytes' => $result['bytes'],
+            'resource_type' => $result['resource_type'],
+            'created_at' => $result['created_at'],
+        ];
+    }
     /**
      * Display a listing of the resource.
      */
@@ -128,7 +205,7 @@ protected function transformStudentData($student)
         'status' => $student->status,
         'assurance' => $student->assurance,
         'guardianNumber' => $student->guardianNumber,
-        'profileImage' => $student->profileImage ? URL::asset('storage/' . $student->profileImage) : null,
+        'profile_image' => $student->profile_image ?? null, 
         'phoneNumber' => $student->phoneNumber,
     ];
 }
@@ -141,9 +218,6 @@ protected function transformStudentData($student)
         return Inertia::render('Students/Create');
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(Request $request)
     {
         try {
@@ -164,7 +238,15 @@ protected function transformStudentData($student)
                 'schoolId' => 'nullable|exists:schools,id',
                 'status' => 'required|in:active,inactive',
                 'assurance' => 'required|boolean',
+                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120', // Added for image upload
             ]);
+
+            // Handle profile image upload to Cloudinary
+            if ($request->hasFile('profile_image')) {
+                $uploadedFile = $request->file('profile_image');
+                $uploadResult = $this->uploadToCloudinary($uploadedFile);
+                $validatedData['profile_image'] = $uploadResult['secure_url'];
+            }
 
             // Create the student
             $student = Student::create($validatedData);
@@ -247,7 +329,7 @@ public function show($id)
     });
 
     // Fetch attendance records for the student
-    $attendances = Attendance::with(['classe', 'recordedBy'])
+    $attendances = Attendance::with(['class', 'recordedBy'])
         ->where('student_id', $student->id)
         ->latest()
         ->get()
@@ -256,7 +338,7 @@ public function show($id)
                 'id' => $attendance->id,
                 'date' => $attendance->date,
                 'status' => $attendance->status,
-                'classe' => $attendance->classe ? $attendance->classe->name : null,
+                'classe' => $attendance->class ? $attendance->class->name : null,
                 'recordedBy' => $attendance->recordedBy ? $attendance->recordedBy->name : null,
                 'created_at' => $attendance->created_at,
                 'reason' => $attendance->reason
@@ -284,7 +366,7 @@ public function show($id)
         'status' => $student->status,
         'assurance' => $student->assurance,
         'guardianNumber' => $student->guardianNumber,
-        'profileImage' => $student->profileImage ? URL::asset('storage/' . $student->profileImage) : null,
+        'profile_image' => $student->profile_image ?? null,
         'created_at' => $student->created_at,
         'memberships' => $memberships, // Embed memberships in the student data
         'invoices' => $invoices, // Include invoices in the response
@@ -328,7 +410,7 @@ public function show($id)
     public function update(Request $request, Student $student)
     {
         try {
-            $oldData = $student->toArray(); // Capture old data before update
+            $oldData = $student->toArray();
 
             $validatedData = $request->validate([
                 'firstName' => 'required|string|max:100',
@@ -346,7 +428,24 @@ public function show($id)
                 'schoolId' => 'nullable|integer',
                 'status' => 'required|in:active,inactive',
                 'assurance' => 'required|boolean',
+                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120', // Added for image upload
             ]);
+
+            // Handle profile image upload to Cloudinary
+            if ($request->hasFile('profile_image')) {
+                $uploadedFile = $request->file('profile_image');
+                $uploadResult = $this->uploadToCloudinary($uploadedFile);
+                $validatedData['profile_image'] = $uploadResult['secure_url'];
+                
+                // Delete old image if it exists
+                if ($student->profile_image) {
+                    $publicId = $student->profile_image_public_id ?? null;
+                    if ($publicId) {
+                        $cloudinary = $this->getCloudinary();
+                        $cloudinary->uploadApi()->destroy($publicId);
+                    }
+                }
+            }
 
             $student->update($validatedData);
 
@@ -365,21 +464,33 @@ public function show($id)
         }
     }
 
-    /**
+     /**
      * Remove the specified resource from storage.
      */
     public function destroy(Student $student)
     {
-        // Delete the profile image if it exists
-        if ($student->profileImage) {
-            Storage::disk('public')->delete($student->profileImage);
+        try {
+            // Delete the profile image from Cloudinary if it exists
+            if ($student->profile_image) {
+                $publicId = $student->profile_image_public_id ?? null;
+                if ($publicId) {
+                    $cloudinary = $this->getCloudinary();
+                    $cloudinary->uploadApi()->destroy($publicId);
+                }
+            }
+
+            // Delete the student
+            $student->delete();
+
+            return redirect()->route('students.index')->with('success', 'Student deleted successfully.');
+        } catch (\Exception $e) {
+            \Log::error('Error deleting student', [
+                'error' => $e->getMessage(),
+                'user_id' => auth()->id(),
+            ]);
+
+            return redirect()->back()->with('error', 'Failed to delete student. Please try again.');
         }
-
-        // Delete the student
-        $student->delete();
-
-        // Redirect to the student list page with a success message
-        return redirect()->route('students.index')->with('success', 'Student deleted successfully.');
     }
     protected function logActivity($action, $model, $oldData = null, $newData = null)
 {

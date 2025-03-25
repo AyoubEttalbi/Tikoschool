@@ -56,8 +56,8 @@ const TeacherListPage = ({teachers,subjects,classes,schools}) => {
     >
       <td className="flex items-center gap-4 p-4 cursor-pointer"  onClick={() => router.visit(`/teachers/${item.id}`)}>
         <img
-          src={item.photo ? item.photo : "/teacherPrfile2.png"}
-          alt=""
+          src={item.profile_image ? item.profile_image : "/teacherPrfile2.png"}
+          alt={item.name}
           width={40}
           height={40}
           className="md:hidden xl:block w-10 h-10 rounded-full object-cover"

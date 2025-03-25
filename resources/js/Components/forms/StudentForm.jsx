@@ -1,13 +1,13 @@
-"use client"
-
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import InputField from "../InputField"
-import { router } from "@inertiajs/react" // Import Inertia's router
+import { router } from "@inertiajs/react"
 import { useEffect, useState } from "react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-// Define the schema with assurance as a boolean
+import { Upload } from "lucide-react"
+
+// Update schema to include profile_image
 const schema = z.object({
   firstName: z.string().min(1, { message: "First name is required!" }),
   lastName: z.string().min(1, { message: "Last name is required!" }),
@@ -19,16 +19,15 @@ const schema = z.object({
   phoneNumber: z.string().min(1, { message: "Phone number is required!" }),
   email: z.string().email({ message: "Invalid email address!" }),
   massarCode: z.string().min(1, { message: "Massar code is required!" }),
-  levelId: z.string().min(1, { message: "Level is required!" }), // Only check for non-empty
-  classId: z.string().min(1, { message: "Class is required!" }), // Only check for non-empty
+  levelId: z.string().min(1, { message: "Level is required!" }),
+  classId: z.string().min(1, { message: "Class is required!" }),
   schoolId: z.string().min(1, { message: "School is required!" }),
   status: z.enum(["active", "inactive"]).optional(),
   assurance: z.any().optional(),
+  profile_image: z.any().optional(),
 })
 
 const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
-  console.log("form levels", levels)
-
   const defaultBillingDate = new Date().toISOString().split("T")[0]
 
   // State to track selected values for shadcn/ui Select components
@@ -38,6 +37,12 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
   const [selectedStatus, setSelectedStatus] = useState(data?.status || "active")
   const [selectedAssurance, setSelectedAssurance] = useState(data?.assurance === 1 ? "1" : "0")
   
+  // State for image preview
+  const [imagePreview, setImagePreview] = useState(data?.profile_image || null)
+  
+  // State for loading
+  const [loading, setLoading] = useState(false)
+
   // State to hold filtered classes based on selected level
   const [filteredClasses, setFilteredClasses] = useState([])
 
@@ -52,9 +57,24 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
       billingDate: defaultBillingDate,
       assurance: data?.assurance === 1 ? "1" : "0",
       status: data?.status || "active",
+      profile_image: null,
       ...data, // Spread existing data for update
     },
   })
+
+  // Handle image change
+  const handleImageChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setValue('profile_image', file);
+      // Create a preview URL
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setImagePreview(e.target.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   // Set default values when data is available
   useEffect(() => {
@@ -67,6 +87,11 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
       setSelectedSchool(data.schoolId?.toString())
       setSelectedStatus(data.status)
       setSelectedAssurance(data.assurance === 1 ? "1" : "0")
+      
+      // Set image preview if exists
+      if (data.profile_image) {
+        setImagePreview(data.profile_image)
+      }
     }
   }, [data, setValue])
   
@@ -90,29 +115,67 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
   }, [selectedLevel, classes, setValue])
   
   // Handle form submission
-  const onSubmit = (formData) => {
-    // Convert assurance to 1 (true) or 0 (false) before submitting
-    const updatedFormData = {
-      ...formData,
-      
-      assurance: formData.assurance === "1" ? 1 : 0,
-      levelId: formData.levelId.toString(),
-      classId: formData.classId.toString(),
-      schoolId: formData.schoolId.toString(),
+  const onSubmit = handleSubmit((formData) => {
+    // Create a FormData object to properly handle file uploads
+    const formDataObj = new FormData();
+    
+    // Append all form fields
+    formDataObj.append('firstName', formData.firstName);
+    formDataObj.append('lastName', formData.lastName);
+    formDataObj.append('dateOfBirth', formData.dateOfBirth);
+    formDataObj.append('billingDate', formData.billingDate);
+    formDataObj.append('address', formData.address);
+    formDataObj.append('guardianNumber', formData.guardianNumber);
+    formDataObj.append('CIN', formData.CIN);
+    formDataObj.append('phoneNumber', formData.phoneNumber);
+    formDataObj.append('email', formData.email);
+    formDataObj.append('massarCode', formData.massarCode);
+    formDataObj.append('levelId', formData.levelId.toString());
+    formDataObj.append('classId', formData.classId.toString());
+    formDataObj.append('schoolId', formData.schoolId.toString());
+    formDataObj.append('status', formData.status || 'active');
+    formDataObj.append('assurance', formData.assurance === "1" ? 1 : 0);
+    
+    // Append the file if it exists
+    if (formData.profile_image) {
+      formDataObj.append('profile_image', formData.profile_image);
     }
-    console.log("Form submitted with data:", formData)
-      if (type === "create") {
-        // Send a POST request to create a new student
-        router.post("/students", updatedFormData, {
-          onSuccess: () => setOpen(false),
-        })
-      } else if (type === "update") {
-        // Send a PUT request to update an existing student
-        router.put(`/students/${data.id}`, updatedFormData, {
-          onSuccess: () => setOpen(false),
-        })
-      }
-  }
+
+    setLoading(true);
+    if (type === "create") {
+      // Send a POST request to create a new student
+      router.post("/students", formDataObj, {
+        preserveScroll: true,
+        forceFormData: true,
+        onSuccess: () => {
+          setOpen(false);
+          setLoading(false);
+        },
+        onError: (errors) => {
+          console.log("Inertia Errors:", errors);
+          setLoading(false);
+        },
+      });
+    } else if (type === "update") {
+      // For update, we need to use the proper method spoofing with Inertia
+      // Add the _method field to the formData for Laravel to recognize it as PUT
+      formDataObj.append('_method', 'PUT');
+      
+      // Then use post() instead of put() because file uploads require POST
+      router.post(`/students/${data.id}`, formDataObj, {
+        preserveScroll: true,
+        forceFormData: true,
+        onSuccess: () => {
+          setOpen(false);
+          setLoading(false);
+        },
+        onError: (errors) => {
+          console.log("Inertia Errors:", errors);
+          setLoading(false);
+        },
+      });
+    }
+  });
 
   return (
     <form className="flex flex-col gap-8 p-6 " onSubmit={handleSubmit(onSubmit)}>
@@ -322,9 +385,57 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
           {errors.assurance?.message && <p className="text-xs text-red-400">{errors.assurance.message}</p>}
         </div>
       </div>
-
-      <button className="bg-blue-400 text-white py-2 px-3 rounded-md mt-6 hover:bg-blue-500 transition duration-200">
-        {type === "create" ? "Create" : "Update"}
+      <div className="flex flex-col gap-2 w-full">
+        <label className="text-xs text-gray-600">Profile Image</label>
+        <div className="flex flex-col gap-2">
+          {imagePreview && (
+            <div className="relative w-24 h-24 mb-2">
+              <img 
+                src={imagePreview} 
+                alt="Profile preview" 
+                className="w-full h-full object-cover rounded-md"
+              />
+            </div>
+          )}
+          <label 
+            htmlFor="profile_image" 
+            className="flex items-center gap-2 cursor-pointer p-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors duration-200 w-full"
+          >
+            <Upload className="w-4 h-4 text-gray-500" />
+            <span className="text-sm text-gray-700">
+              {imagePreview ? "Change image" : "Upload image"}
+            </span>
+            <input
+              id="profile_image"
+              type="file"
+              accept="image/png, image/jpeg, image/jpg"
+              className="hidden"
+              onChange={handleImageChange}
+            />
+          </label>
+          {errors.profile_image && (
+            <p className="text-xs text-red-400">{errors.profile_image.message}</p>
+          )}
+        </div>
+      </div>
+      <button 
+        type="submit" 
+        disabled={loading}
+        className={`bg-blue-400 text-white py-2 px-3 rounded-md mt-6 hover:bg-blue-500 transition duration-200 flex items-center justify-center ${
+          loading ? "opacity-70 cursor-not-allowed" : ""
+        }`}
+      >
+        {loading ? (
+          <span className="flex items-center gap-2">
+            <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Processing...
+          </span>
+        ) : (
+          <span>{type === "create" ? "Create" : "Update"}</span>
+        )}
       </button>
     </form>
   )

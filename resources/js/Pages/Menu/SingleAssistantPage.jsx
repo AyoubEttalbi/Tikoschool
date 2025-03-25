@@ -8,11 +8,11 @@ import { Link, usePage } from '@inertiajs/react';
 import Pagination from '@/Components/Pagination';
 import { data } from 'react-router-dom';
 
-const SingleAssistantPage = ({ assistant, classes, subjects, schools, logs={data:[]} }) => {
+const SingleAssistantPage = ({ assistant,announcements=[], classes, subjects, schools, logs={data:[]} }) => {
   const role = usePage().props.auth.user.role;
   const [expandedLogs, setExpandedLogs] = useState({}); // State to track expanded logs
   console.log("logs", logs);
-
+  console.log("announcements", announcements);
   // Toggle visibility of log details
   const toggleLogDetails = (logId) => {
     setExpandedLogs((prev) => ({
@@ -193,7 +193,7 @@ const SingleAssistantPage = ({ assistant, classes, subjects, schools, logs={data
       {/* RIGHT */ }
   <div className="w-full xl:w-1/3 flex flex-col gap-4">
     <Performance />
-    <Announcements />
+    <Announcements announcements={announcements} userRole={role} />
   </div>
     </div >
   );

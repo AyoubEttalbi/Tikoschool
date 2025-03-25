@@ -76,7 +76,7 @@ const UserListPage = ({users}) => {
     
       <td className="flex items-center gap-4 p-4">
       <img
-          src="/avatar.png"
+          src={ user.profile_image ? user.profile_image : "/avatar.png"}
           alt={user.name}
           width={40}
           height={40}

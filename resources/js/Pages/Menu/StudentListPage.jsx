@@ -49,6 +49,7 @@ const columns = [
 const StudentListPage = ({ students, Allclasses, Alllevels, Allschools, filters: initialFilters, Allmemberships }) => {
   const role = usePage().props.auth.user.role;
   console.log("Allmemberships", Allmemberships);
+  console.log('students', students);
   // State for filters and search
   const [filters, setFilters] = useState({
     school: initialFilters.school || '',
@@ -122,7 +123,7 @@ const StudentListPage = ({ students, Allclasses, Alllevels, Allschools, filters:
       <td  onClick={() => router.visit(`/students/${item.id}`)} className="flex items-center gap-4 p-4">
      
         <img
-          src="/studentProfile.png"
+          src={item.profile_image ? item.profile_image : "/studentProfile.png"}
           alt={item.name}
           width={40}
           height={40}

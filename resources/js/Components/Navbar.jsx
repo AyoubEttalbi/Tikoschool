@@ -1,8 +1,8 @@
 import { router,usePage } from '@inertiajs/react';
 
 
-const Navbar = ({ auth }) => {
-  
+const Navbar = ({ auth ,profile_image}) => {
+  console.log("auth", auth);
   // Check if the admin is viewing as another user
   const isViewingAs = usePage().props.auth.isViewingAs; // Assuming `isViewingAs` is passed from the backend
 
@@ -48,7 +48,7 @@ const Navbar = ({ auth }) => {
         </div>
 
         {/* User Avatar */}
-        <img src="/avatar.png" alt="" width={36} height={36} className="rounded-full" />
+        <img src={ profile_image ? profile_image : "/avatar.png"} alt="" width={36} height={36} className="rounded-full" />
 
         {/* Switch Back Button (Visible only when admin is viewing as another user) */}
         { isViewingAs && (
