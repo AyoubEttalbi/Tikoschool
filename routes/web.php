@@ -23,6 +23,7 @@ use App\Http\Middleware\CheckImpersonation;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\AnnouncementController;
+use App\Http\Controllers\MessageController;
 
 // Redirect to dashboard if authenticated, otherwise to login
 Route::get('/', function () {
@@ -105,6 +106,12 @@ Route::middleware('auth')->group(function () {
     Route::delete('/classes/students/{student}', [ClassesController::class, 'removeStudent'])->name('classes.removeStudent');
     Route::delete('/students/invoices/{invoiceId}', [InvoiceController::class, 'destroy'])->name('invoices.destroy');
     Route::get('/employees/{employee}/transactions', [TransactionController::class, 'transactions'])->name('employees.transactions'); 
+
+    // Message routes
+    Route::get('/inbox', [MessageController::class, 'inbox'])->name('inbox');
+    Route::post('/message/{user}', [MessageController::class, 'store'])->name('message.store');
+    Route::get('/message/{user}', [MessageController::class, 'show'])->name('message.show');
+
     // Inertia pages
     Route::get('/results', function () {
         return Inertia::render('Menu/ResultsPage');
