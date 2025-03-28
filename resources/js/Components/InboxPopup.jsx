@@ -42,13 +42,54 @@ const Avatar = ({ src, status }) => {
     );
 };
 
+// ContactItem Component
+const ContactItem = ({ user, isActive, onClick, unreadCount, lastMessage, currentUserId }) => {
+    const getLastMessagePreview = () => {
+        if (!lastMessage) return "No messages yet";
+        
+        const isCurrentUserSender = lastMessage.sender_id === currentUserId;
+        const prefix = isCurrentUserSender ? "You: " : "";
+        return `${prefix}${lastMessage.message}`;
+    };
+
+    return (
+        <div
+            className={`flex items-center p-3 cursor-pointer transition-colors relative ${isActive ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
+            onClick={onClick}
+        >
+            <Avatar src={user.profile_image} status={user.status || "offline"} />
+            <div className="ml-3 flex-grow overflow-hidden">
+                <div className="flex justify-between items-center">
+                    <p className="font-medium text-gray-800 truncate">{user.name}</p>
+                    <div className="flex items-center">
+                        {unreadCount > 0 && (
+                            <span className="bg-red-500 text-white text-xs rounded-full px-2 py-0.5 mr-2">
+                                {unreadCount}
+                            </span>
+                        )}
+                        <p className="text-xs text-gray-500 whitespace-nowrap ml-2">
+                            {lastMessage?.created_at ? new Date(lastMessage.created_at).toLocaleTimeString([], {
+                                hour: '2-digit',
+                                minute: '2-digit'
+                            }) : ''}
+                        </p>
+                    </div>
+                </div>
+                <p className={`text-sm truncate ${unreadCount > 0 ? 'font-medium text-gray-800' : 'text-gray-500'}`}>
+                    {getLastMessagePreview()}
+                </p>
+            </div>
+        </div>
+    );
+};
+
 // ChatMessage Component
-const ChatMessage = ({ message, isUser }) => {
+const ChatMessage = ({ message = {}, isUser }) => {
     return (
         <div className={`flex mb-4 ${isUser ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-xs p-3 rounded-lg ${isUser
-                    ? 'bg-blue-600 text-white rounded-br-none'
-                    : 'bg-gray-100 text-gray-800 rounded-bl-none'
+                ? 'bg-blue-600 text-white rounded-br-none'
+                : 'bg-gray-100 text-gray-800 rounded-bl-none'
                 }`}>
                 <p className="text-sm">{message.message}</p>
                 <div className="text-xs mt-1 opacity-70">
@@ -62,41 +103,8 @@ const ChatMessage = ({ message, isUser }) => {
     );
 };
 
-// ContactItem Component
-const ContactItem = ({ user, isActive, onClick }) => {
-    return (
-        <div
-            className={`flex items-center p-3 cursor-pointer transition-colors ${isActive ? 'bg-blue-50' : 'hover:bg-gray-50'
-                }`}
-            onClick={onClick}
-        >
-            <Avatar
-                src={user.profile_image}
-                status={user.status || "offline"}
-            />
-            <div className="ml-3 flex-grow overflow-hidden">
-                <div className="flex justify-between items-center">
-                    <p className="font-medium text-gray-800 truncate">{user.name}</p>
-                    <p className="text-xs text-gray-500 whitespace-nowrap ml-2">
-                        {user.last_message_at ? new Date(user.last_message_at).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit'
-                        }) : ''}
-                    </p>
-                </div>
-                <p className="text-sm text-gray-500 truncate">
-                    {user.last_message || "No messages yet"}
-                </p>
-            </div>
-        </div>
-    );
-};
-
-// InboxPopup Component
+// Main InboxPopup Component
 export default function InboxPopup({ auth, users = [], onClose }) {
-    console.log("users" , users);
-    console.log("auth", auth);
-
     const userId = auth?.user?.id;
     const webSocketChannel = userId ? `message.${userId}` : null;
     const [selectedUser, setSelectedUser] = useState(null);
@@ -106,78 +114,202 @@ export default function InboxPopup({ auth, users = [], onClose }) {
     const [error, setError] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [isTyping, setIsTyping] = useState(false);
+    const [unreadMessages, setUnreadMessages] = useState({});
+    const [lastMessages, setLastMessages] = useState({});
     const messagesEndRef = useRef(null);
     const selectedUserRef = useRef(selectedUser);
     const typingTimeoutRef = useRef(null);
 
-    // Filter users based on search query
-    const filteredUsers = users.filter(user =>
-        user.name.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    // Fetch initial data with proper sorting
+    const fetchInitialData = async () => {
+        try {
+            // Fetch unread counts
+            const unreadResponse = await axios.get('/unread-count');
+            setUnreadMessages(unreadResponse.data.unread_count || {});
+            
+            // Fetch last messages for all conversations (sorted by newest first)
+            const lastMessagesData = {};
+            await Promise.all(users.map(async (user) => {
+                try {
+                    const response = await axios.get(`/message/${user.id}`, {
+                        params: { 
+                            limit: 1,
+                            sort: 'desc' // Ensure we get the most recent message
+                        }
+                    });
+                    if (response.data.length > 0) {
+                        // Double-check sorting on client side
+                        const sortedMessages = [...response.data].sort((a, b) => 
+                            new Date(b.created_at) - new Date(a.created_at)
+                        );
+                        lastMessagesData[user.id] = sortedMessages[0];
+                    }
+                } catch (err) {
+                    console.error(`Failed to fetch last message for user ${user.id}`, err);
+                }
+            }));
+            setLastMessages(lastMessagesData);
 
-    // Scroll to the bottom of the chat
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+           
+        } catch (err) {
+            console.error('Failed to fetch initial data', err);
+        }
     };
 
-    // Send a message
+    // WebSocket connection
+    const connectWebSocket = () => {
+        console.log("📡 Connecting to WebSocket...");
+
+        window.Echo.private(webSocketChannel)
+        .listen('.MessageSent', async (e) => {
+            console.log("📩 Message received:", e);
+
+                if (e.message.sender_id !== userId && 
+                    (!selectedUserRef.current || selectedUserRef.current.id !== e.message.sender_id)) {
+                    setUnreadMessages(prev => ({
+                        ...prev,
+                        [e.message.sender_id]: (prev[e.message.sender_id] || 0) + 1
+                    }));
+                }
+                await getMessages();
+               
+            })
+            .listenForWhisper('typing', (e) => {
+                if (e.userId === selectedUserRef.current?.id) {
+                    setIsTyping(e.isTyping);
+                    if (typingTimeoutRef.current) {
+                        clearTimeout(typingTimeoutRef.current);
+                    }
+                    if (e.isTyping) {
+                        typingTimeoutRef.current = setTimeout(() => {
+                            setIsTyping(false);
+                        }, 2000);
+                    }
+                }
+            });
+    };
+
+    // Get messages with proper sorting
+    const getMessages = async () => {
+        if (!selectedUserRef.current?.id) return;
+        
+        try {
+            setLoading(true);
+            const { data } = await axios.get(`/message/${selectedUserRef.current.id}`);
+            setCurrentMessages(data);
+            
+            // If needed, sort again on client side
+            const sortedMessages = [...data].sort((a, b) => 
+                new Date(b.created_at) - new Date(a.created_at)
+            );
+            
+            
+            if (sortedMessages.length > 0) {
+                setLastMessages(prev => ({
+                    ...prev,
+                    [selectedUserRef.current.id]: sortedMessages[0] // Use the first (newest) message
+                }));
+            }
+        } catch (err) {
+            setError('Failed to load messages');
+            console.error('Error:', err);
+        } finally {
+            setLoading(false);
+            scrollToBottom();
+        }
+    };
+
+    // Send message
     const sendMessage = async () => {
         if (!messageInput.trim() || !selectedUserRef.current?.id) return;
+        
         try {
             setLoading(true);
             setError(null);
             const socketId = window.Echo.socketId();
+            
             const response = await axios.post(`/message/${selectedUserRef.current.id}`, {
                 message: messageInput
             }, {
                 headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
                     'X-Socket-ID': socketId
                 }
             });
+
             setMessageInput('');
-            setCurrentMessages(prev => [...prev, response.data.message]);
+            const newMessage = response.data.message;
+            
+            setCurrentMessages(prev => [...prev, newMessage]);
+            setLastMessages(prev => ({
+                ...prev,
+                [selectedUserRef.current.id]: newMessage
+            }));
+            
             scrollToBottom();
         } catch (err) {
             setError(err.response?.data?.message || 'Failed to send message');
-            console.error('Error:', err.response?.data || err.message);
+            console.error('Error:', err);
         } finally {
             setLoading(false);
         }
     };
 
-    // Fetch messages for the selected use
-        const getMessages = async () => {
-        if (!selectedUserRef.current?.id) return;
+    // Mark messages as read
+    const markMessagesAsRead = async () => {
+        if (!selectedUserRef.current) return;
+        
         try {
-            setLoading(true);
-            setError(null);
-            const { data } = await axios.get(`/message/${selectedUserRef.current.id}`);
-            setCurrentMessages(data);
-        } catch (err) {
-            setError('Failed to load messages');
-            console.error('Error:', err.response?.data || err.message);
-        } finally {
-            setLoading(false);
-            scrollToBottom();
+            await axios.post(`/message/${selectedUserRef.current.id}/read`);
+            setUnreadMessages(prev => {
+                const updated = { ...prev };
+                delete updated[selectedUserRef.current.id];
+                return updated;
+            });
+        } catch (error) {
+            console.error('Failed to mark messages as read', error);
         }
     };
 
-    // Handle typing indicator
+    // Scroll to bottom
+    const scrollToBottom = () => {
+        setTimeout(() => {
+            messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        }, 100);
+    };
+
+    // Sort users with unread messages first, then by last message time
+    const sortedUsers = [...users].sort((a, b) => {
+        const aUnread = unreadMessages[a.id] || 0;
+        const bUnread = unreadMessages[b.id] || 0;
+        
+        if (aUnread !== bUnread) {
+            return bUnread - aUnread;
+        }
+        
+        const aLastMessageTime = lastMessages[a.id]?.created_at ? 
+            new Date(lastMessages[a.id].created_at).getTime() : 0;
+        const bLastMessageTime = lastMessages[b.id]?.created_at ? 
+            new Date(lastMessages[b.id].created_at).getTime() : 0;
+            
+        return bLastMessageTime - aLastMessageTime;
+    });
+
+    // Filter users based on search query
+    const filteredUsers = sortedUsers.filter(user =>
+        user.name.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
+    // Handle typing
     const handleTyping = () => {
         if (!selectedUserRef.current?.id) return;
-        // Notify other users that you're typing
         const channel = window.Echo.private(webSocketChannel);
         channel.whisper('typing', {
             userId: auth.user.id,
             isTyping: true
         });
-        // Clear previous timeout
         if (typingTimeoutRef.current) {
             clearTimeout(typingTimeoutRef.current);
         }
-        // Set timeout to stop typing indicator after 2 seconds
         typingTimeoutRef.current = setTimeout(() => {
             channel.whisper('typing', {
                 userId: auth.user.id,
@@ -187,48 +319,33 @@ export default function InboxPopup({ auth, users = [], onClose }) {
         }, 2000);
     };
 
-    // Update selectedUserRef when selectedUser changes
+    // Effect for initial data loading
+    useEffect(() => {
+        if (userId) {
+            fetchInitialData();
+            connectWebSocket();
+        }
+
+        return () => {
+            if (userId) {
+                window.Echo.leave(webSocketChannel);
+            }
+        };
+    }, [userId]);
+
+    // Effect for handling user selection
     useEffect(() => {
         selectedUserRef.current = selectedUser;
         if (selectedUser) {
             getMessages();
+            markMessagesAsRead();
         }
     }, [selectedUser]);
 
-    // Scroll to the bottom when messages are updated
+    // Effect for scrolling when messages change
     useEffect(() => {
-        setTimeout(() => {
-            scrollToBottom();
-        }, 100);
+        scrollToBottom();
     }, [currentMessages]);
-
-    // Connect WebSocket for real-time updates
-    const connectWebSocket = () => {
-        console.log("📡 Listening for WebSocket events...");
-        console.log("🔍 Subscribing to WebSocket channel:", webSocketChannel);
-
-        window.Echo.private(webSocketChannel)
-            .listen('.MessageSent', async (e) => { 
-                console.log("📩 Decoded message event:",e);
-                await getMessages();
-            })
-            .listenForWhisper('typing', (e) => {
-                console.log("📝 Typing event:", e); // Log typing event
-                if (e.userId === selectedUserRef.current?.id) {
-                    setIsTyping(e.isTyping);
-                }
-            });
-    };
-    
-    
-    useEffect(() => {
-        connectWebSocket();
-        return () => {
-            console.log("❌ Leaving WebSocket Channel:", webSocketChannel);
-            window.Echo.leave(webSocketChannel);
-        };
-    }, []);
-    
 
     if (!userId) {
         return null;
@@ -278,6 +395,9 @@ export default function InboxPopup({ auth, users = [], onClose }) {
                                         user={user}
                                         isActive={selectedUser?.id === user.id}
                                         onClick={() => setSelectedUser(user)}
+                                        unreadCount={unreadMessages[user.id] || 0}
+                                        lastMessage={lastMessages[user.id]}
+                                        currentUserId={userId}
                                     />
                                 ))}
                             </div>
@@ -291,7 +411,7 @@ export default function InboxPopup({ auth, users = [], onClose }) {
                                 <div className="px-4 py-3 border-b border-gray-200 flex items-center bg-white">
                                     <Avatar
                                         src={selectedUser.profile_image}
-                                        status={selectedUser.status || "offline"}
+                                        status={selectedUser.status}
                                     />
                                     <div className="ml-3">
                                         <p className="font-medium text-gray-800">
@@ -310,9 +430,9 @@ export default function InboxPopup({ auth, users = [], onClose }) {
                                 </div>
                                 {/* Messages */}
                                 <div className="flex-grow p-4 overflow-y-auto bg-gray-50">
-                                    {currentMessages.map((message, index) => (
+                                    {[...currentMessages].map((message, index) => (
                                         <ChatMessage
-                                            key={message.id || `msg-${index}`}  // Fallback to index if ID is missing
+                                            key={message.id || `msg-${index}`}
                                             message={message}
                                             isUser={message.sender_id === userId}
                                         />

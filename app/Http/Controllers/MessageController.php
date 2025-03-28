@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Events\MessageSent;
+use App\Events\UnreadMessageCountUpdated;
 use App\Models\Message;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -26,13 +27,19 @@ class MessageController extends Controller
         ]);
 
         try {
+
             // Create the message in the database
             $message = Message::create([
                 'sender_id' => auth()->id(),
                 'recipient_id' => $user->id,
                 'message' => $request->message
             ]);
+            $unreadCount = Message::where('recipient_id', $user->id)
+                ->where('is_read', false)
+                ->count();
 
+            // Broadcast unread count
+            broadcast(new UnreadMessageCountUpdated($user->id, $unreadCount));
             // Broadcast the event to both sender and recipient
             broadcast(new MessageSent($message, $user->id))->toOthers();
 
@@ -85,5 +92,48 @@ class MessageController extends Controller
                 'error' => env('APP_DEBUG') ? $e->getMessage() : 'Internal server error'
             ], 500);
         }
+    }
+    public function markAsRead(User $user)
+    {
+        try {
+            Message::where('sender_id', $user->id)
+                ->where('recipient_id', Auth::id())
+                ->where('is_read', false)
+                ->update(['is_read' => true]);
+            // Get updated unread count
+            $unreadCount = Message::where('recipient_id', Auth::id()) // FIXED
+                ->where('is_read', false)
+                ->count();
+
+            // Broadcast updated unread count
+            broadcast(new UnreadMessageCountUpdated(Auth::id(), $unreadCount))->toOthers(); // FIXED
+
+            return response()->json(['status' => 'success', 'unread_count' => $unreadCount]); // FIXED
+
+        } catch (\Exception $e) {
+            Log::error('Failed to mark messages as read: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Failed to mark messages',
+                'error' => env('APP_DEBUG') ? $e->getMessage() : 'Internal server error'
+            ], 500);
+        }
+        $unreadCount = Message::where('recipient_id', $user->id)
+            ->where('is_read', false)
+            ->count();
+
+        // Broadcast updated unread count
+        broadcast(new UnreadMessageCountUpdated($user->id, $unreadCount))->toOthers();
+    }
+
+    /**
+     * Get unread message count
+     */
+    public function unreadCount()
+    {
+        $unreadCount = Message::where('recipient_id', Auth::id())
+            ->where('is_read', false)
+            ->count();
+
+        return response()->json(['unread_count' => $unreadCount]);
     }
 }

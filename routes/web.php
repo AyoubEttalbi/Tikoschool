@@ -111,6 +111,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/inbox', [MessageController::class, 'inbox'])->name('inbox');
     Route::post('/message/{user}', [MessageController::class, 'store'])->name('message.store');
     Route::get('/message/{user}', [MessageController::class, 'show'])->name('message.show');
+    Route::post('/message/{user}/read', [MessageController::class, 'markAsRead']);
+    Route::get('/unread-count', [MessageController::class, 'unreadCount']);
 
     // Inertia pages
     Route::get('/results', function () {

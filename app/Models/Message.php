@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
@@ -9,10 +8,13 @@ class Message extends Model
     protected $fillable = [
         'sender_id', 
         'recipient_id', 
-        'message'
+        'message',
+        'is_read'
     ];
 
-    protected $with = ['sender', 'recipient'];
+    protected $casts = [
+        'is_read' => 'boolean'
+    ];
 
     public function sender()
     {
@@ -22,5 +24,11 @@ class Message extends Model
     public function recipient()
     {
         return $this->belongsTo(User::class, 'recipient_id');
+    }
+
+    // Scope to get unread messages
+    public function scopeUnread($query)
+    {
+        return $query->where('is_read', false);
     }
 }
