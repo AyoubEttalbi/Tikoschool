@@ -1,24 +1,34 @@
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import { FiSend, FiSearch, FiX, FiMoreVertical, FiPaperclip, FiSmile, FiMic } from 'react-icons/fi';
+import { IoCheckmark, IoCheckmarkDone } from 'react-icons/io5';
+import { router } from '@inertiajs/react';
 
 // Avatar Component
-const Avatar = ({ src, status }) => {
+const Avatar = ({ src, status, size = 'md' }) => {
+    const sizeClasses = {
+        sm: 'w-8 h-8',
+        md: 'w-10 h-10',
+        lg: 'w-12 h-12'
+    };
+
     const statusColors = {
         online: "bg-green-500",
         away: "bg-yellow-500",
         offline: "bg-gray-400",
         busy: "bg-red-500"
     };
+
     return (
         <div className="relative">
             {src ? (
                 <img
                     src={src}
                     alt="avatar"
-                    className="rounded-full w-10 h-10 object-cover border border-gray-200"
+                    className={`rounded-full ${sizeClasses[size]} object-cover border border-gray-200`}
                 />
             ) : (
-                <div className="rounded-full w-10 h-10 bg-gray-300 flex items-center justify-center border border-gray-200">
+                <div className={`rounded-full ${sizeClasses[size]} bg-gray-300 flex items-center justify-center border border-gray-200`}>
                     <svg
                         xmlns="http://www.w3.org/2000/svg"
                         className="h-6 w-6 text-gray-500"
@@ -42,61 +52,128 @@ const Avatar = ({ src, status }) => {
     );
 };
 
-// ContactItem Component
-const ContactItem = ({ user, isActive, onClick, unreadCount, lastMessage, currentUserId }) => {
+// ContactItem Component with unread count badge
+const ContactItem = React.memo(({ user, isActive, onClick, unreadCount, lastMessage, currentUserId }) => {
     const getLastMessagePreview = () => {
         if (!lastMessage) return "No messages yet";
-        
+
         const isCurrentUserSender = lastMessage.sender_id === currentUserId;
         const prefix = isCurrentUserSender ? "You: " : "";
         return `${prefix}${lastMessage.message}`;
     };
+    const formatTime = (dateString) => {
+        if (!dateString) return '';
+
+        const now = new Date();
+        const date = new Date(dateString);
+        const diffDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
+
+        if (diffDays === 0) {
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } else if (diffDays === 1) {
+            return 'Yesterday';
+        } else if (diffDays < 7) {
+            return date.toLocaleDateString([], { weekday: 'short' });
+        } else {
+            return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+        }
+    };
+
+    // Memoize the message status to prevent unnecessary re-renders
+    const messageStatus = useMemo(() => {
+        if (!lastMessage || lastMessage.sender_id !== currentUserId) return null;
+
+        return lastMessage.is_read ? (
+            <div className="flex items-center" title="Read">
+                <IoCheckmarkDone className="text-xs text-blue-500" />
+            </div>
+        ) : (
+            <div className="flex items-center" title="Delivered">
+                <IoCheckmark className="text-xs text-gray-400" />
+            </div>
+        );
+    }, [lastMessage, currentUserId]);
 
     return (
         <div
-            className={`flex items-center p-3 cursor-pointer transition-colors relative ${isActive ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
+            className={`flex items-center p-3 cursor-pointer transition-colors relative ${isActive ? 'bg-blue-50 border-r-2 border-blue-500' : 'hover:bg-gray-50'}`}
             onClick={onClick}
         >
-            <Avatar src={user.profile_image} status={user.status || "offline"} />
+            <Avatar src={user.profile_image} status={user.status || "offline"} size="md" />
             <div className="ml-3 flex-grow overflow-hidden">
                 <div className="flex justify-between items-center">
                     <p className="font-medium text-gray-800 truncate">{user.name}</p>
                     <div className="flex items-center">
-                        {unreadCount > 0 && (
-                            <span className="bg-red-500 text-white text-xs rounded-full px-2 py-0.5 mr-2">
-                                {unreadCount}
+                        {unreadCount > 0 ? (
+                            <span className="bg-green-500 text-white text-xs rounded-full px-2 py-1 min-w-[20px] flex items-center justify-center">
+                                {unreadCount > 9 ? '9+' : unreadCount}
                             </span>
-                        )}
+                        ) : null}
                         <p className="text-xs text-gray-500 whitespace-nowrap ml-2">
-                            {lastMessage?.created_at ? new Date(lastMessage.created_at).toLocaleTimeString([], {
-                                hour: '2-digit',
-                                minute: '2-digit'
-                            }) : ''}
+                            {formatTime(lastMessage?.created_at)}
                         </p>
                     </div>
                 </div>
-                <p className={`text-sm truncate ${unreadCount > 0 ? 'font-medium text-gray-800' : 'text-gray-500'}`}>
-                    {getLastMessagePreview()}
-                </p>
+                <div className="flex justify-between items-center mt-1">
+                    <p className={`text-sm truncate ${unreadCount > 0 ? 'font-medium text-gray-800' : 'text-gray-500'}`}>
+                        {getLastMessagePreview()}
+                    </p>
+                    <div className="flex-shrink-0 ml-2">
+                        {messageStatus}
+                    </div>
+                </div>
             </div>
         </div>
     );
-};
+}, (prevProps, nextProps) => {
+    // Custom comparison function to prevent unnecessary re-renders
+    return (
+        prevProps.user.id === nextProps.user.id &&
+        prevProps.isActive === nextProps.isActive &&
+        prevProps.onClick === nextProps.onClick &&
+        prevProps.unreadCount === nextProps.unreadCount &&
+        prevProps.lastMessage?.id === nextProps.lastMessage?.id &&
+        prevProps.lastMessage?.is_read === nextProps.lastMessage?.is_read &&
+        prevProps.lastMessage?.created_at === nextProps.lastMessage?.created_at &&
+        prevProps.lastMessage?.message === nextProps.lastMessage?.message &&
+        prevProps.currentUserId === nextProps.currentUserId
+    );
+});
 
-// ChatMessage Component
+// ChatMessage Component with double checkmarks
 const ChatMessage = ({ message = {}, isUser }) => {
+    const formatTime = (dateString) => {
+        if (!dateString) return '';
+        return new Date(dateString).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    };
+
     return (
         <div className={`flex mb-4 ${isUser ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-xs p-3 rounded-lg ${isUser
+            <div className={`max-w-xs lg:max-w-md p-3 rounded-lg ${isUser
                 ? 'bg-blue-600 text-white rounded-br-none'
                 : 'bg-gray-100 text-gray-800 rounded-bl-none'
                 }`}>
                 <p className="text-sm">{message.message}</p>
-                <div className="text-xs mt-1 opacity-70">
-                    {new Date(message.created_at).toLocaleTimeString([], {
-                        hour: '2-digit',
-                        minute: '2-digit'
-                    })}
+                <div className="flex items-center justify-end mt-1 space-x-1">
+                    <div className="text-xs opacity-70">
+                        {formatTime(message.created_at)}
+                    </div>
+                    {isUser && (
+                        <div className="flex items-center ml-1">
+                            {message.is_read ? (
+                                <div className="flex" title="Read">
+                                    <IoCheckmarkDone className="text-xs text-blue-300" />
+                                </div>
+                            ) : (
+                                <div className="flex" title="Delivered">
+                                    <IoCheckmark className="text-xs text-gray-300" />
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
@@ -104,6 +181,7 @@ const ChatMessage = ({ message = {}, isUser }) => {
 };
 
 // Main InboxPopup Component
+
 export default function InboxPopup({ auth, users = [], onClose }) {
     const userId = auth?.user?.id;
     const webSocketChannel = userId ? `message.${userId}` : null;
@@ -114,72 +192,208 @@ export default function InboxPopup({ auth, users = [], onClose }) {
     const [error, setError] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [isTyping, setIsTyping] = useState(false);
-    const [unreadMessages, setUnreadMessages] = useState({});
+
     const [lastMessages, setLastMessages] = useState({});
+    const [isMobileView, setIsMobileView] = useState(window.innerWidth < 768);
+    const [showContactList, setShowContactList] = useState(true);
+    const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
+
     const messagesEndRef = useRef(null);
     const selectedUserRef = useRef(selectedUser);
     const typingTimeoutRef = useRef(null);
+    const inputRef = useRef(null);
+    const [unreadMessages, setUnreadMessages] = useState(() => {
+        const saved = localStorage.getItem('unreadMessages');
+        return saved ? JSON.parse(saved) : {};
+    });
+    useEffect(() => {
+        const interval = setInterval(() => {
+            axios.get('/unread-count')
+                .then(response => {
+                    setUnreadMessages(prev => ({
+                        ...prev,
+                        ...response.data.unread_count
+                    }));
+                });
+        }, 10000); // Sync every 10 seconds
 
-    // Fetch initial data with proper sorting
+        return () => clearInterval(interval);
+    }, []);
+    // Handle window resize
+    useEffect(() => {
+        const handleResize = () => {
+            setIsMobileView(window.innerWidth < 768);
+            if (window.innerWidth >= 768) {
+                setShowContactList(true);
+            }
+        };
+
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    // Fetch initial data
     const fetchInitialData = async () => {
         try {
-            // Fetch unread counts
-            const unreadResponse = await axios.get('/unread-count');
-            setUnreadMessages(unreadResponse.data.unread_count || {});
-            
-            // Fetch last messages for all conversations (sorted by newest first)
-            const lastMessagesData = {};
-            await Promise.all(users.map(async (user) => {
-                try {
-                    const response = await axios.get(`/message/${user.id}`, {
-                        params: { 
-                            limit: 1,
-                            sort: 'desc' // Ensure we get the most recent message
-                        }
-                    });
-                    if (response.data.length > 0) {
-                        // Double-check sorting on client side
-                        const sortedMessages = [...response.data].sort((a, b) => 
-                            new Date(b.created_at) - new Date(a.created_at)
-                        );
-                        lastMessagesData[user.id] = sortedMessages[0];
-                    }
-                } catch (err) {
-                    console.error(`Failed to fetch last message for user ${user.id}`, err);
-                }
-            }));
-            setLastMessages(lastMessagesData);
+            setLoading(true);
+            const [unreadResponse, lastMessagesData] = await Promise.all([
+                axios.get('/unread-count'),
+                fetchLastMessages()
+            ]);
 
-           
+            // Initialize with all users to prevent missing counts
+            const initializedUnreadCounts = users.reduce((acc, user) => {
+                acc[user.id] = unreadResponse.data.unread_count?.[user.id] || 0;
+                return acc;
+            }, {});
+
+            setUnreadMessages(initializedUnreadCounts);
+            setLastMessages(lastMessagesData);
         } catch (err) {
             console.error('Failed to fetch initial data', err);
+        } finally {
+            setLoading(false);
         }
     };
 
+    const fetchLastMessages = async () => {
+        try {
+            const response = await axios.get('/messages/last-messages', {
+                params: {
+                    contact_ids: users.map(user => user.id)
+                }
+            });
+
+            // Ensure the response is correctly formatted
+            if (!response.data || !response.data.lastMessages) {
+                throw new Error("Invalid response format");
+            }
+
+            const formattedMessages = {};
+            Object.entries(response.data.lastMessages).forEach(([contactId, message]) => {
+                formattedMessages[contactId] = {
+                    id: message.id,
+                    sender_id: message.sender_id,
+                    recipient_id: message.recipient_id,
+                    message: message.message,
+                    is_read: message.is_read,
+                    created_at: message.created_at
+                };
+            });
+
+            return formattedMessages;
+        } catch (err) {
+            console.error('Error fetching last messages:', err);
+            return {};
+        }
+    };
+
+
+    // Handle visibility and focus changes
+
+    useEffect(() => {
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible' && document.hasFocus() && selectedUserRef.current) {
+                markMessagesAsRead();
+            }
+        };
+
+        const handleFocus = () => {
+            if (selectedUserRef.current) {
+                markMessagesAsRead();
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        window.addEventListener('focus', handleFocus);
+
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('focus', handleFocus);
+        };
+    }, []);
+
     // WebSocket connection
     const connectWebSocket = () => {
-        console.log("📡 Connecting to WebSocket...");
+        const channel = window.Echo.private(webSocketChannel);
 
-        window.Echo.private(webSocketChannel)
-        .listen('.MessageSent', async (e) => {
-            console.log("📩 Message received:", e);
+        channel.listen('.MessageSent', async (e) => {
+            if (e.message.sender_id === userId) return;
 
-                if (e.message.sender_id !== userId && 
-                    (!selectedUserRef.current || selectedUserRef.current.id !== e.message.sender_id)) {
+            const isViewingChat = selectedUserRef.current?.id === e.message.sender_id;
+
+            // Always update last message
+            setLastMessages(prev => ({
+                ...prev,
+                [e.message.sender_id]: e.message
+            }));
+
+            if (isViewingChat && document.hasFocus()) {
+                try {
+                    await axios.post(`/message/${e.message.sender_id}/read`, {
+                        message_ids: [e.message.id]
+                    });
+                    e.message.is_read = true;
+
+                    // Decrement unread count if we're viewing
                     setUnreadMessages(prev => ({
                         ...prev,
-                        [e.message.sender_id]: (prev[e.message.sender_id] || 0) + 1
+                        [e.message.sender_id]: Math.max(0, (prev[e.message.sender_id] || 0) - 1)
                     }));
+                } catch (error) {
+                    console.error('Failed to mark message as read', error);
                 }
-                await getMessages();
-               
+            } else if (!isViewingChat) {
+                // Increment unread count if not viewing
+                setUnreadMessages(prev => ({
+                    ...prev,
+                    [e.message.sender_id]: (prev[e.message.sender_id] || 0) + 1
+                }));
+            }
+
+            if (isViewingChat) {
+                setCurrentMessages(prev => [...prev, e.message]);
+                scrollToBottom();
+            }
+        })
+            .listen('.MessagesRead', (e) => {
+                console.log("📩 MessagesRead event received:", e);
+
+                // Update current messages if in chat
+                setCurrentMessages(prev =>
+                    prev.map(msg =>
+                        e.message_ids.includes(msg.id) ? { ...msg, is_read: true } : msg
+                    )
+                );
+
+                // Update lastMessages for all affected conversations
+                setLastMessages(prev => {
+                    const updated = { ...prev };
+                    Object.keys(updated).forEach(senderId => {
+                        const lastMsg = updated[senderId];
+                        if (lastMsg && e.message_ids.includes(lastMsg.id)) {
+                            updated[senderId] = {
+                                ...lastMsg,
+                                is_read: true
+                            };
+                        }
+                    });
+                    return updated;
+                });
+
+                // Clear unread count if it's the current chat
+                if (selectedUserRef.current?.id === e.sender_id) {
+                    setUnreadMessages(prev => {
+                        const updated = { ...prev };
+                        delete updated[e.sender_id];
+                        return updated;
+                    });
+                }
             })
             .listenForWhisper('typing', (e) => {
                 if (e.userId === selectedUserRef.current?.id) {
                     setIsTyping(e.isTyping);
-                    if (typingTimeoutRef.current) {
-                        clearTimeout(typingTimeoutRef.current);
-                    }
+                    clearTimeout(typingTimeoutRef.current);
                     if (e.isTyping) {
                         typingTimeoutRef.current = setTimeout(() => {
                             setIsTyping(false);
@@ -187,28 +401,26 @@ export default function InboxPopup({ auth, users = [], onClose }) {
                     }
                 }
             });
+
+        return () => channel.stopListening('.MessageSent').stopListening('.MessagesRead');
     };
 
-    // Get messages with proper sorting
+    // Get messages for selected user
     const getMessages = async () => {
         if (!selectedUserRef.current?.id) return;
-        
+
         try {
             setLoading(true);
             const { data } = await axios.get(`/message/${selectedUserRef.current.id}`);
+
             setCurrentMessages(data);
-            
-            // If needed, sort again on client side
-            const sortedMessages = [...data].sort((a, b) => 
-                new Date(b.created_at) - new Date(a.created_at)
-            );
-            
-            
-            if (sortedMessages.length > 0) {
-                setLastMessages(prev => ({
-                    ...prev,
-                    [selectedUserRef.current.id]: sortedMessages[0] // Use the first (newest) message
-                }));
+            setLastMessages(prev => ({
+                ...prev,
+                [selectedUserRef.current.id]: data[data.length - 1] || null
+            }));
+
+            if (selectedUserRef.current.id !== userId) {
+                await markMessagesAsRead();
             }
         } catch (err) {
             setError('Failed to load messages');
@@ -222,29 +434,28 @@ export default function InboxPopup({ auth, users = [], onClose }) {
     // Send message
     const sendMessage = async () => {
         if (!messageInput.trim() || !selectedUserRef.current?.id) return;
-        
+
         try {
             setLoading(true);
             setError(null);
-            const socketId = window.Echo.socketId();
-            
+
             const response = await axios.post(`/message/${selectedUserRef.current.id}`, {
                 message: messageInput
             }, {
                 headers: {
-                    'X-Socket-ID': socketId
+                    'X-Socket-ID': window.Echo.socketId()
                 }
             });
 
             setMessageInput('');
             const newMessage = response.data.message;
-            
+
             setCurrentMessages(prev => [...prev, newMessage]);
             setLastMessages(prev => ({
                 ...prev,
                 [selectedUserRef.current.id]: newMessage
             }));
-            
+
             scrollToBottom();
         } catch (err) {
             setError(err.response?.data?.message || 'Failed to send message');
@@ -253,53 +464,89 @@ export default function InboxPopup({ auth, users = [], onClose }) {
             setLoading(false);
         }
     };
+    useEffect(() => {
+        // Load from localStorage on mount
+        const savedUnread = localStorage.getItem('unreadMessages');
+        if (savedUnread) {
+            setUnreadMessages(JSON.parse(savedUnread));
+        }
 
+        // Save to localStorage when unreadMessages changes
+        return () => {
+            localStorage.setItem('unreadMessages', JSON.stringify(unreadMessages));
+        };
+    }, []);
     // Mark messages as read
-    const markMessagesAsRead = async () => {
+    const markMessagesAsRead = async (forceAll = false) => {
         if (!selectedUserRef.current) return;
-        
+
         try {
-            await axios.post(`/message/${selectedUserRef.current.id}/read`);
-            setUnreadMessages(prev => {
-                const updated = { ...prev };
-                delete updated[selectedUserRef.current.id];
-                return updated;
+            const params = forceAll ? {} : { is_read: false };
+            const { data: messages } = await axios.get(
+                `/message/${selectedUserRef.current.id}`,
+                { params }
+            );
+
+            const messagesToMark = forceAll
+                ? messages
+                : messages.filter(msg => !msg.is_read && msg.sender_id !== userId);
+
+            if (messagesToMark.length === 0) return;
+
+            const messageIds = messagesToMark.map(msg => msg.id);
+
+            // Optimistic updates
+            setCurrentMessages(prev =>
+                prev.map(msg =>
+                    messageIds.includes(msg.id) ? { ...msg, is_read: true } : msg
+                )
+            );
+
+            setLastMessages(prev => ({
+                ...prev,
+                [selectedUserRef.current.id]: {
+                    ...(prev[selectedUserRef.current.id] || {}),
+                    is_read: true
+                }
+            }));
+
+            // Clear unread count for this contact
+            setUnreadMessages(prev => ({
+                ...prev,
+                [selectedUserRef.current.id]: 0
+            }));
+
+            await axios.post(`/message/${selectedUserRef.current.id}/read`, {
+                message_ids: messageIds,
+                force_all: forceAll
             });
+
         } catch (error) {
             console.error('Failed to mark messages as read', error);
         }
     };
 
-    // Scroll to bottom
     const scrollToBottom = () => {
         setTimeout(() => {
             messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
         }, 100);
     };
 
-    // Sort users with unread messages first, then by last message time
     const sortedUsers = [...users].sort((a, b) => {
         const aUnread = unreadMessages[a.id] || 0;
         const bUnread = unreadMessages[b.id] || 0;
-        
-        if (aUnread !== bUnread) {
-            return bUnread - aUnread;
-        }
-        
-        const aLastMessageTime = lastMessages[a.id]?.created_at ? 
-            new Date(lastMessages[a.id].created_at).getTime() : 0;
-        const bLastMessageTime = lastMessages[b.id]?.created_at ? 
-            new Date(lastMessages[b.id].created_at).getTime() : 0;
-            
-        return bLastMessageTime - aLastMessageTime;
+
+        if (aUnread !== bUnread) return bUnread - aUnread;
+
+        const aTime = lastMessages[a.id]?.created_at || 0;
+        const bTime = lastMessages[b.id]?.created_at || 0;
+        return new Date(bTime) - new Date(aTime);
     });
 
-    // Filter users based on search query
     const filteredUsers = sortedUsers.filter(user =>
         user.name.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-    // Handle typing
     const handleTyping = () => {
         if (!selectedUserRef.current?.id) return;
         const channel = window.Echo.private(webSocketChannel);
@@ -307,9 +554,7 @@ export default function InboxPopup({ auth, users = [], onClose }) {
             userId: auth.user.id,
             isTyping: true
         });
-        if (typingTimeoutRef.current) {
-            clearTimeout(typingTimeoutRef.current);
-        }
+        clearTimeout(typingTimeoutRef.current);
         typingTimeoutRef.current = setTimeout(() => {
             channel.whisper('typing', {
                 userId: auth.user.id,
@@ -319,128 +564,208 @@ export default function InboxPopup({ auth, users = [], onClose }) {
         }, 2000);
     };
 
-    // Effect for initial data loading
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    };
+
+    // Initialize
     useEffect(() => {
         if (userId) {
             fetchInitialData();
-            connectWebSocket();
-        }
-
-        return () => {
-            if (userId) {
+            const cleanup = connectWebSocket();
+            return () => {
+                cleanup();
                 window.Echo.leave(webSocketChannel);
-            }
-        };
+            };
+        }
     }, [userId]);
 
-    // Effect for handling user selection
+    // Handle user selection
     useEffect(() => {
         selectedUserRef.current = selectedUser;
         if (selectedUser) {
             getMessages();
-            markMessagesAsRead();
+            if (isMobileView) setShowContactList(false);
         }
     }, [selectedUser]);
 
-    // Effect for scrolling when messages change
+    // Scroll on new messages
     useEffect(() => {
         scrollToBottom();
     }, [currentMessages]);
 
-    if (!userId) {
-        return null;
-    }
+    if (!userId) return null;
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl shadow-xl w-full max-w-6xl max-h-[90vh] flex flex-col">
                 {/* Header */}
                 <div className="p-4 border-b border-gray-200 flex justify-between items-center">
-                    <h2 className="text-lg font-semibold text-gray-800">Messages</h2>
+                    <div className="flex items-center">
+                        {isMobileView && !showContactList && (
+                            <button
+                                onClick={() => setShowContactList(true)}
+                                className="mr-2 p-1 rounded-full hover:bg-gray-100 text-gray-600 transition duration-150"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
+                                </svg>
+                            </button>
+                        )}
+                        <h2 className="text-lg font-semibold text-gray-800">Messages</h2>
+                    </div>
                     <button
                         onClick={onClose}
                         className="p-2 rounded-full hover:bg-gray-100 text-gray-600 transition duration-150"
                     >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
+                        <FiX className="h-5 w-5" />
                     </button>
                 </div>
+
                 <div className="flex flex-1 overflow-hidden">
                     {/* Contact List */}
-                    <div className="w-1/3 border-r border-gray-200 flex flex-col">
-                        {/* Search */}
-                        <div className="p-4 border-b border-gray-200">
-                            <div className="relative">
-                                <input
-                                    type="text"
-                                    placeholder="Search contacts..."
-                                    className="w-full px-4 py-2 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                />
-                                <button className="absolute right-3 top-2 text-gray-500">
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
-                                    </svg>
-                                </button>
-                            </div>
-                        </div>
-                        {/* Contact list */}
-                        <div className="overflow-y-auto flex-grow">
-                            <div className="divide-y divide-gray-200">
-                                {filteredUsers.map(user => (
-                                    <ContactItem
-                                        key={user.id}
-                                        user={user}
-                                        isActive={selectedUser?.id === user.id}
-                                        onClick={() => setSelectedUser(user)}
-                                        unreadCount={unreadMessages[user.id] || 0}
-                                        lastMessage={lastMessages[user.id]}
-                                        currentUserId={userId}
+                    {(showContactList || !isMobileView) && (
+                        <div className={`${isMobileView ? 'absolute inset-0 z-10 bg-white' : 'w-1/3'} border-r border-gray-200 flex flex-col`}>
+                            <div className="p-4 border-b border-gray-200">
+                                <div className="relative">
+                                    <input
+                                        type="text"
+                                        placeholder="Search contacts..."
+                                        className="w-full px-4 py-2 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 pl-10"
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
                                     />
-                                ))}
+                                    <FiSearch className="absolute left-3 top-3 text-gray-500" />
+                                </div>
+                            </div>
+                            <div className="overflow-y-auto flex-grow">
+                                <div className="divide-y divide-gray-200">
+                                    {filteredUsers.length > 0 ? (
+                                        filteredUsers.map(user => (
+                                            <ContactItem
+                                                key={user.id}
+                                                user={user}
+                                                isActive={selectedUser?.id === user.id}
+                                                onClick={() => setSelectedUser(user)}
+                                                unreadCount={unreadMessages[user.id] || 0}
+                                                lastMessage={lastMessages[user.id]}
+                                                currentUserId={userId}
+                                            />
+                                        ))
+                                    ) : (
+                                        <div className="p-4 text-center text-gray-500">
+                                            No contacts found
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
-                    </div>
+                    )}
+
                     {/* Chat Area */}
-                    <div className="w-2/3 flex flex-col">
+                    <div className={`${isMobileView && showContactList ? 'hidden' : 'flex'} w-full md:w-2/3 flex flex-col`}>
                         {selectedUser ? (
                             <>
-                                {/* Chat Header */}
-                                <div className="px-4 py-3 border-b border-gray-200 flex items-center bg-white">
-                                    <Avatar
-                                        src={selectedUser.profile_image}
-                                        status={selectedUser.status}
-                                    />
-                                    <div className="ml-3">
-                                        <p className="font-medium text-gray-800">
-                                            {selectedUser.name}
-                                        </p>
-                                        <p className="text-xs text-gray-500">
-                                            {isTyping ? (
-                                                <span className="text-blue-500">Typing...</span>
-                                            ) : selectedUser.status === "online" ? (
-                                                <span className="text-green-500">Online</span>
-                                            ) : (
-                                                <span className="text-gray-500">Offline</span>
-                                            )}
-                                        </p>
-                                    </div>
-                                </div>
-                                {/* Messages */}
-                                <div className="flex-grow p-4 overflow-y-auto bg-gray-50">
-                                    {[...currentMessages].map((message, index) => (
-                                        <ChatMessage
-                                            key={message.id || `msg-${index}`}
-                                            message={message}
-                                            isUser={message.sender_id === userId}
+                                <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between bg-white">
+                                    <div className="flex items-center">
+                                        {isMobileView && (
+                                            <button
+                                                onClick={() => setShowContactList(true)}
+                                                className="mr-2 p-1 rounded-full hover:bg-gray-100 text-gray-600 transition duration-150"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
+                                                </svg>
+                                            </button>
+                                        )}
+                                        <Avatar
+                                            src={selectedUser.profile_image}
+                                            status={selectedUser.status}
                                         />
-                                    ))}
+                                        <div className="ml-3">
+                                            <p className="font-medium text-gray-800">
+                                                {selectedUser.name}
+                                            </p>
+                                            <p className="text-xs text-gray-500">
+                                                {isTyping ? (
+                                                    <span className="text-blue-500">Typing...</span>
+                                                ) : selectedUser.status === "online" ? (
+                                                    <span className="text-green-500">Online</span>
+                                                ) : (
+                                                    <span className="text-gray-500">
+                                                        Last seen {selectedUser.last_online ?
+                                                            new Date(selectedUser.last_online).toLocaleTimeString([], {
+                                                                hour: '2-digit',
+                                                                minute: '2-digit'
+                                                            }) :
+                                                            'unknown'}
+                                                    </span>
+                                                )}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button className="p-1 rounded-full hover:bg-gray-100 text-gray-600 transition duration-150">
+                                        <FiMoreVertical className="h-5 w-5" />
+                                    </button>
+                                </div>
+
+                                <div className="flex-grow p-4 overflow-y-auto bg-gray-50">
+                                    {loading && currentMessages.length === 0 ? (
+                                        <div className="flex justify-center items-center h-full">
+                                            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+                                        </div>
+                                    ) : currentMessages.length === 0 ? (
+                                        <div className="flex flex-col items-center justify-center h-full text-gray-500">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                                            </svg>
+                                            <p>No messages yet</p>
+                                            <p className="text-sm">Start the conversation</p>
+                                        </div>
+                                    ) : (
+                                        [...currentMessages].map((message, index) => (
+                                            <ChatMessage
+                                                key={message.id || `msg-${index}`}
+                                                message={message}
+                                                isUser={message.sender_id === userId}
+                                            />
+                                        ))
+                                    )}
                                     <div ref={messagesEndRef} />
                                 </div>
-                                {/* Message Input */}
+
                                 <div className="border-t border-gray-200 p-4 bg-white">
+                                    {attachmentMenuOpen && (
+                                        <div className="absolute bottom-16 left-0 right-0 bg-white shadow-lg rounded-lg p-2 mx-4">
+                                            <div className="grid grid-cols-4 gap-2">
+                                                <button className="p-3 rounded-lg hover:bg-gray-100 flex flex-col items-center">
+                                                    <FiPaperclip className="h-5 w-5 mb-1" />
+                                                    <span className="text-xs">Document</span>
+                                                </button>
+                                                <button className="p-3 rounded-lg hover:bg-gray-100 flex flex-col items-center">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                                    </svg>
+                                                    <span className="text-xs">Photo</span>
+                                                </button>
+                                                <button className="p-3 rounded-lg hover:bg-gray-100 flex flex-col items-center">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                                    </svg>
+                                                    <span className="text-xs">Video</span>
+                                                </button>
+                                                <button className="p-3 rounded-lg hover:bg-gray-100 flex flex-col items-center">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                                                    </svg>
+                                                    <span className="text-xs">Audio</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
                                     <form
                                         onSubmit={(e) => {
                                             e.preventDefault();
@@ -448,6 +773,19 @@ export default function InboxPopup({ auth, users = [], onClose }) {
                                         }}
                                         className="flex items-center"
                                     >
+                                        <button
+                                            type="button"
+                                            className="p-2 text-gray-500 hover:text-gray-700"
+                                            onClick={() => setAttachmentMenuOpen(!attachmentMenuOpen)}
+                                        >
+                                            <FiPaperclip className="h-5 w-5" />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="p-2 text-gray-500 hover:text-gray-700"
+                                        >
+                                            <FiSmile className="h-5 w-5" />
+                                        </button>
                                         <input
                                             type="text"
                                             placeholder="Type your message..."
@@ -457,16 +795,16 @@ export default function InboxPopup({ auth, users = [], onClose }) {
                                                 setMessageInput(e.target.value);
                                                 handleTyping();
                                             }}
+                                            onKeyDown={handleKeyDown}
                                             disabled={loading}
+                                            ref={inputRef}
                                         />
                                         <button
                                             type="submit"
                                             disabled={loading || !messageInput.trim()}
                                             className="p-2 bg-blue-600 rounded-full text-white hover:bg-blue-700 transition duration-150 disabled:opacity-50"
                                         >
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
-                                            </svg>
+                                            <FiSend className="h-5 w-5" />
                                         </button>
                                     </form>
                                     {error && (

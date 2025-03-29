@@ -4,12 +4,15 @@ namespace App\Http\Controllers;
 
 use App\Events\MessageSent;
 use App\Events\UnreadMessageCountUpdated;
+use App\Events\MessagesRead;
 use App\Models\Message;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
-
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Broadcast;
+use Illuminate\Broadcasting\PrivateChannel;
 class MessageController extends Controller
 {
     /**
@@ -94,46 +97,150 @@ class MessageController extends Controller
         }
     }
     public function markAsRead(User $user)
-    {
-        try {
-            Message::where('sender_id', $user->id)
-                ->where('recipient_id', Auth::id())
-                ->where('is_read', false)
-                ->update(['is_read' => true]);
-            // Get updated unread count
-            $unreadCount = Message::where('recipient_id', Auth::id()) // FIXED
-                ->where('is_read', false)
-                ->count();
-
-            // Broadcast updated unread count
-            broadcast(new UnreadMessageCountUpdated(Auth::id(), $unreadCount))->toOthers(); // FIXED
-
-            return response()->json(['status' => 'success', 'unread_count' => $unreadCount]); // FIXED
-
-        } catch (\Exception $e) {
-            Log::error('Failed to mark messages as read: ' . $e->getMessage());
-            return response()->json([
-                'message' => 'Failed to mark messages',
-                'error' => env('APP_DEBUG') ? $e->getMessage() : 'Internal server error'
-            ], 500);
+{
+    try {
+        // Validate authentication
+        if (!Auth::check()) {
+            return response()->json(['error' => 'Unauthenticated'], 401);
         }
-        $unreadCount = Message::where('recipient_id', $user->id)
+
+        $currentUser = Auth::user();
+
+        DB::beginTransaction();
+
+        // Get unread messages (including newly received ones in active chat)
+        $messagesToMark = Message::where(function($query) use ($user, $currentUser) {
+                $query->where('sender_id', $user->id)
+                      ->where('recipient_id', $currentUser->id);
+            })
+            ->where('is_read', false)
+            ->get();
+
+        if ($messagesToMark->isEmpty()) {
+            DB::commit();
+            return response()->json([
+                'status' => 'info',
+                'message' => 'No unread messages to mark'
+            ]);
+        }
+
+        // Get message IDs before update for broadcasting
+        $messageIds = $messagesToMark->pluck('id')->toArray();
+
+        // Perform bulk update with timestamp
+        $updatedCount = Message::whereIn('id', $messageIds)
+            ->update([
+                'is_read' => true,
+                'updated_at' => now() // Explicitly set update time
+            ]);
+
+        // Get updated unread count (optimized query)
+        $unreadCount = Message::where('recipient_id', $currentUser->id)
             ->where('is_read', false)
             ->count();
 
-        // Broadcast updated unread count
-        broadcast(new UnreadMessageCountUpdated($user->id, $unreadCount))->toOthers();
+        DB::commit();
+
+        // Broadcast events with additional context
+        broadcast(new UnreadMessageCountUpdated($currentUser->id, $unreadCount, [
+            'sender_id' => $user->id,
+            'marked_read_count' => $updatedCount
+        ]))->toOthers();
+
+        broadcast(new MessagesRead(
+            $currentUser->id, 
+            $user->id,
+            $messageIds,
+            now()->toISOString()  // Include exact read timestamp
+        ))->toOthers();
+
+        return response()->json([
+            'status' => 'success',
+            'unread_count' => $unreadCount,
+            'updated_messages_count' => $updatedCount,
+            'message_ids' => $messageIds,
+            'read_at' => now()->toISOString()
+        ]);
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        
+        Log::error('Failed to mark messages as read: ' . $e->getMessage());
+        
+        return response()->json([
+            'status' => 'error',
+            'error' => 'Failed to mark messages as read',
+            'message' => $e->getMessage()
+        ], 500);
     }
+}
 
     /**
      * Get unread message count
      */
     public function unreadCount()
-    {
-        $unreadCount = Message::where('recipient_id', Auth::id())
+{
+    $userId = auth()->id();
+    $contacts = User::where('id', '!=', $userId)->get();
+    
+    $unreadCounts = [];
+    foreach ($contacts as $contact) {
+        $unreadCounts[$contact->id] = Message::where('sender_id', $contact->id)
+            ->where('recipient_id', $userId)
             ->where('is_read', false)
             ->count();
-
-        return response()->json(['unread_count' => $unreadCount]);
     }
+    
+    return response()->json([
+        'unread_count' => $unreadCounts
+    ]);
+}
+    public function getLastMessages(Request $request)
+{
+    $userId = auth()->id();
+    $contactIds = $request->input('contact_ids', []);
+
+    // Get the most recent message date for each conversation
+    $latestMessages = DB::table('messages')
+        ->selectRaw("
+            CASE 
+                WHEN sender_id = $userId THEN recipient_id
+                ELSE sender_id
+            END as contact_id,
+            MAX(created_at) as latest_date
+        ")
+        ->where(function ($query) use ($userId, $contactIds) {
+            $query->where('sender_id', $userId)
+                  ->whereIn('recipient_id', $contactIds);
+        })
+        ->orWhere(function ($query) use ($userId, $contactIds) {
+            $query->where('recipient_id', $userId)
+                  ->whereIn('sender_id', $contactIds);
+        })
+        ->groupBy('contact_id');
+
+    // Join with the messages table to fetch full details
+    $lastMessages = DB::table('messages')
+        ->joinSub($latestMessages, 'latest', function ($join) use ($userId) {
+            $join->on('messages.created_at', '=', 'latest.latest_date')
+                 ->whereRaw("
+                    CASE 
+                        WHEN messages.sender_id = $userId THEN messages.recipient_id
+                        ELSE messages.sender_id
+                    END = latest.contact_id
+                 ");
+        })
+        ->select('messages.*')
+        ->get()
+        ->keyBy(function ($message) use ($userId) {
+            return $message->sender_id == $userId 
+                ? $message->recipient_id 
+                : $message->sender_id;
+        });
+
+    return response()->json([
+        'lastMessages' => $lastMessages
+    ]);
+}
+
 }

@@ -17,3 +17,6 @@ Broadcast::channel('presence-online-users', function ($user) {
 Broadcast::channel('user.{id}.notifications', function ($user, $id) {
     return (int) $user->id === (int) $id;
 });
+Broadcast::channel('user.{userId}.notifications', function ($user, $userId) {
+    return (int) $user->id === (int) $userId;
+});

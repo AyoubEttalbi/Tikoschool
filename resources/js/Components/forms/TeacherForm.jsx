@@ -4,12 +4,13 @@ import { z } from "zod"
 import { useState } from "react"
 import InputField from "../InputField"
 import { router, Link } from "@inertiajs/react"
-import { Check, ChevronsUpDown, X, Upload } from "lucide-react"
+import { Check, ChevronsUpDown, X, Upload, ChevronUp, ChevronDown } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import Register from "@/Pages/Auth/Register";
 
 // Define the schema
 const schema = z.object({
@@ -27,6 +28,7 @@ const schema = z.object({
 })
 
 const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState(data?.status || "active")
   const [selectedSubjects, setSelectedSubjects] = useState(data?.subjects || [])
   const [selectedClasses, setSelectedClasses] = useState(data?.classes?.map(({ id, name }) => ({ id, name })) || [])
@@ -57,6 +59,17 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
       profile_image: null,
     },
   })
+
+  // Watch the form fields for changes
+  const firstName = watch("firstName");
+  const lastName = watch("lastName");
+  const email = watch("email");
+
+  // Prepare user data for the Register component
+  const userData = {
+    name: `${firstName} ${lastName}`,
+    email: email,
+  };
 
   // Handle image change
   const handleImageChange = (e) => {
@@ -413,6 +426,18 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
             </div>
             {errors.schools && <p className="text-xs text-red-400">{errors.schools.message}</p>}
           </div>
+          <button
+            type="button"
+            onClick={() => setIsModalOpen(!isModalOpen)}
+            className="items-center mt-7 h-10 inline-flex gap-2 bg-blue-500 hover:bg-blue-600 transition-all text-white px-4 py-2 rounded-md shadow-sm"
+          >
+            {isModalOpen ? (
+              <ChevronUp className="w-4 h-4" />
+            ) : (
+              <ChevronDown className="w-4 h-4" />
+            )}
+            <span>Add User</span>
+          </button>
         </div>
 
         <button 
@@ -434,13 +459,17 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
             <span>{type === "create" ? "Create" : "Update"}</span>
           )}
         </button>
+       
       </form>
-
-      {type === "update" && (
-        <Link href={`/setting?data=${JSON.stringify(data)}`}>
-          <button className="bg-blue-500 w-full text-white p-2 rounded-md">Go to User</button>
-        </Link>
-      )}
+      {isModalOpen && (
+          <Register
+            setIsModalOpen={setIsModalOpen}
+            table="teachers"
+            role={"teacher"}
+            isModalOpen={isModalOpen}
+            UserData={userData}
+          />
+        )}
     </div>
   )
 }

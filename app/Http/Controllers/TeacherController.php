@@ -20,7 +20,7 @@ use Cloudinary\Configuration\Configuration;
 use Cloudinary\Api\Upload\UploadApi;
 class TeacherController extends Controller
 {
-    // Helper function to get Cloudinary
+    
     private function getCloudinary()
     {
         return new Cloudinary(
@@ -70,20 +70,43 @@ class TeacherController extends Controller
             'public_id' => $result['public_id'],
         ];
     }
+
     /**
      * Display a listing of the resource.
      */
     public function index(Request $request)
-{
-    $schools = School::all();
-    $classes = Classes::all();
-    $subjects = Subject::all();
-    $query = Teacher::query();
+    {
+        // Initialize the query with eager loading for relationships
+        $query = Teacher::with(['subjects', 'classes', 'schools']);
 
-    // Apply search filter if search term is provided
-    if ($request->has('search') && !empty($request->search)) {
-        $searchTerm = $request->search;
+        // Apply search filter if search term is provided
+        if ($request->has('search') && !empty($request->search)) {
+            $this->applySearchFilter($query, $request->search);
+        }
 
+        // Apply additional filters (subject, class, school)
+        $this->applyFilters($query, $request->only(['subject', 'class', 'school', 'status']));
+
+        // Fetch paginated and filtered teachers
+        $teachers = $query->paginate(10)->withQueryString()->through(function ($teacher) {
+            return $this->transformTeacherData($teacher);
+        });
+
+        return Inertia::render('Menu/TeacherListPage', [
+            'teachers' => $teachers,
+            'schools' => School::all(),
+            'subjects' => Subject::all(),
+            'classes' => Classes::all(),
+            'search' => $request->search,
+            'filters' => $request->only(['subject', 'class', 'school', 'status']),
+        ]);
+    }
+
+    /**
+     * Apply search filter to the query.
+     */
+    protected function applySearchFilter($query, $searchTerm)
+    {
         $query->where(function ($q) use ($searchTerm) {
             // Search by teacher fields
             $q->where('first_name', 'LIKE', "%{$searchTerm}%")
@@ -92,25 +115,60 @@ class TeacherController extends Controller
               ->orWhere('email', 'LIKE', "%{$searchTerm}%")
               ->orWhere('address', 'LIKE', "%{$searchTerm}%");
 
-            // Search by subject name
-            $q->orWhereHas('subjects', function ($subjectQuery) use ($searchTerm) {
-                $subjectQuery->where('name', 'LIKE', "%{$searchTerm}%");
-            });
-
-            // Search by class name
-            $q->orWhereHas('classes', function ($classQuery) use ($searchTerm) {
-                $classQuery->where('name', 'LIKE', "%{$searchTerm}%");
-            });
-
-            // Search by school name
-            $q->orWhereHas('schools', function ($schoolQuery) use ($searchTerm) {
-                $schoolQuery->where('name', 'LIKE', "%{$searchTerm}%");
-            });
+            // Search by related models through pivot tables
+            $this->applyRelationshipSearch($q, $searchTerm);
         });
     }
 
-    // Fetch paginated and filtered teachers
-    $teachers = $query->paginate(10)->withQueryString()->through(function ($teacher) {
+    /**
+     * Apply search filter to relationships (subjects, classes, schools).
+     */
+    protected function applyRelationshipSearch($query, $searchTerm)
+    {
+        $query->orWhereHas('subjects', function ($subjectQuery) use ($searchTerm) {
+            $subjectQuery->where('name', 'LIKE', "%{$searchTerm}%");
+        })
+        ->orWhereHas('classes', function ($classQuery) use ($searchTerm) {
+            $classQuery->where('name', 'LIKE', "%{$searchTerm}%");
+        })
+        ->orWhereHas('schools', function ($schoolQuery) use ($searchTerm) {
+            $schoolQuery->where('name', 'LIKE', "%{$searchTerm}%");
+        });
+    }
+
+    /**
+     * Apply additional filters (subject, class, school, status).
+     */
+    protected function applyFilters($query, $filters)
+    {
+        if (!empty($filters['subject'])) {
+            $query->whereHas('subjects', function ($subjectQuery) use ($filters) {
+                $subjectQuery->where('subjects.id', $filters['subject']);
+            });
+        }
+
+        if (!empty($filters['class'])) {
+            $query->whereHas('classes', function ($classQuery) use ($filters) {
+                $classQuery->where('classes.id', $filters['class']);
+            });
+        }
+
+        if (!empty($filters['school'])) {
+            $query->whereHas('schools', function ($schoolQuery) use ($filters) {
+                $schoolQuery->where('schools.id', $filters['school']);
+            });
+        }
+
+        if (!empty($filters['status'])) {
+            $query->where('status', $filters['status']);
+        }
+    }
+
+    /**
+     * Transform teacher data for the frontend.
+     */
+    protected function transformTeacherData($teacher)
+    {
         return [
             'id' => $teacher->id,
             'name' => $teacher->first_name . ' ' . $teacher->last_name,
@@ -127,16 +185,7 @@ class TeacherController extends Controller
             'classes' => $teacher->classes,
             'schools' => $teacher->schools,
         ];
-    });
-
-    return Inertia::render('Menu/TeacherListPage', [
-        'teachers' => $teachers,
-        'schools' => $schools,
-        'subjects' => $subjects,
-        'classes' => $classes,
-        'search' => $request->search
-    ]);
-}
+    }
 
     /**
      * Show the form for creating a new resource.

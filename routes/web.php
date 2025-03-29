@@ -113,7 +113,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/message/{user}', [MessageController::class, 'show'])->name('message.show');
     Route::post('/message/{user}/read', [MessageController::class, 'markAsRead']);
     Route::get('/unread-count', [MessageController::class, 'unreadCount']);
-
+    Route::get('/messages/last-messages', [MessageController::class, 'getLastMessages']);
     // Inertia pages
     Route::get('/results', function () {
         return Inertia::render('Menu/ResultsPage');
