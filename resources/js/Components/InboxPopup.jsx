@@ -1,185 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { FiSend, FiSearch, FiX, FiMoreVertical, FiPaperclip, FiSmile, FiMic } from 'react-icons/fi';
-import { IoCheckmark, IoCheckmarkDone } from 'react-icons/io5';
-import { router } from '@inertiajs/react';
-
-// Avatar Component
-const Avatar = ({ src, status, size = 'md' }) => {
-    const sizeClasses = {
-        sm: 'w-8 h-8',
-        md: 'w-10 h-10',
-        lg: 'w-12 h-12'
-    };
-
-    const statusColors = {
-        online: "bg-green-500",
-        away: "bg-yellow-500",
-        offline: "bg-gray-400",
-        busy: "bg-red-500"
-    };
-
-    return (
-        <div className="relative">
-            {src ? (
-                <img
-                    src={src}
-                    alt="avatar"
-                    className={`rounded-full ${sizeClasses[size]} object-cover border border-gray-200`}
-                />
-            ) : (
-                <div className={`rounded-full ${sizeClasses[size]} bg-gray-300 flex items-center justify-center border border-gray-200`}>
-                    <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        className="h-6 w-6 text-gray-500"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                    >
-                        <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                        />
-                    </svg>
-                </div>
-            )}
-            {status && (
-                <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 ${statusColors[status]} rounded-full border-2 border-white`}></span>
-            )}
-        </div>
-    );
-};
-
-// ContactItem Component with unread count badge
-const ContactItem = React.memo(({ user, isActive, onClick, unreadCount, lastMessage, currentUserId }) => {
-    const getLastMessagePreview = () => {
-        if (!lastMessage) return "No messages yet";
-
-        const isCurrentUserSender = lastMessage.sender_id === currentUserId;
-        const prefix = isCurrentUserSender ? "You: " : "";
-        return `${prefix}${lastMessage.message}`;
-    };
-    const formatTime = (dateString) => {
-        if (!dateString) return '';
-
-        const now = new Date();
-        const date = new Date(dateString);
-        const diffDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
-
-        if (diffDays === 0) {
-            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        } else if (diffDays === 1) {
-            return 'Yesterday';
-        } else if (diffDays < 7) {
-            return date.toLocaleDateString([], { weekday: 'short' });
-        } else {
-            return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-        }
-    };
-
-    // Memoize the message status to prevent unnecessary re-renders
-    const messageStatus = useMemo(() => {
-        if (!lastMessage || lastMessage.sender_id !== currentUserId) return null;
-
-        return lastMessage.is_read ? (
-            <div className="flex items-center" title="Read">
-                <IoCheckmarkDone className="text-xs text-blue-500" />
-            </div>
-        ) : (
-            <div className="flex items-center" title="Delivered">
-                <IoCheckmark className="text-xs text-gray-400" />
-            </div>
-        );
-    }, [lastMessage, currentUserId]);
-
-    return (
-        <div
-            className={`flex items-center p-3 cursor-pointer transition-colors relative ${isActive ? 'bg-blue-50 border-r-2 border-blue-500' : 'hover:bg-gray-50'}`}
-            onClick={onClick}
-        >
-            <Avatar src={user.profile_image} status={user.status || "offline"} size="md" />
-            <div className="ml-3 flex-grow overflow-hidden">
-                <div className="flex justify-between items-center">
-                    <p className="font-medium text-gray-800 truncate">{user.name}</p>
-                    <div className="flex items-center">
-                        {unreadCount > 0 ? (
-                            <span className="bg-green-500 text-white text-xs rounded-full px-2 py-1 min-w-[20px] flex items-center justify-center">
-                                {unreadCount > 9 ? '9+' : unreadCount}
-                            </span>
-                        ) : null}
-                        <p className="text-xs text-gray-500 whitespace-nowrap ml-2">
-                            {formatTime(lastMessage?.created_at)}
-                        </p>
-                    </div>
-                </div>
-                <div className="flex justify-between items-center mt-1">
-                    <p className={`text-sm truncate ${unreadCount > 0 ? 'font-medium text-gray-800' : 'text-gray-500'}`}>
-                        {getLastMessagePreview()}
-                    </p>
-                    <div className="flex-shrink-0 ml-2">
-                        {messageStatus}
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-}, (prevProps, nextProps) => {
-    // Custom comparison function to prevent unnecessary re-renders
-    return (
-        prevProps.user.id === nextProps.user.id &&
-        prevProps.isActive === nextProps.isActive &&
-        prevProps.onClick === nextProps.onClick &&
-        prevProps.unreadCount === nextProps.unreadCount &&
-        prevProps.lastMessage?.id === nextProps.lastMessage?.id &&
-        prevProps.lastMessage?.is_read === nextProps.lastMessage?.is_read &&
-        prevProps.lastMessage?.created_at === nextProps.lastMessage?.created_at &&
-        prevProps.lastMessage?.message === nextProps.lastMessage?.message &&
-        prevProps.currentUserId === nextProps.currentUserId
-    );
-});
-
-// ChatMessage Component with double checkmarks
-const ChatMessage = ({ message = {}, isUser }) => {
-    const formatTime = (dateString) => {
-        if (!dateString) return '';
-        return new Date(dateString).toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-    };
-
-    return (
-        <div className={`flex mb-4 ${isUser ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-xs lg:max-w-md p-3 rounded-lg ${isUser
-                ? 'bg-blue-600 text-white rounded-br-none'
-                : 'bg-gray-100 text-gray-800 rounded-bl-none'
-                }`}>
-                <p className="text-sm">{message.message}</p>
-                <div className="flex items-center justify-end mt-1 space-x-1">
-                    <div className="text-xs opacity-70">
-                        {formatTime(message.created_at)}
-                    </div>
-                    {isUser && (
-                        <div className="flex items-center ml-1">
-                            {message.is_read ? (
-                                <div className="flex" title="Read">
-                                    <IoCheckmarkDone className="text-xs text-blue-300" />
-                                </div>
-                            ) : (
-                                <div className="flex" title="Delivered">
-                                    <IoCheckmark className="text-xs text-gray-300" />
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
-};
-
+import Avatar from './Avatar';
+import ChatMessage from './ChatMessage';
+import ContactItem from './ContactItem';
+import EmojiPicker from './EmojiPicker';
 // Main InboxPopup Component
 
 export default function InboxPopup({ auth, users = [], onClose }) {
@@ -737,9 +562,9 @@ export default function InboxPopup({ auth, users = [], onClose }) {
                                     <div ref={messagesEndRef} />
                                 </div>
 
-                                <div className="border-t border-gray-200 p-4 bg-white">
+                                <div className="border-t border-gray-200 p-2 bg-white">
                                     {attachmentMenuOpen && (
-                                        <div className="absolute bottom-16 left-0 right-0 bg-white shadow-lg rounded-lg p-2 mx-4">
+                                        <div className="absolute bottom-16 left-0 right-0 bg-white shadow-lg rounded-lg p-2 mx-2 sm:mx-4">
                                             <div className="grid grid-cols-4 gap-2">
                                                 <button className="p-3 rounded-lg hover:bg-gray-100 flex flex-col items-center">
                                                     <FiPaperclip className="h-5 w-5 mb-1" />
@@ -771,25 +596,30 @@ export default function InboxPopup({ auth, users = [], onClose }) {
                                             e.preventDefault();
                                             sendMessage();
                                         }}
-                                        className="flex items-center"
+                                        className="flex items-center gap-1 sm:gap-2"
                                     >
-                                        <button
+                                        {/* <button
                                             type="button"
                                             className="p-2 text-gray-500 hover:text-gray-700"
                                             onClick={() => setAttachmentMenuOpen(!attachmentMenuOpen)}
                                         >
                                             <FiPaperclip className="h-5 w-5" />
-                                        </button>
-                                        <button
-                                            type="button"
-                                            className="p-2 text-gray-500 hover:text-gray-700"
-                                        >
-                                            <FiSmile className="h-5 w-5" />
-                                        </button>
+                                        </button> */}
+
+                                        {/* Emoji Picker - positioned differently on mobile */}
+                                        <div className="relative hidden sm:block">
+                                            <EmojiPicker
+                                                onSelect={(emoji) => {
+                                                    setMessageInput(prev => prev + emoji);
+                                                    inputRef.current?.focus();
+                                                }}
+                                            />
+                                        </div>
+
                                         <input
                                             type="text"
-                                            placeholder="Type your message..."
-                                            className="flex-grow mx-3 px-4 py-2 bg-gray-100 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                            placeholder="Type a message..."
+                                            className="flex-grow mx-1 px-3 py-2 bg-gray-100 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm sm:text-base sm:mx-3 sm:px-4"
                                             value={messageInput}
                                             onChange={(e) => {
                                                 setMessageInput(e.target.value);
@@ -799,6 +629,7 @@ export default function InboxPopup({ auth, users = [], onClose }) {
                                             disabled={loading}
                                             ref={inputRef}
                                         />
+
                                         <button
                                             type="submit"
                                             disabled={loading || !messageInput.trim()}
@@ -808,7 +639,7 @@ export default function InboxPopup({ auth, users = [], onClose }) {
                                         </button>
                                     </form>
                                     {error && (
-                                        <div className="text-red-500 text-sm mt-2 text-center">
+                                        <div className="text-red-500 text-sm mt-1 text-center sm:mt-2">
                                             {error}
                                         </div>
                                     )}
