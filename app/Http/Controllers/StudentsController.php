@@ -99,34 +99,33 @@ class StudentsController extends Controller
      */
  
      public function index(Request $request)
-{
-    // Initialize the query with eager loading for relationships
-    $query = Student::with(['class', 'school', 'level']);
-
-    // Apply search filter if search term is provided
-    if ($request->has('search') && !empty($request->search)) {
-        $this->applySearchFilter($query, $request->search);
-    }
-
-    // Apply additional filters (e.g., school, class, level)
-    $this->applyFilters($query, $request->only(['school', 'class', 'level']));
-
-    // Fetch paginated and filtered students
-    $students = $query->paginate(10)->withQueryString()->through(function ($student) {
-        return $this->transformStudentData($student);
-    });
-
-    // Return data to the Inertia frontend
-    return Inertia::render('Menu/StudentListPage', [
-        'students' => $students,
-        'Alllevels' => Level::all(),
-        'Allclasses' => Classes::all(),
-        'Allschools' => School::all(),
-        'search' => $request->search,
-        'filters' => $request->only(['school', 'class', 'level']), // Pass filter values to the frontend
-        'Allmemberships' => Membership::all(),
-    ]);
-}
+     {
+         // Initialize the query with eager loading for relationships
+         $query = Student::with(['class', 'school', 'level']);
+     
+         // Apply search filter if search term is provided
+         if ($request->has('search') && !empty($request->search)) {
+             $this->applySearchFilter($query, $request->search);
+         }
+     
+         // Apply additional filters (e.g., school, class, level)
+         $this->applyFilters($query, $request->only(['school', 'class', 'level']));
+     
+         // Fetch paginated and filtered students
+         $students = $query->paginate(10)->withQueryString()->through(function ($student) {
+             return $this->transformStudentData($student);
+         });
+     
+         return Inertia::render('Menu/StudentListPage', [
+             'students' => $students,
+             'Alllevels' => Level::all(),
+             'Allclasses' => Classes::all(),
+             'Allschools' => School::all(),
+             'search' => $request->search,
+             'filters' => $request->only(['school', 'class', 'level']),
+             'Allmemberships' => Membership::all(),
+         ]);
+     }
 
 /**
  * Apply search filter to the query.
@@ -205,8 +204,11 @@ protected function transformStudentData($student)
         'status' => $student->status,
         'assurance' => $student->assurance,
         'guardianNumber' => $student->guardianNumber,
-        'profile_image' => $student->profile_image ?? null, 
+        'profile_image' => $student->profile_image ?? null,
         'phoneNumber' => $student->phoneNumber,
+        'hasDisease' => $student->hasDisease,
+        'diseaseName' => $student->diseaseName,
+        'medication' => $student->medication,
     ];
 }
 
@@ -233,10 +235,13 @@ protected function transformStudentData($student)
                 'phoneNumber' => 'nullable|string|max:20',
                 'email' => 'nullable|string|email|max:255|unique:students,email',
                 'massarCode' => 'nullable|string|max:50|unique:students,massarCode',
-                'levelId' => 'nullable|exists:levels,id',
-                'classId' => 'nullable|exists:classes,id',
-                'schoolId' => 'nullable|exists:schools,id',
+                'levelId' => 'require|exists:levels,id',
+                'classId' => 'require|exists:classes,id',
+                'schoolId' => 'require|exists:schools,id',
                 'status' => 'required|in:active,inactive',
+                'hasDisease' => 'sometimes|boolean',
+                'diseaseName' => 'nullable|required_if:hasDisease,true|string|max:255',
+                'medication' => 'nullable|string',
                 'assurance' => 'required|boolean',
                 'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120', // Added for image upload
             ]);
@@ -271,129 +276,131 @@ protected function transformStudentData($student)
    /**
  * Display the specified resource.
  */
-public function show($id)
-{
-    // Fetch the student from the database
-    $student = Student::find($id);
+    public function show($id)
+    {
+        // Fetch the student from the database
+        $student = Student::find($id);
 
-    // If the student doesn't exist, return a 404 error
-    if (!$student) {
-        abort(404);
-    }
+        // If the student doesn't exist, return a 404 error
+        if (!$student) {
+            abort(404);
+        }
 
-    // Fetch all levels, and teachers with their subjects
-    $levels = Level::all();
-    // Fetch offers based on student's level
-    $offers = Offer::where('levelId', $student->levelId)->get();
-    $teachers = Teacher::with('subjects')->get(); // Eager load subjects for each teacher
+        // Fetch all levels, and teachers with their subjects
+        $levels = Level::all();
+        // Fetch offers based on student's level
+        $offers = Offer::where('levelId', $student->levelId)->get();
+        $teachers = Teacher::with('subjects')->get(); // Eager load subjects for each teacher
 
-    // Fetch memberships for the student
-    $memberships = Membership::where('student_id', $student->id)
-        ->with(['offer']) // Eager load related offer data
-        ->get()
-        ->map(function ($membership) {
-            return [
-                'id' => $membership->id,
-                'offer_name' => optional($membership->offer)->offer_name, // Avoid errors if no offer
-                'offer_id' => optional($membership->offer)->id,
-                'price' => optional($membership->offer)->price,
-                'teachers' => $membership->teachers,
-                'created_at' => $membership->created_at,
-                'payment_status' => $membership->payment_status,
-                'is_active' => $membership->is_active,
-                'start_date' => $membership->start_date,
-                'end_date' => $membership->end_date,
-            ];
-        });
+        // Fetch memberships for the student
+        $memberships = Membership::where('student_id', $student->id)
+            ->with(['offer'])
+            ->get()
+            ->map(function ($membership) {
+                return [
+                    'id' => $membership->id,
+                    'offer_name' => optional($membership->offer)->offer_name,
+                    'offer_id' => optional($membership->offer)->id,
+                    'price' => optional($membership->offer)->price,
+                    'teachers' => $membership->teachers,
+                    'created_at' => $membership->created_at,
+                    'payment_status' => $membership->payment_status,
+                    'is_active' => $membership->is_active,
+                    'start_date' => $membership->start_date,
+                    'end_date' => $membership->end_date,
+                ];
+            });
 
-    // Fetch invoices for all student
-    $invoices = Invoice::where('student_id', $student->id ) // Get invoices for the specific student
-    ->with(['offer']) // Eager load related offer data
-    ->get()
-    ->map(function ($invoice) {
-        return [
-            'id' => $invoice->id,
-            'membership_id' => $invoice->membership_id,
-            'months' => $invoice->months,
-            'billDate' => $invoice->billDate,
-            'creationDate' => $invoice->creationDate,
-            'totalAmount' => $invoice->totalAmount,
-            'amountPaid' => $invoice->amountPaid,
-            'rest' => $invoice->rest,
-            'endDate' => $invoice->endDate,
-            'includePartialMonth' => $invoice->includePartialMonth,
-            'partialMonthAmount' => $invoice->partialMonthAmount,
-            'last_payment' => $invoice->updated_at,
-            'created_at' => $invoice->created_at,
+        // Fetch invoices for all student
+        $invoices = Invoice::where('student_id', $student->id)
+            ->with(['offer'])
+            ->get()
+            ->map(function ($invoice) {
+                return [
+                    'id' => $invoice->id,
+                    'membership_id' => $invoice->membership_id,
+                    'months' => $invoice->months,
+                    'billDate' => $invoice->billDate,
+                    'creationDate' => $invoice->creationDate,
+                    'totalAmount' => $invoice->totalAmount,
+                    'amountPaid' => $invoice->amountPaid,
+                    'rest' => $invoice->rest,
+                    'endDate' => $invoice->endDate,
+                    'includePartialMonth' => $invoice->includePartialMonth,
+                    'partialMonthAmount' => $invoice->partialMonthAmount,
+                    'last_payment' => $invoice->updated_at,
+                    'created_at' => $invoice->created_at,
+                ];
+            });
+
+        // Fetch attendance records for the student
+        $attendances = Attendance::with(['class', 'recordedBy'])
+            ->where('student_id', $student->id)
+            ->latest()
+            ->get()
+            ->map(function ($attendance) {
+                return [
+                    'id' => $attendance->id,
+                    'date' => $attendance->date,
+                    'status' => $attendance->status,
+                    'classe' => $attendance->class ? $attendance->class->name : null,
+                    'recordedBy' => $attendance->recordedBy ? $attendance->recordedBy->name : null,
+                    'created_at' => $attendance->created_at,
+                    'reason' => $attendance->reason
+                ];
+            });
+
+        // Format the student data with new disease fields
+        $studentData = [
+            'id' => $student->id,
+            'name' => $student->firstName . ' ' . $student->lastName,
+            'studentId' => $student->massarCode,
+            'phone' => $student->phoneNumber,
+            'phoneNumber' => $student->phoneNumber,
+            'address' => $student->address,
+            'classId' => $student->classId,
+            'schoolId' => $student->schoolId,
+            'firstName' => $student->firstName,
+            'lastName' => $student->lastName,
+            'dateOfBirth' => $student->dateOfBirth,
+            'billingDate' => $student->billingDate,
+            'CIN' => $student->CIN,
+            'email' => $student->email,
+            'massarCode' => $student->massarCode,
+            'levelId' => $student->levelId,
+            'status' => $student->status,
+            'assurance' => $student->assurance,
+            'guardianNumber' => $student->guardianNumber,
+            'profile_image' => $student->profile_image ?? null,
+            'hasDisease' => $student->hasDisease,
+            'diseaseName' => $student->diseaseName,
+            'medication' => $student->medication,
+            'created_at' => $student->created_at,
+            'memberships' => $memberships,
+            'invoices' => $invoices,
+            'attendances' => $attendances,
         ];
-    });
 
-    // Fetch attendance records for the student
-    $attendances = Attendance::with(['class', 'recordedBy'])
-        ->where('student_id', $student->id)
-        ->latest()
-        ->get()
-        ->map(function ($attendance) {
-            return [
-                'id' => $attendance->id,
-                'date' => $attendance->date,
-                'status' => $attendance->status,
-                'classe' => $attendance->class ? $attendance->class->name : null,
-                'recordedBy' => $attendance->recordedBy ? $attendance->recordedBy->name : null,
-                'created_at' => $attendance->created_at,
-                'reason' => $attendance->reason
-            ];
-        });
+        // Fetch schools and classes
+        $schools = School::all();
+        $classes = Classes::all();
 
-    // Format the student data, including memberships, invoices, and attendances
-    $studentData = [
-        'id' => $student->id,
-        'name' => $student->firstName . ' ' . $student->lastName,
-        'studentId' => $student->massarCode,
-        'phone' => $student->phoneNumber,
-        'phoneNumber' =>  $student->phoneNumber,
-        'address' => $student->address,
-        'classId' => $student->classId,
-        'schoolId' => $student->schoolId,
-        'firstName' => $student->firstName,
-        'lastName' => $student->lastName,
-        'dateOfBirth' => $student->dateOfBirth,
-        'billingDate' => $student->billingDate,
-        'CIN' => $student->CIN,
-        'email' => $student->email,
-        'massarCode' => $student->massarCode,
-        'levelId' => $student->levelId,
-        'status' => $student->status,
-        'assurance' => $student->assurance,
-        'guardianNumber' => $student->guardianNumber,
-        'profile_image' => $student->profile_image ?? null,
-        'created_at' => $student->created_at,
-        'memberships' => $memberships, // Embed memberships in the student data
-        'invoices' => $invoices, // Include invoices in the response
-        'attendances' => $attendances, // Include attendances in the response
-    ];
-
-    // Fetch schools and classes
-    $schools = School::all();
-    $classes = Classes::all();
-
-    // Render the Inertia view with the student data, levels, and other resources
-    return Inertia::render('Menu/SingleStudentPage', [
-        'student' => $studentData,
-        'Alllevels' => $levels,
-        'Allclasses' => $classes,
-        'Allschools' => $schools,
-        'Alloffers' => $offers,
-        'Allteachers' => $teachers->map(function ($teacher) {
-            return [
-                'id' => $teacher->id,
-                'first_name' => $teacher->first_name,
-                'last_name' => $teacher->last_name,
-                'subjects' => $teacher->subjects->pluck('name'), // Extract subject names
-            ];
-        }),
-    ]);
-}
+        return Inertia::render('Menu/SingleStudentPage', [
+            'student' => $studentData,
+            'Alllevels' => $levels,
+            'Allclasses' => $classes,
+            'Allschools' => $schools,
+            'Alloffers' => $offers,
+            'Allteachers' => $teachers->map(function ($teacher) {
+                return [
+                    'id' => $teacher->id,
+                    'first_name' => $teacher->first_name,
+                    'last_name' => $teacher->last_name,
+                    'subjects' => $teacher->subjects->pluck('name'),
+                ];
+            }),
+        ]);
+    }
     /**
      * Show the form for editing the specified resource.
      */
@@ -428,6 +435,9 @@ public function show($id)
                 'schoolId' => 'nullable|integer',
                 'status' => 'required|in:active,inactive',
                 'assurance' => 'required|boolean',
+                'hasDisease' => 'sometimes|boolean',
+                'diseaseName' => 'nullable|required_if:hasDisease,true|string|max:255',
+                'medication' => 'nullable|string',
                 'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120', // Added for image upload
             ]);
 

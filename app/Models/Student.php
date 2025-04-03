@@ -22,11 +22,14 @@ class Student extends Model
         'email',
         'massarCode',
         'levelId',
-        'classId', // Foreign key for class
+        'classId',
         'schoolId',
         'status',
         'assurance',
         'profile_image',
+        'hasDisease',
+        'diseaseName',
+        'medication',
     ];
 
     // Track the old class ID before update

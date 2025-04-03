@@ -7,7 +7,7 @@ import { useEffect, useState } from "react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Upload } from "lucide-react"
 
-// Update schema to include profile_image
+// Update schema to include disease information
 const schema = z.object({
   firstName: z.string().min(1, { message: "First name is required!" }),
   lastName: z.string().min(1, { message: "Last name is required!" }),
@@ -15,17 +15,33 @@ const schema = z.object({
   billingDate: z.string().min(1, { message: "Billing date is required!" }),
   address: z.string().min(1, { message: "Address is required!" }),
   guardianNumber: z.string().min(1, { message: "Guardian name is required!" }),
-  CIN: z.string().min(1, { message: "CIN is required!" }),
-  phoneNumber: z.string().min(1, { message: "Phone number is required!" }),
-  email: z.string().email({ message: "Invalid email address!" }),
-  massarCode: z.string().min(1, { message: "Massar code is required!" }),
+  CIN: z.string().optional(),
+  phoneNumber: z.string().optional(),
+  email: z.string().optional(),
+  massarCode:z.string().optional(),
   levelId: z.string().min(1, { message: "Level is required!" }),
   classId: z.string().min(1, { message: "Class is required!" }),
   schoolId: z.string().min(1, { message: "School is required!" }),
   status: z.enum(["active", "inactive"]).optional(),
   assurance: z.any().optional(),
   profile_image: z.any().optional(),
-})
+  hasDisease: z.union([
+    z.literal(1), 
+    z.literal(0),
+    z.literal("1"),
+    z.literal("0")
+  ]).transform(val => val === 1 || val === "1" ? "1" : "0").optional(),
+  diseaseName: z.string().optional(),
+  medication: z.string().optional(),
+}).superRefine((data, ctx) => {
+  if (data.hasDisease === "1" && !data.diseaseName) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Disease name is required when student has a disease",
+      path: ["diseaseName"]
+    });
+  }
+});
 
 const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
   const defaultBillingDate = new Date().toISOString().split("T")[0]
@@ -36,6 +52,7 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
   const [selectedSchool, setSelectedSchool] = useState(data?.schoolId?.toString() || "")
   const [selectedStatus, setSelectedStatus] = useState(data?.status || "active")
   const [selectedAssurance, setSelectedAssurance] = useState(data?.assurance === 1 ? "1" : "0")
+  const [selectedHasDisease, setSelectedHasDisease] = useState(data?.hasDisease === 1 ? "1" : "0")
   
   // State for image preview
   const [imagePreview, setImagePreview] = useState(data?.profile_image || null)
@@ -51,16 +68,23 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
     handleSubmit,
     formState: { errors },
     setValue,
+    watch,
   } = useForm({
     resolver: zodResolver(schema),
     defaultValues: {
       billingDate: defaultBillingDate,
       assurance: data?.assurance === 1 ? "1" : "0",
       status: data?.status || "active",
+      hasDisease: data?.hasDisease === 1 ? "1" : "0",
+      diseaseName: data?.diseaseName || "",
+      medication: data?.medication || "",
       profile_image: null,
       ...data, // Spread existing data for update
     },
   })
+
+  // Watch for hasDisease value changes
+  const hasDisease = watch("hasDisease")
 
   // Handle image change
   const handleImageChange = (e) => {
@@ -87,6 +111,7 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
       setSelectedSchool(data.schoolId?.toString())
       setSelectedStatus(data.status)
       setSelectedAssurance(data.assurance === 1 ? "1" : "0")
+      setSelectedHasDisease(data.hasDisease === 1 ? "1" : "0")
       
       // Set image preview if exists
       if (data.profile_image) {
@@ -135,6 +160,13 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
     formDataObj.append('schoolId', formData.schoolId.toString());
     formDataObj.append('status', formData.status || 'active');
     formDataObj.append('assurance', formData.assurance === "1" ? 1 : 0);
+    formDataObj.append('hasDisease', formData.hasDisease === "1" ? 1 : 0);
+    
+    // Only append disease info if hasDisease is true
+    if (formData.hasDisease === "1") {
+      formDataObj.append('diseaseName', formData.diseaseName || '');
+      formDataObj.append('medication', formData.medication || '');
+    }
     
     // Append the file if it exists
     if (formData.profile_image) {
@@ -249,6 +281,57 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
         />
         <InputField label="Email" name="email" register={register} error={errors.email} defaultValue={data?.email} />
       </div>
+
+      <span className="text-xs text-gray-400 font-medium">Health Information</span>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 md:grid-cols-2 gap-4">
+  {/* Has Disease Selection */}
+  <div className="flex flex-col gap-2 w-full">
+    <label className="text-xs text-gray-600">Has Disease</label>
+    <Select
+      value={selectedHasDisease}
+      onValueChange={(value) => {
+        setSelectedHasDisease(value)
+        setValue("hasDisease", value)
+        
+        // Clear disease fields if set to No
+        if (value === "0") {
+          setValue("diseaseName", "")
+          setValue("medication", "")
+        }
+      }}
+    >
+      <SelectTrigger className="w-full bg-white ring-1 ring-gray-300 p-2 rounded-md text-sm">
+        <SelectValue placeholder="Select Option" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="1">Yes</SelectItem>
+        <SelectItem value="0">No</SelectItem>
+      </SelectContent>
+    </Select>
+    {errors.hasDisease?.message && <p className="text-xs text-red-400">{errors.hasDisease.message}</p>}
+  </div>
+  
+  {/* Show disease name and medication inputs only if hasDisease is selected as "Yes" */}
+  {(hasDisease === "1" || hasDisease === 1) && (
+    <>
+      <InputField
+        label="Disease Name"
+        name="diseaseName"
+        register={register}
+        error={errors.diseaseName}
+        defaultValue={data?.diseaseName}
+      />
+      <InputField
+        label="Medication"
+        name="medication"
+        register={register}
+        error={errors.medication}
+        defaultValue={data?.medication}
+      />
+    </>
+  )}
+</div>
 
       <span className="text-xs text-gray-400 font-medium">Enrollment Information</span>
 

@@ -27,6 +27,9 @@ return new class extends Migration
             $table->string('profile_image')->nullable();
             $table->timestamps();
             $table->softDeletes();
+            $table->boolean('hasDisease')->default(false)->after('profile_image');
+            $table->string('diseaseName', 255)->nullable()->after('hasDisease');
+            $table->text('medication')->nullable()->after('diseaseName');
             $table->foreign('levelId')->references('id')->on('levels')->onDelete('set null'); 
             $table->foreign('classId')->references('id')->on('classes')->onDelete('set null'); 
             $table->foreign('schoolId')->references('id')->on('schools')->onDelete('set null');
