@@ -123,6 +123,18 @@ class Student extends Model
         return $this->hasMany(Attendance::class, 'student_id');
     }
 
+    // Relationship to Memberships
+    public function memberships()
+    {
+        return $this->hasMany(Membership::class, 'student_id');
+    }
+
+    // Relationship to Invoices (through memberships)
+    public function invoices()
+    {
+        return $this->hasManyThrough(Invoice::class, Membership::class, 'student_id', 'membership_id');
+    }
+
     /**
      * Get the hasDisease attribute.
      * Ensures that the value is explicitly returned as an integer (0 or 1)

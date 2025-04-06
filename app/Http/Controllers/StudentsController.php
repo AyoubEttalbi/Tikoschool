@@ -103,6 +103,18 @@ class StudentsController extends Controller
      {
          // Initialize the query with eager loading for relationships
          $query = Student::with(['class', 'school', 'level']);
+         
+         // Get the selected school from session and apply filter
+         $selectedSchoolId = session('school_id');
+         if ($selectedSchoolId) {
+             $query->where('schoolId', $selectedSchoolId);
+             
+             // Log the filtering
+             \Log::info('Students filtered by school', [
+                 'school_id' => $selectedSchoolId,
+                 'user_role' => $request->user()->role
+             ]);
+         }
      
          // Apply search filter if search term is provided
          if ($request->has('search') && !empty($request->search)) {
@@ -116,15 +128,26 @@ class StudentsController extends Controller
          $students = $query->paginate(10)->withQueryString()->through(function ($student) {
              return $this->transformStudentData($student);
          });
+         
+         // Get all classes for filters, but filter them by selected school if applicable
+         $classesQuery = Classes::query();
+         if ($selectedSchoolId) {
+             $classesQuery->where('school_id', $selectedSchoolId);
+         }
+         $classes = $classesQuery->get();
      
          return Inertia::render('Menu/StudentListPage', [
              'students' => $students,
              'Alllevels' => Level::all(),
-             'Allclasses' => Classes::all(),
+             'Allclasses' => $classes,
              'Allschools' => School::all(),
              'search' => $request->search,
              'filters' => $request->only(['school', 'class', 'level']),
              'Allmemberships' => Membership::all(),
+             'selectedSchool' => $selectedSchoolId ? [
+                 'id' => $selectedSchoolId,
+                 'name' => session('school_name')
+             ] : null
          ]);
      }
 

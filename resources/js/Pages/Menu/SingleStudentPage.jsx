@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, usePage } from '@inertiajs/react';
 import Announcements from "@/Pages/Menu/Announcements/Announcements";
 import BigCalendar from "@/Components/BigCalender";
@@ -7,10 +7,12 @@ import DashboardLayout from '@/Layouts/DashboardLayout';
 import FormModal from '@/Components/FormModal';
 import MembershipCard from '@/Components/MembershipCard';
 import StudentProfile from '@/Components/StudentProfile';
-import { Users } from 'lucide-react';
+import { ChevronDown, ChevronUp, Users } from 'lucide-react';
 // import studentProfile from "./studentProfile.png";
 const SingleStudentPage = ({ student, Alllevels, Allclasses, Allschools, Alloffers, Allteachers,memberships }) => {
   const role = usePage().props.auth.user.role;
+  const [showMoreInfo, setShowMoreInfo] = useState(false);
+  
   console.log("xxxxx", student);
   console.log("route", Alllevels);
   console.log('Alloffers', Alloffers);
@@ -131,6 +133,128 @@ const SingleStudentPage = ({ student, Alllevels, Allclasses, Allschools, Alloffe
             </div>
           </div>
         </div>
+        
+        {/* Additional Student Information */}
+        <div className="mt-2">
+          <button 
+            onClick={() => setShowMoreInfo(!showMoreInfo)}
+            className="flex items-center justify-center w-full py-2 px-4 bg-lamaSky text-white rounded-md text-sm font-medium hover:bg-lamaSky/90 transition-colors"
+          >
+            {showMoreInfo ? (
+              <>
+                Show Less <ChevronUp className="ml-1 w-4 h-4" />
+              </>
+            ) : (
+              <>
+                See More <ChevronDown className="ml-1 w-4 h-4" />
+              </>
+            )}
+          </button>
+          
+          {showMoreInfo && (
+            <div className="mt-4 bg-white rounded-md shadow-md border border-gray-100 animate-fadeIn overflow-hidden">
+              <div className="bg-lamaSky/10 px-6 py-3 border-b border-gray-100">
+                <h3 className="text-lg font-medium text-gray-800">Additional Student Information</h3>
+              </div>
+              
+              <div className="p-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-lamaSkyLight/30 p-4 rounded-lg">
+                    <h4 className="text-lamaSky font-medium mb-3 flex items-center">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                      </svg>
+                      Personal Information
+                    </h4>
+                    <div className="space-y-3">
+                      <div className="flex justify-between border-b border-blue-100 pb-2">
+                        <div className="text-gray-600 text-sm">Date of Birth</div>
+                        <div className="font-medium text-sm">{student.dateOfBirth ? new Date(student.dateOfBirth).toLocaleDateString() : "N/A"}</div>
+                      </div>
+                      <div className="flex justify-between border-b border-blue-100 pb-2">
+                        <div className="text-gray-600 text-sm">Guardian Number</div>
+                        <div className="font-medium text-sm">{student.guardianNumber || "N/A"}</div>
+                      </div>
+                      <div className="flex justify-between border-b border-blue-100 pb-2">
+                        <div className="text-gray-600 text-sm">CIN</div>
+                        <div className="font-medium text-sm">{student.CIN || "N/A"}</div>
+                      </div>
+                      <div className="flex justify-between">
+                        <div className="text-gray-600 text-sm">Address</div>
+                        <div className="font-medium text-sm text-right">{student.address || "N/A"}</div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-lamaPurpleLight/30 p-4 rounded-lg">
+                    <h4 className="text-lamaPurple font-medium mb-3 flex items-center">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path d="M12 14l9-5-9-5-9 5 9 5z" />
+                        <path d="M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l9-5-9-5-9 5 9 5zm0 0l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14zm-4 6v-7.5l4-2.222" />
+                      </svg>
+                      Academic Information
+                    </h4>
+                    <div className="space-y-3">
+                      <div className="flex justify-between border-b border-purple-100 pb-2">
+                        <div className="text-gray-600 text-sm">Massar Code</div>
+                        <div className="font-medium text-sm">{student.massarCode || "N/A"}</div>
+                      </div>
+                      <div className="flex justify-between border-b border-purple-100 pb-2">
+                        <div className="text-gray-600 text-sm">Billing Date</div>
+                        <div className="font-medium text-sm">{student.billingDate ? new Date(student.billingDate).toLocaleDateString() : "N/A"}</div>
+                      </div>
+                      <div className="flex justify-between">
+                        <div className="text-gray-600 text-sm">Status</div>
+                        <div className="font-medium text-sm">
+                          <span className={`px-2 py-1 rounded-full text-xs ${
+                            student.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                          }`}>
+                            {student.status || "Active"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-amber-50 p-4 rounded-lg md:col-span-2">
+                    <h4 className="text-amber-600 font-medium mb-3 flex items-center">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      Health Information
+                    </h4>
+                    
+                    {student.hasDisease ? (
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="bg-white p-3 rounded-md border border-amber-100">
+                          <div className="text-amber-700 text-xs mb-1">Medical Condition</div>
+                          <div className="font-medium text-gray-800">{student.diseaseName || "N/A"}</div>
+                        </div>
+                        <div className="bg-white p-3 rounded-md border border-amber-100">
+                          <div className="text-amber-700 text-xs mb-1">Medication</div>
+                          <div className="font-medium text-gray-800">{student.medication || "N/A"}</div>
+                        </div>
+                        <div className="bg-white p-3 rounded-md border border-amber-100">
+                          <div className="text-amber-700 text-xs mb-1">Insurance</div>
+                          <div className="font-medium text-gray-800">{student.assurance ? "Yes" : "No"}</div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-white p-4 rounded-md border border-amber-100 flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-3 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span className="text-gray-700 font-medium">Student is in good health with no reported medical conditions.</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+        
         {/* BOTTOM */}
         <div className="mt-4 bg-white rounded-md p-4 h-fit flex flex-col justify-center items-start">
         <div className="w-full max-w-lg p-6 bg-white rounded-lg shadow-md border border-gray-200">

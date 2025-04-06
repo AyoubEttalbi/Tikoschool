@@ -67,7 +67,6 @@ class HandleInertiaRequests extends Middleware
 
         'users' => $this->getUsersList($user),
 
-        // ✅ Add active school globally
         'activeSchool' => session('school_id') ? [
             'id' => session('school_id'),
             'name' => session('school_name'),

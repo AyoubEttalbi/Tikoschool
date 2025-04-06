@@ -21,49 +21,68 @@ class ClassesController extends Controller
         $role = $user->role;
         $levels = Level::all();
         
+        // Get the selected school from session
+        $selectedSchoolId = session('school_id');
+        
+        // Base query with level relationship
+        $classesQuery = Classes::with('level');
+        
+        // If a school is selected in the session, filter by that school
+        if ($selectedSchoolId) {
+            $classesQuery->where('school_id', $selectedSchoolId);
+            
+            // Log the filtering
+            \Log::info('Classes filtered by school', [
+                'school_id' => $selectedSchoolId,
+                'user_role' => $role
+            ]);
+        }
+        
         // If user is a teacher, only show classes they teach
         if ($role === 'teacher') {
             // Find the teacher using email
             $teacher = Teacher::where('email', $user->email)->first();
             
             if ($teacher) {
-                // Get only the classes this teacher teaches
-                $classes = $teacher->classes;
+                // Filter to only get classes this teacher teaches at the selected school
+                $teacherClassIds = $teacher->classes->pluck('id')->toArray();
+                $classesQuery->whereIn('id', $teacherClassIds);
                 
-                // Log teacher classes
+                // Log teacher classes filtering
                 \Log::info('Teacher classes filtered', [
                     'teacher_id' => $teacher->id,
                     'teacher_email' => $teacher->email,
-                    'classes_count' => $classes->count(),
-                    'classes_ids' => $classes->pluck('id')->toArray()
+                    'filtered_by_school' => !empty($selectedSchoolId),
+                    'school_id' => $selectedSchoolId
                 ]);
             } else {
-                // If teacher record not found, show empty classes
+                // If teacher record not found, return empty collection
                 $classes = collect();
                 \Log::warning('Teacher not found for user', ['email' => $user->email]);
+                
+                return Inertia::render('Classes/Index', [
+                    'classes' => [],
+                    'levels' => $levels,
+                ]);
             }
-        } else {
-            // For admin and other roles, show all classes
-            $classes = Classes::with('level')->get(); // Eager load the level relationship
         }
         
+        // Execute the query
+        $classes = $classesQuery->get();
+        
         // Update student and teacher counts for all classes
-        foreach ($classes as $class) {
-            // Use the updateCounts method to update both student and teacher counts
-            $class->updateCounts();
-            
-            // Log the updated counts for debugging
-            \Log::info('Updated class counts', [
-                'class_id' => $class->id,
-                'class_name' => $class->name,
-                'student_count' => $class->number_of_students,
-                'teacher_count' => $class->number_of_teachers
-            ]);
-        }
-
+        $classes->each(function ($class) {
+            $class->updateStudentCount();
+            $class->updateTeacherCount();
+        });
+        
         return Inertia::render('Menu/ClassesPage', [
             'classes' => $classes,
-            'levels' => $levels
+            'levels' => $levels,
+            'selectedSchool' => $selectedSchoolId ? [
+                'id' => $selectedSchoolId,
+                'name' => session('school_name')
+            ] : null
         ]);
     }
 

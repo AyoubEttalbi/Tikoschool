@@ -2,8 +2,8 @@ import React from 'react';
 import TeacherInvoicesTable from './TeacherInvoicesTable';
 
 export default function TeacherProfile({ invoices = [], paginate = [] }) {
-    console.log('Invoices:', invoices);
-    console.log('Paginate:', paginate);
+    console.log('TeacherProfile received invoices:', invoices);
+    console.log('TeacherProfile received paginate:', paginate);
 
     return (
         <div>

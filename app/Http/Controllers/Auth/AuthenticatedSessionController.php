@@ -76,6 +76,20 @@ class AuthenticatedSessionController extends Controller
             ]);
 
             if ($assistant) {
+                // Check if assistant has multiple schools
+                if ($assistant->schools->count() > 1) {
+                    return redirect()->route('profiles.select');
+                }
+                
+                // If assistant has only one school, set it automatically
+                if ($assistant->schools->count() === 1) {
+                    $school = $assistant->schools->first();
+                    session([
+                        'school_id' => $school->id,
+                        'school_name' => $school->name,
+                    ]);
+                }
+                
                 return redirect()->route('assistants.show', $assistant->id);
             }
         }

@@ -48,8 +48,8 @@ Route::middleware('auth')->group(function () {
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
     Route::get('/select-profile', [ProfileController::class, 'select'])->name('profiles.select');
-    Route::post('/select-profile', [ProfileController::class, 'store']);
-    
+    Route::post('/select-profile', [ProfileController::class, 'store'])->name('profiles.store');
+
     // Resource routes
     Route::resource('students', StudentsController::class);
     Route::resource('teachers', TeacherController::class);
@@ -81,8 +81,9 @@ Route::middleware('auth')->group(function () {
     });
     // Invoice PDF route
     Route::get('/invoices/{id}/pdf', [InvoiceController::class, 'generateInvoicePdf'])->name('invoices.pdf');
-    Route::delete('/students/invoices/{invoiceId}', [InvoiceController::class, 'destroy'])->name('invoices.destroy');
     Route::get('/invoices/{id}/download', [InvoiceController::class, 'download'])->name('invoices.download');
+    Route::get('/invoices/{id}', [InvoiceController::class, 'show'])->name('invoices.show');
+    Route::delete('/students/invoices/{invoiceId}', [InvoiceController::class, 'destroy'])->name('invoices.destroy');
     Route::post('/invoices/bulk-download', [InvoiceController::class, 'bulkDownload'])
     ->name('invoices.bulk.download')
     ->middleware('web'); // Ensure all web middleware is applied

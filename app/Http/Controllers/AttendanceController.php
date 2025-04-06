@@ -19,36 +19,73 @@ class AttendanceController extends Controller
 {
     public function index(Request $request)
     {
-        $teacherId = $request->input('teacher_id');
+        // Get parameters from request
+        $date = $request->input('date', now()->format('Y-m-d'));
         $classId = $request->input('class_id');
-        $date = $request->input('date', now()->toDateString());
+        $teacherId = $request->input('teacher_id');
         $search = $request->input('search');
-    
-        // Get basic data
-        $levels = Level::all();
-        $assistants = Assistant::with(['schools'])->get();
-        $teachers = Teacher::with(['subjects', 'classes', 'schools'])->get();
-        $schools = School::all();
-    
-        // Get classes for selected teacher
-        $classes = $teacherId
-            ? Classes::whereHas('teachers', fn($q) => $q->where('teacher_id', $teacherId))->get()
-            : [];
-    
+        
+        // Get the selected school from session
+        $selectedSchoolId = session('school_id');
+        
+        // Get teachers with classes (filtered by school if applicable)
+        $teachersQuery = Teacher::with('classes');
+        
+        if ($selectedSchoolId) {
+            $teachersQuery->whereHas('schools', function($query) use ($selectedSchoolId) {
+                $query->where('schools.id', $selectedSchoolId);
+            });
+            
+            // Log the filtering
+            \Log::info('Attendance filtered by school', [
+                'school_id' => $selectedSchoolId,
+                'user_role' => $request->user()->role
+            ]);
+        }
+        
+        // If user is a teacher, only show their own record
+        if ($request->user()->role === 'teacher') {
+            $teachersQuery->where('email', $request->user()->email);
+        }
+        
+        $teachers = $teachersQuery->get();
+
+        // Get classes for selected teacher (filtered by school if applicable)
+        $classesQuery = Classes::query();
+        
+        if ($selectedSchoolId) {
+            $classesQuery->where('school_id', $selectedSchoolId);
+        }
+        
+        if ($teacherId) {
+            $classesQuery->whereHas('teachers', fn($q) => $q->where('teacher_id', $teacherId));
+        }
+        
+        $classes = $classesQuery->get();
+
         // Get students for selected class (with search filter)
-        $students = $classId
-            ? Student::with('class')
-                ->where('classId', $classId)
-                ->when($search, function ($query) use ($search) {
-                    $query->where(function ($q) use ($search) {
-                        $q->where('firstName', 'like', "%{$search}%")
-                          ->orWhere('lastName', 'like', "%{$search}%");
-                    });
-                })
-                ->get()
-            : collect();
-    
-        // Get existing attendance for selected date
+        $studentsQuery = Student::with('class');
+        
+        if ($selectedSchoolId) {
+            $studentsQuery->where('schoolId', $selectedSchoolId);
+        }
+        
+        if ($classId) {
+            $studentsQuery->where('classId', $classId);
+            
+            if ($search) {
+                $studentsQuery->where(function ($query) use ($search) {
+                    $query->where('firstName', 'like', "%{$search}%")
+                        ->orWhere('lastName', 'like', "%{$search}%");
+                });
+            }
+            
+            $students = $studentsQuery->get();
+        } else {
+            $students = collect();
+        }
+
+        // Get existing attendance for selected date and class
         $existingAttendances = $classId
             ? Attendance::with('class')
                 ->where('classId', $classId)
@@ -56,11 +93,11 @@ class AttendanceController extends Controller
                 ->get()
                 ->keyBy('student_id')
             : collect();
-    
+
         // Merge students with attendance status and class info
         $studentsWithAttendance = $students->map(function ($student) use ($existingAttendances, $date) {
             $attendance = $existingAttendances->get($student->id);
-    
+
             return [
                 'id' => $attendance ? $attendance->id : null,
                 'student_id' => $student->id,
@@ -74,16 +111,27 @@ class AttendanceController extends Controller
                 'exists_in_db' => (bool)$attendance
             ];
         });
-    
-        return Inertia::render('Menu/AttendancePage', [
-            'teachers' => $teachers,
-            'levels' => $levels,
-            'schools' => $schools,
-            'assistants' => $assistants,
-            'classes' => $classes,
-            'students' => $students,
-            'attendances' => $studentsWithAttendance,
-            'filters' => $request->all('teacher_id', 'class_id', 'date', 'search'),
+
+        return Inertia::render('Attendance/Index', [
+            'teachers' => $teachers->map(fn($teacher) => [
+                'id' => $teacher->id, 
+                'name' => $teacher->first_name . ' ' . $teacher->last_name
+            ]),
+            'classes' => $classes->map(fn($class) => [
+                'id' => $class->id, 
+                'name' => $class->name
+            ]),
+            'students' => $studentsWithAttendance,
+            'filters' => [
+                'date' => $date,
+                'teacher_id' => $teacherId,
+                'class_id' => $classId,
+                'search' => $search,
+            ],
+            'selectedSchool' => $selectedSchoolId ? [
+                'id' => $selectedSchoolId,
+                'name' => session('school_name')
+            ] : null
         ]);
     }
 

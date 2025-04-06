@@ -23,70 +23,105 @@ class ResultsController extends Controller
         $user = $request->user();
         $role = $user->role;
         
+        // Get the selected school from session
+        $selectedSchoolId = session('school_id');
+        
         $levels = Level::all();
         $subjects = Subject::all();
         $schools = School::all();
         
+        // Base queries for classes and teachers
+        $classesQuery = Classes::query();
+        $teachersQuery = Teacher::query();
+        
+        // Filter by selected school if available
+        if ($selectedSchoolId) {
+            $classesQuery->where('school_id', $selectedSchoolId);
+            
+            $teachersQuery->whereHas('schools', function($query) use ($selectedSchoolId) {
+                $query->where('schools.id', $selectedSchoolId);
+            });
+            
+            // Log the filtering
+            \Log::info('Results filtered by school', [
+                'school_id' => $selectedSchoolId,
+                'user_role' => $role
+            ]);
+        }
+        
         // Get teachers based on role
         if ($role === 'teacher') {
-            $teachers = Teacher::where('email', $user->email)->get();
+            $teacher = Teacher::where('email', $user->email)->first();
             
             // Debug log to see if teacher is found
             \Log::info('Teacher lookup by email', [
                 'user_email' => $user->email,
-                'teachers_found' => $teachers->count(),
-                'teacher_ids' => $teachers->pluck('id')->toArray()
+                'teacher_found' => $teacher ? 'yes' : 'no',
+                'teacher_id' => $teacher ? $teacher->id : null
             ]);
             
-            // For teachers, get their classes directly
-            $classes = $teachers->first() ? $teachers->first()->classes : collect();
-            
-            // Get the subject IDs that this teacher teaches
-            $teacherSubjectIds = [];
-            if ($teachers->first()) {
-                $teacherSubjectIds = $teachers->first()->subjects->pluck('id')->toArray();
+            if ($teacher) {
+                // For teachers, get their classes directly
+                $teacherClassIds = $teacher->classes->pluck('id')->toArray();
+                $classesQuery->whereIn('id', $teacherClassIds);
+                
+                // Get the subject IDs that this teacher teaches
+                $teacherSubjectIds = $teacher->subjects->pluck('id')->toArray();
+            } else {
+                $teacherSubjectIds = [];
+                // If teacher not found, return empty results
+                return Inertia::render('Menu/ResultsPage', [
+                    'classes' => [],
+                    'teachers' => [],
+                    'levels' => $levels,
+                    'subjects' => $subjects,
+                    'schools' => $schools,
+                    'selectedSchool' => $selectedSchoolId ? [
+                        'id' => $selectedSchoolId,
+                        'name' => session('school_name')
+                    ] : null
+                ]);
             }
         } elseif ($role === 'assistant') {
             $assistant = $user->assistant;
-            $teachers = Teacher::whereHas('schools', function($query) use ($assistant) {
-                $query->whereIn('schools.id', $assistant->schools->pluck('id'));
-            })->get();
-            $classes = collect();
-            $teacherSubjectIds = [];
-        } else {
-            $teachers = Teacher::with('schools')->get();
-            $classes = collect();
-            $teacherSubjectIds = [];
-        }
-        
-        // Get students and results if class is selected
-        $students = collect();
-        $results = collect();
-        if ($request->has('class_id')) {
-            $class = Classes::find($request->class_id);
-            if ($class) {
-                $students = $class->students;
-                $results = Result::with(['student', 'subject'])
-                    ->where('class_id', $request->class_id)
-                    ->get()
-                    ->groupBy('student_id');
+            if ($assistant) {
+                // Filter teachers to those in the assistant's schools (and the selected school if applicable)
+                $assistantSchoolIds = $assistant->schools->pluck('id')->toArray();
+                if ($selectedSchoolId) {
+                    // If a school is selected, only include that school if it's one of the assistant's schools
+                    if (in_array($selectedSchoolId, $assistantSchoolIds)) {
+                        $assistantSchoolIds = [$selectedSchoolId];
+                    }
+                }
+                
+                $teachersQuery->whereHas('schools', function($query) use ($assistantSchoolIds) {
+                    $query->whereIn('schools.id', $assistantSchoolIds);
+                });
+                
+                $teacherSubjectIds = [];
+            } else {
+                $teacherSubjectIds = [];
             }
+        } else {
+            // For admin, no additional filtering beyond the selected school
+            $teacherSubjectIds = [];
         }
         
-        // Debug information
-        \Log::info('Teachers count: ' . $teachers->count());
-        \Log::info('Classes count: ' . $classes->count());
+        // Execute queries
+        $classes = $classesQuery->with('level')->get();
+        $teachers = $teachersQuery->with(['subjects', 'classes'])->get();
         
         return Inertia::render('Menu/ResultsPage', [
-            'teachers' => $teachers,
             'classes' => $classes,
-            'students' => $students,
-            'results' => $results,
+            'teachers' => $teachers,
             'levels' => $levels,
             'subjects' => $subjects,
             'schools' => $schools,
-            'role' => $role,
-            'teacherSubjectIds' => $teacherSubjectIds
+            'teacherSubjectIds' => $teacherSubjectIds,
+            'selectedSchool' => $selectedSchoolId ? [
+                'id' => $selectedSchoolId,
+                'name' => session('school_name')
+            ] : null
         ]);
     }
 
@@ -521,5 +556,255 @@ class ResultsController extends Controller
         }
             
         return response()->json($subjects);
+    }
+
+    /**
+     * Return Inertia page with data
+     */
+    public function returnInertiaPage(Request $request)
+    {
+        $user = $request->user();
+        $role = $user->role;
+        
+        // Get the selected school from session
+        $selectedSchoolId = session('school_id');
+        
+        $levels = Level::all();
+        $subjects = Subject::all();
+        $schools = School::all();
+        
+        // Base queries for classes and teachers
+        $classesQuery = Classes::query();
+        $teachersQuery = Teacher::query();
+        
+        // Filter by selected school if available
+        if ($selectedSchoolId) {
+            $classesQuery->where('school_id', $selectedSchoolId);
+            
+            $teachersQuery->whereHas('schools', function($query) use ($selectedSchoolId) {
+                $query->where('schools.id', $selectedSchoolId);
+            });
+            
+            // Log the filtering
+            \Log::info('Results filtered by school', [
+                'school_id' => $selectedSchoolId,
+                'user_role' => $role
+            ]);
+        }
+        
+        // Get teachers based on role
+        if ($role === 'teacher') {
+            $teacher = Teacher::where('email', $user->email)->first();
+            
+            // Debug log to see if teacher is found
+            \Log::info('Teacher lookup by email', [
+                'user_email' => $user->email,
+                'teacher_found' => $teacher ? 'yes' : 'no',
+                'teacher_id' => $teacher ? $teacher->id : null
+            ]);
+            
+            if ($teacher) {
+                // For teachers, get their classes directly
+                $teacherClassIds = $teacher->classes->pluck('id')->toArray();
+                $classesQuery->whereIn('id', $teacherClassIds);
+                
+                // Get the subject IDs that this teacher teaches
+                $teacherSubjectIds = $teacher->subjects->pluck('id')->toArray();
+            } else {
+                $teacherSubjectIds = [];
+                // If teacher not found, return empty results
+                return Inertia::render('Menu/ResultsPage', [
+                    'classes' => [],
+                    'teachers' => [],
+                    'levels' => $levels,
+                    'subjects' => $subjects,
+                    'schools' => $schools,
+                    'selectedSchool' => $selectedSchoolId ? [
+                        'id' => $selectedSchoolId,
+                        'name' => session('school_name')
+                    ] : null
+                ]);
+            }
+        } elseif ($role === 'assistant') {
+            $assistant = $user->assistant;
+            if ($assistant) {
+                // Filter teachers to those in the assistant's schools (and the selected school if applicable)
+                $assistantSchoolIds = $assistant->schools->pluck('id')->toArray();
+                if ($selectedSchoolId) {
+                    // If a school is selected, only include that school if it's one of the assistant's schools
+                    if (in_array($selectedSchoolId, $assistantSchoolIds)) {
+                        $assistantSchoolIds = [$selectedSchoolId];
+                    }
+                }
+                
+                $teachersQuery->whereHas('schools', function($query) use ($assistantSchoolIds) {
+                    $query->whereIn('schools.id', $assistantSchoolIds);
+                });
+                
+                $teacherSubjectIds = [];
+            } else {
+                $teacherSubjectIds = [];
+            }
+        } else {
+            // For admin, no additional filtering beyond the selected school
+            $teacherSubjectIds = [];
+        }
+        
+        // Execute queries
+        $classes = $classesQuery->with('level')->get();
+        $teachers = $teachersQuery->with(['subjects', 'classes'])->get();
+        
+        $resultsData = [
+            'classes' => $classes,
+            'teachers' => $teachers,
+            'levels' => $levels,
+            'subjects' => $subjects,
+            'schools' => $schools,
+            'teacherSubjectIds' => $teacherSubjectIds,
+            'selectedSchool' => $selectedSchoolId ? [
+                'id' => $selectedSchoolId,
+                'name' => session('school_name')
+            ] : null
+        ];
+
+        // Return Inertia page with data
+        return Inertia::render('Menu/ResultsPage', [
+            'results' => $resultsData,
+            'teachers' => $teachers,
+            'subjects' => $subjects,
+            'classes' => $classes,
+            'selectedOptions' => [
+                'teacherId' => $request->input('teacherId', ''),
+                'classId' => $request->input('classId', ''),
+                'subjectId' => $request->input('subjectId', ''),
+            ],
+        ]);
+    }
+
+    /**
+     * Return Inertia view with results data
+     */
+    public function returnInertiaView(Request $request)
+    {
+        $teacherId = $request->input('teacherId');
+        $classId = $request->input('classId');
+        $subjectId = $request->input('subjectId');
+
+        $user = $request->user();
+        $role = $user->role;
+        
+        // Get the selected school from session
+        $selectedSchoolId = session('school_id');
+        
+        $levels = Level::all();
+        $subjects = Subject::all();
+        $schools = School::all();
+        
+        // Base queries for classes and teachers
+        $classesQuery = Classes::query();
+        $teachersQuery = Teacher::query();
+        
+        // Filter by selected school if available
+        if ($selectedSchoolId) {
+            $classesQuery->where('school_id', $selectedSchoolId);
+            
+            $teachersQuery->whereHas('schools', function($query) use ($selectedSchoolId) {
+                $query->where('schools.id', $selectedSchoolId);
+            });
+            
+            // Log the filtering
+            \Log::info('Results filtered by school', [
+                'school_id' => $selectedSchoolId,
+                'user_role' => $role
+            ]);
+        }
+        
+        // Get teachers based on role
+        if ($role === 'teacher') {
+            $teacher = Teacher::where('email', $user->email)->first();
+            
+            // Debug log to see if teacher is found
+            \Log::info('Teacher lookup by email', [
+                'user_email' => $user->email,
+                'teacher_found' => $teacher ? 'yes' : 'no',
+                'teacher_id' => $teacher ? $teacher->id : null
+            ]);
+            
+            if ($teacher) {
+                // For teachers, get their classes directly
+                $teacherClassIds = $teacher->classes->pluck('id')->toArray();
+                $classesQuery->whereIn('id', $teacherClassIds);
+                
+                // Get the subject IDs that this teacher teaches
+                $teacherSubjectIds = $teacher->subjects->pluck('id')->toArray();
+            } else {
+                $teacherSubjectIds = [];
+                // If teacher not found, return empty results
+                return Inertia::render('Menu/ResultsPage', [
+                    'classes' => [],
+                    'teachers' => [],
+                    'levels' => $levels,
+                    'subjects' => $subjects,
+                    'schools' => $schools,
+                    'selectedSchool' => $selectedSchoolId ? [
+                        'id' => $selectedSchoolId,
+                        'name' => session('school_name')
+                    ] : null
+                ]);
+            }
+        } elseif ($role === 'assistant') {
+            $assistant = $user->assistant;
+            if ($assistant) {
+                // Filter teachers to those in the assistant's schools (and the selected school if applicable)
+                $assistantSchoolIds = $assistant->schools->pluck('id')->toArray();
+                if ($selectedSchoolId) {
+                    // If a school is selected, only include that school if it's one of the assistant's schools
+                    if (in_array($selectedSchoolId, $assistantSchoolIds)) {
+                        $assistantSchoolIds = [$selectedSchoolId];
+                    }
+                }
+                
+                $teachersQuery->whereHas('schools', function($query) use ($assistantSchoolIds) {
+                    $query->whereIn('schools.id', $assistantSchoolIds);
+                });
+                
+                $teacherSubjectIds = [];
+            } else {
+                $teacherSubjectIds = [];
+            }
+        } else {
+            // For admin, no additional filtering beyond the selected school
+            $teacherSubjectIds = [];
+        }
+        
+        // Execute queries
+        $classes = $classesQuery->with('level')->get();
+        $teachers = $teachersQuery->with(['subjects', 'classes'])->get();
+        
+        $data = [
+            'classes' => $classes,
+            'teachers' => $teachers,
+            'levels' => $levels,
+            'subjects' => $subjects,
+            'schools' => $schools,
+            'teacherSubjectIds' => $teacherSubjectIds,
+            'selectedSchool' => $selectedSchoolId ? [
+                'id' => $selectedSchoolId,
+                'name' => session('school_name')
+            ] : null
+        ];
+
+        // Return Inertia view with results data
+        return Inertia::render('Menu/ResultsPage', [
+            'results' => $data,
+            'teachers' => $teachers,
+            'subjects' => $subjects,
+            'classes' => $classes,
+            'selectedOptions' => [
+                'teacherId' => $teacherId,
+                'classId' => $classId,
+                'subjectId' => $subjectId,
+            ],
+        ]);
     }
 } 

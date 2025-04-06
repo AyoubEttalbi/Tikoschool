@@ -4,9 +4,10 @@ import BigCalendar from "@/Components/BigCalender";
 import FormModal from "@/Components/FormModal";
 import Performance from "@/Components/Performance";
 import DashboardLayout from "@/Layouts/DashboardLayout";
-import { Link, usePage } from '@inertiajs/react';
+import { Link, usePage, router } from '@inertiajs/react';
 import Pagination from '@/Components/Pagination';
 import ActivityLogs from '@/Components/ActivityLogs';
+import InvoiceModal from '@/Components/InvoiceModal';
 import { AlertCircle, AlertTriangle, Calendar, ChevronRight, Clock, DollarSign, Eye, FileText, User } from 'lucide-react';
 
 const SingleAssistantPage = ({ 
@@ -16,21 +17,18 @@ const SingleAssistantPage = ({
   subjects, 
   schools, 
   logs,
-  metrics = {
-    totalStudents: 0,
-    totalClasses: 0,
-    totalSubjects: 0,
-    totalActiveMemberships: 0
-  },
   recentAbsences = [],
   unpaidInvoices = [],
   expiringMemberships = [],
   recentPayments = [],
-  totalCounts = {
-    absences: 0,
-    unpaidInvoices: 0,
-    expiringMemberships: 0,
-    recentPayments: 0
+  totalAbsences = 0,
+  totalUnpaidInvoices = 0,
+  totalExpiringMemberships = 0,
+  totalRecentPayments = 0,
+  selectedSchool = null,
+  statistics = {
+    students_count: 0,
+    classes_count: 0
   }
 }) => {
   const role = usePage().props.auth.user.role;
@@ -38,16 +36,64 @@ const SingleAssistantPage = ({
   // Ensure logs has a default value with data array
   const safeLogs = logs || { data: [], links: [] };
   const [activeTab, setActiveTab] = useState('absences');
+  
+  // State for invoice modal
+  const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
+  const [selectedInvoice, setSelectedInvoice] = useState(null);
+  
+  // Function to open invoice modal
+  const openInvoiceModal = (invoice) => {
+    setSelectedInvoice(invoice);
+    setIsInvoiceModalOpen(true);
+  };
+  
+  // Function to close invoice modal
+  const closeInvoiceModal = () => {
+    setIsInvoiceModalOpen(false);
+    // Clear selected invoice after animation completes
+    setTimeout(() => setSelectedInvoice(null), 300);
+  };
 
   // Helper to determine if we need a "See more" button
   const hasMoreItems = (current, total) => {
     return total > current.length;
   };
 
+  // Handle school change
+  const handleSchoolChange = () => {
+    router.visit('/select-profile');
+  };
+
   return (
     <div className="flex-1 p-4 flex flex-col gap-4 xl:flex-row">
       {/* LEFT */}
       <div className="w-full xl:w-2/3">
+        {/* School Selection Banner */}
+        {selectedSchool && (
+          <div className="w-full mb-4 p-3 bg-lamaSkyLight border border-lamaSky/20 rounded-md flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="h-8 w-8 bg-white rounded-full flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-lamaSky" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M10.394 2.08a1 1 0 00-.788 0l-7 3a1 1 0 000 1.84L5.25 8.051a.999.999 0 01.356-.257l4-1.714a1 1 0 11.788 1.838l-2.727 1.666 1.94.831a1 1 0 00.787 0l7-3a1 1 0 000-1.838l-7-3zM3.31 9.397L5 10.12v4.102a8.969 8.969 0 00-1.05-.174 1 1 0 01-.89-.89 11.115 11.115 0 01.25-3.762zM9.3 16.573A9.026 9.026 0 007 14.935v-3.957l1.818.78a3 3 0 002.364 0l5.508-2.361a11.026 11.026 0 01.25 3.762 1 1 0 01-.89.89 8.968 8.968 0 00-5.35 2.524 1 1 0 01-1.4 0zM6 18a1 1 0 001-1v-2.065a8.935 8.935 0 00-2-.712V17a1 1 0 001 1z" />
+                </svg>
+              </div>
+              <div>
+                <div className="text-xs text-gray-600">Current School</div>
+                <span className="font-medium">{selectedSchool.name}</span>
+              </div>
+            </div>
+            <button 
+              onClick={handleSchoolChange}
+              className="text-sm px-3 py-1 flex items-center gap-1 bg-lamaSky text-white rounded-md hover:bg-lamaSky/90 transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m-4 6H4m0 0l4 4m-4-4l4-4" />
+              </svg>
+              Change School
+            </button>
+          </div>
+        )}
+
         {/* TOP */}
         <div className="flex flex-col lg:flex-row gap-4">
           {/* USER INFO CARD */}
@@ -71,7 +117,11 @@ const SingleAssistantPage = ({
               <div className="flex items-center justify-between gap-2 flex-wrap text-xs font-medium">
                 <div className="w-full md:w-1/3 lg:w-full 2xl:w-1/3 flex items-center gap-2">
                   <img src="/school.png" alt="" width={14} height={14} />
-                  <span>{assistant.schools_assistant.map((school) => school.name).join(", ") || "N/A"}</span>
+                  <span>
+                    {assistant.schools && assistant.schools.length > 0 
+                      ? assistant.schools.map((school) => school.name).join(", ") 
+                      : "N/A"}
+                  </span>
                 </div>
                 <div className="w-full md:w-1/3 lg:w-full 2xl:w-1/3 flex items-center gap-2">
                   <img src="/date.png" alt="" width={14} height={14} />
@@ -110,10 +160,10 @@ const SingleAssistantPage = ({
 
           {/* SMALL CARDS */}
           <div className="flex-1 flex gap-4 justify-between flex-wrap">
-            <InfoCard icon="/singleAttendance.png" label="Students" value={metrics.totalStudents} />
-            <InfoCard icon="/singleBranch.png" label="Subjects" value={metrics.totalSubjects} />
-            <InfoCard icon="/singleLesson.png" label="Memberships" value={metrics.totalActiveMemberships} />
-            <InfoCard icon="/singleClass.png" label="Classes" value={metrics.totalClasses} />
+            <InfoCard icon="/singleAttendance.png" label="Students" value={statistics.students_count} />
+            <InfoCard icon="/singleBranch.png" label="School" value={selectedSchool ? selectedSchool.name : "N/A"} />
+            <InfoCard icon="/singleLesson.png" label="Classes" value={statistics.classes_count} />
+            <InfoCard icon="/singleClass.png" label="Status" value={assistant.status || "Active"} />
           </div>
         </div>
 
@@ -134,9 +184,9 @@ const SingleAssistantPage = ({
                 text="Unpaid Invoices"
               />
               <TabButton 
-                onClick={() => setActiveTab('expiring')} 
-                isActive={activeTab === 'expiring'}
-                icon={<Clock className="w-4 h-4 mr-1" />}
+                onClick={() => setActiveTab('memberships')} 
+                isActive={activeTab === 'memberships'}
+                icon={<Calendar className="w-4 h-4 mr-1" />}
                 text="Expiring Memberships"
               />
               <TabButton 
@@ -171,13 +221,13 @@ const SingleAssistantPage = ({
                   ]}
                   emptyMessage="No recent absences in the last 30 days"
                 />
-                {hasMoreItems(recentAbsences, totalCounts.absences) && (
+                {hasMoreItems(recentAbsences, totalAbsences) && (
                   <div className="mt-4 text-center">
                     <Link 
-                      href={`/attendances?filter=recent&school=${assistant.schools_assistant.map(s => s.id).join(',')}`}
-                      className="inline-flex items-center px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-800"
+                      href={`/attendances?filter=recent&school=${selectedSchool ? selectedSchool.id : ''}`}
+                      className="flex items-center px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-800 justify-center"
                     >
-                      See all {totalCounts.absences} absences from last 7 days <ChevronRight className="ml-1 w-4 h-4" />
+                      See all {totalAbsences} absences from last 7 days <ChevronRight className="ml-1 w-4 h-4" />
                     </Link>
                   </div>
                 )}
@@ -200,27 +250,30 @@ const SingleAssistantPage = ({
                       <span className="font-semibold text-red-600">{item.rest} DH</span>
                     )},
                     { header: "Actions", accessor: (item) => (
-                      <Link href={`/invoices/${item.id}`} className="text-blue-600 hover:text-blue-800">
+                      <button 
+                        onClick={() => openInvoiceModal(item)}
+                        className="text-blue-600 hover:text-blue-800"
+                      >
                         <Eye className="w-4 h-4" />
-                      </Link>
+                      </button>
                     )}
                   ]}
                   emptyMessage="No unpaid invoices found"
                 />
-                {hasMoreItems(unpaidInvoices, totalCounts.unpaidInvoices) && (
+                {hasMoreItems(unpaidInvoices, totalUnpaidInvoices) && (
                   <div className="mt-4 text-center">
                     <Link 
-                      href={`/invoices?filter=unpaid&school=${assistant.schools_assistant.map(s => s.id).join(',')}`}
-                      className="inline-flex items-center px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-800"
+                      href={`/invoices?filter=unpaid&school=${selectedSchool ? selectedSchool.id : ''}`}
+                      className="flex items-center px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-800 justify-center"
                     >
-                      See all {totalCounts.unpaidInvoices} unpaid invoices <ChevronRight className="ml-1 w-4 h-4" />
+                      See all {totalUnpaidInvoices} unpaid invoices <ChevronRight className="ml-1 w-4 h-4" />
                     </Link>
                   </div>
                 )}
               </>
             )}
-
-            {activeTab === 'expiring' && (
+            
+            {activeTab === 'memberships' && (
               <>
                 <DataTable
                   data={expiringMemberships}
@@ -230,29 +283,32 @@ const SingleAssistantPage = ({
                         {item.student_name}
                       </Link>
                     )},
-                    { header: "Offer", accessor: "offer_name" },
+                    { header: "Started", accessor: (item) => formatDate(item.start_date) },
                     { header: "Expires", accessor: (item) => formatDate(item.end_date) },
                     { header: "Days Left", accessor: (item) => (
-                      <span className={`px-2 py-1 rounded-full text-xs ${item.days_remaining <= 3 ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                        {item.days_remaining} days
-                      </span>
+                      <span className="font-semibold text-amber-600">{item.days_left}</span>
+                    )},
+                    { header: "Actions", accessor: (item) => (
+                      <Link href={`/memberships/${item.id}`} className="text-blue-600 hover:text-blue-800">
+                        <Eye className="w-4 h-4" />
+                      </Link>
                     )}
                   ]}
                   emptyMessage="No memberships expiring soon"
                 />
-                {hasMoreItems(expiringMemberships, totalCounts.expiringMemberships) && (
+                {hasMoreItems(expiringMemberships, totalExpiringMemberships) && (
                   <div className="mt-4 text-center">
                     <Link 
-                      href={`/memberships?filter=expiring&school=${assistant.schools_assistant.map(s => s.id).join(',')}`}
-                      className="inline-flex items-center px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-800"
+                      href={`/memberships?filter=expiring&school=${selectedSchool ? selectedSchool.id : ''}`}
+                      className="flex items-center px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-800 justify-center"
                     >
-                      See all {totalCounts.expiringMemberships} memberships expiring soon <ChevronRight className="ml-1 w-4 h-4" />
+                      See all {totalExpiringMemberships} expiring memberships <ChevronRight className="ml-1 w-4 h-4" />
                     </Link>
                   </div>
                 )}
               </>
             )}
-
+            
             {activeTab === 'payments' && (
               <>
                 <DataTable
@@ -263,47 +319,59 @@ const SingleAssistantPage = ({
                         {item.student_name}
                       </Link>
                     )},
-                    { header: "Amount", accessor: (item) => `${item.amount_paid} DH` },
                     { header: "Date", accessor: (item) => formatDate(item.payment_date) },
+                    { header: "Amount", accessor: (item) => (
+                      <span className="font-semibold text-green-600">{item.amount} DH</span>
+                    )},
+                    { header: "Method", accessor: "payment_method" },
+                    { header: "Offer", accessor: "offer_name" },
                     { header: "Actions", accessor: (item) => (
-                      <Link href={`/invoices/${item.id}`} className="text-blue-600 hover:text-blue-800">
+                      <button 
+                        onClick={() => openInvoiceModal(item)}
+                        className="text-blue-600 hover:text-blue-800"
+                      >
                         <Eye className="w-4 h-4" />
-                      </Link>
+                      </button>
                     )}
                   ]}
                   emptyMessage="No recent payments found"
                 />
-                {hasMoreItems(recentPayments, totalCounts.recentPayments) && (
+                {hasMoreItems(recentPayments, totalRecentPayments) && (
                   <div className="mt-4 text-center">
                     <Link 
-                      href={`/invoices?filter=recent_payments&school=${assistant.schools_assistant.map(s => s.id).join(',')}`}
-                      className="inline-flex items-center px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-800"
+                      href={`/payments?filter=recent&school=${selectedSchool ? selectedSchool.id : ''}`}
+                      className="flex items-center px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-800 justify-center"
                     >
-                      See all {totalCounts.recentPayments} recent payments <ChevronRight className="ml-1 w-4 h-4" />
+                      See all {totalRecentPayments} recent payments <ChevronRight className="ml-1 w-4 h-4" />
                     </Link>
                   </div>
                 )}
               </>
             )}
           </div>
-            </div>
+        </div>
 
         {/* ACTIVITY LOGS */}
         <div className="flex flex-col gap-4 mt-4">
-          
-            <ActivityLogs logs={safeLogs} />
-          
+          <ActivityLogs logs={safeLogs} />
         </div>
-    </div>
+      </div>
 
-      {/* RIGHT */ }
-  <div className="w-full xl:w-1/3 flex flex-col gap-4">
+      {/* RIGHT */}
+      <div className="w-full xl:w-1/3 flex flex-col gap-4">
         <div className="bg-white p-4 rounded-md">
           <h2 className="text-lg font-semibold mb-4">Assistant's Calendar</h2>
           <BigCalendar />
         </div>
-    <Announcements announcements={announcements} userRole={role} />
-  </div>
+        <Announcements announcements={announcements} userRole={role} />
+      </div>
+      
+      {/* Invoice Modal */}
+      <InvoiceModal 
+        isOpen={isInvoiceModalOpen}
+        closeModal={closeInvoiceModal}
+        invoice={selectedInvoice}
+      />
     </div>
   );
 };

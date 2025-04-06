@@ -11,6 +11,7 @@ export default function DashboardLayout({ children }) {
     const [unreadCount, setUnreadCount] = useState(0);
     const { props } = usePage();
     const user = props.auth.user;
+    console.log('props', props);
     useEffect(() => {
         // Fetch initial unread count
         const fetchUnreadCount = async () => {

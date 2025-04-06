@@ -100,6 +100,9 @@ const onSubmit = handleSubmit((formData) => {
     // Add the _method field to the formData for Laravel to recognize it as PUT
     formDataObj.append('_method', 'PUT');
     
+    // Add flag to indicate this is a form update
+    formDataObj.append('is_form_update', '1');
+    
     // Then use post() instead of put() because file uploads require POST
     router.post(`/assistants/${data.id}`, formDataObj, {
       preserveScroll: true,

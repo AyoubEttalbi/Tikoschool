@@ -137,6 +137,9 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
       // For update, we need to use method spoofing with Inertia
       formDataObj.append('_method', 'PUT');
       
+      // Add flag to indicate this is a form update
+      formDataObj.append('is_form_update', '1');
+      
       router.post(`/teachers/${data.id}`, formDataObj, {
         preserveScroll: true,
         forceFormData: true,

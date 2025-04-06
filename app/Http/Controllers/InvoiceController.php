@@ -6,6 +6,7 @@ use App\Models\Invoice;
 use App\Models\Membership;
 use App\Models\Teacher;
 use App\Models\Classes;
+use App\Models\School;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
@@ -131,11 +132,143 @@ class InvoiceController extends Controller
      */
     public function show($id)
     {
-        $invoice = Invoice::with(['membership', 'membership.student', 'membership.offer'])->findOrFail($id);
+        try {
+            // Load all relevant relationships with explicit column names
+            $invoice = Invoice::with([
+                'membership',
+                'membership.student',
+                'membership.student.class',
+                'membership.student.school',
+                'student',
+                'student.class',
+                'student.school',
+                'offer'
+            ])->findOrFail($id);
+            
+            // Log detailed information about the loaded invoice
+            Log::info('Invoice data', [
+                'invoice_id' => $id,
+                'invoice_data' => $invoice->toArray(),
+                'has_membership' => $invoice->membership ? true : false,
+                'has_student_direct' => $invoice->student ? true : false
+            ]);
+            
+            // Get student either directly or through membership
+            $student = $invoice->student ?? ($invoice->membership ? $invoice->membership->student : null);
+            
+            // If student exists, make sure we fetch class and school data
+            if ($student) {
+                Log::info('Student data', [
+                    'student_id' => $student->id,
+                    'classId' => $student->classId,
+                    'schoolId' => $student->schoolId,
+                    'has_class_relation' => $student->class ? true : false,
+                    'has_school_relation' => $student->school ? true : false
+                ]);
+                
+                if ($student->classId && !$student->class) {
+                    $class = Classes::find($student->classId);
+                    $className = $class ? $class->name : 'N/A';
+                } else {
+                    $className = $student->class ? $student->class->name : 'N/A';
+                }
+                
+                if ($student->schoolId && !$student->school) {
+                    $school = School::find($student->schoolId);
+                    $schoolName = $school ? $school->name : 'N/A';
+                } else {
+                    $schoolName = $student->school ? $student->school->name : 'N/A';
+                }
+            } else {
+                $className = 'N/A';
+                $schoolName = 'N/A';
+            }
+            
+            // Ensure numeric values are properly formatted
+            $totalAmount = is_numeric($invoice->totalAmount) ? floatval($invoice->totalAmount) : 0;
+            $amountPaid = is_numeric($invoice->amountPaid) ? floatval($invoice->amountPaid) : 0;
+            $rest = is_numeric($invoice->rest) ? floatval($invoice->rest) : ($totalAmount - $amountPaid);
+            
+            // Get offer name from the relationship
+            $offerName = 'N/A';
+            if ($invoice->offer && isset($invoice->offer->offer_name)) {
+                $offerName = $invoice->offer->offer_name;
+            } elseif ($invoice->membership && $invoice->membership->offer) {
+                $offerName = $invoice->membership->offer->offer_name;
+            }
+            
+            $formattedInvoice = [
+                'id' => $invoice->id,
+                'student_id' => $student ? $student->id : null,
+                'student_name' => $student ? $student->firstName . ' ' . $student->lastName : 'Unknown',
+                'student_class' => $className,
+                'student_school' => $schoolName,
+                'billDate' => $invoice->billDate ? $invoice->billDate->format('Y-m-d') : null,
+                'creationDate' => $invoice->creationDate ? $invoice->creationDate->format('Y-m-d') : null,
+                'endDate' => $invoice->endDate ? $invoice->endDate->format('Y-m-d') : null,
+                'totalAmount' => $totalAmount,
+                'amountPaid' => $amountPaid,
+                'rest' => $rest,
+                'months' => $invoice->months ?? 1,
+                'includePartialMonth' => $invoice->includePartialMonth ?? false,
+                'partialMonthAmount' => is_numeric($invoice->partialMonthAmount) ? floatval($invoice->partialMonthAmount) : 0,
+                'offer_name' => $offerName,
+                'offer_id' => $invoice->offer_id,
+                'membership_id' => $invoice->membership_id,
+            ];
+            
+            // Get teachers associated with this invoice's membership
+            if ($invoice->membership && isset($invoice->membership->teachers) && is_array($invoice->membership->teachers)) {
+                $teachers = [];
+                
+                foreach ($invoice->membership->teachers as $teacherData) {
+                    $teacherId = $teacherData['teacherId'] ?? null;
+                    $teacherAmount = isset($teacherData['amount']) && is_numeric($teacherData['amount']) ? floatval($teacherData['amount']) : 0;
+                    
+                    if ($teacherId) {
+                        $teacher = Teacher::find($teacherId);
+                        $teacherName = $teacher ? $teacher->first_name . ' ' . $teacher->last_name : 'Unknown Teacher';
+                        
+                        $teachers[] = [
+                            'teacherId' => $teacherId,
+                            'name' => $teacherName,
+                            'amount' => $teacherAmount
+                        ];
+                    }
+                }
+                
+                $formattedInvoice['teachers'] = $teachers;
+            }
 
-        return Inertia::render('Menu/SingleStudentPage', [
-            'invoice' => $invoice,
-        ]);
+            // Add payment data
+            if ($invoice->amountPaid > 0) {
+                $formattedInvoice['payments'] = [
+                    [
+                        'date' => $invoice->last_payment_date ? $invoice->last_payment_date->format('Y-m-d') : ($invoice->creationDate ? $invoice->creationDate->format('Y-m-d') : now()->format('Y-m-d')),
+                        'amount' => $amountPaid,
+                        'method' => 'Cash'
+                    ]
+                ];
+            } else {
+                $formattedInvoice['payments'] = [];
+            }
+
+            // Log the final formatted data before rendering
+            Log::info('Final formatted invoice data being sent to view', [
+                'invoice_id' => $id,
+                'formatted_data' => $formattedInvoice
+            ]);
+
+            return Inertia::render('Invoices/InvoiceViewer', [
+                'invoice' => $formattedInvoice
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error fetching invoice details: ' . $e->getMessage(), [
+                'invoice_id' => $id,
+                'trace' => $e->getTraceAsString()
+            ]);
+            return redirect()->route('dashboard')->with('error', 'Could not find invoice details: ' . $e->getMessage());
+        }
     }
 
     /**

@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
 use App\Models\Subject;
 use App\Models\School;
 use App\Models\Classes;
@@ -76,15 +77,26 @@ class TeacherController extends Controller
      */
     public function index(Request $request)
     {
+        $selectedSchoolId = session('school_id');
+
         // Initialize the query with eager loading for relationships
         $query = Teacher::with(['subjects', 'classes', 'schools']);
+
+        // Filter by selected school if one is in session
+        if ($selectedSchoolId) {
+            $query->whereHas('schools', function ($schoolQuery) use ($selectedSchoolId) {
+                $schoolQuery->where('schools.id', $selectedSchoolId);
+            });
+        }
 
         // Apply search filter if search term is provided
         if ($request->has('search') && !empty($request->search)) {
             $this->applySearchFilter($query, $request->search);
         }
 
-        // Apply additional filters (subject, class, school)
+        // Apply additional filters (subject, class, school, status)
+        // Note: The individual school filter might become redundant if session school is always applied, 
+        // but keep it for explicit filtering capabilities.
         $this->applyFilters($query, $request->only(['subject', 'class', 'school', 'status']));
 
         // Fetch paginated and filtered teachers
@@ -92,13 +104,20 @@ class TeacherController extends Controller
             return $this->transformTeacherData($teacher);
         });
 
+        // Fetch schools for the filter dropdown - consider fetching only relevant ones if needed
+        $schoolsForFilter = School::all(); 
+        // Fetch subjects and classes for filters
+        $subjects = Subject::all();
+        $classes = Classes::all();
+
         return Inertia::render('Menu/TeacherListPage', [
             'teachers' => $teachers,
-            'schools' => School::all(),
-            'subjects' => Subject::all(),
-            'classes' => Classes::all(),
+            'schools' => $schoolsForFilter, // Pass schools for the filter dropdown
+            'subjects' => $subjects,
+            'classes' => $classes,
             'search' => $request->search,
-            'filters' => $request->only(['subject', 'class', 'school', 'status']),
+            'filters' => $request->only(['subject', 'class', 'school', 'status']), // Pass current filters
+            // activeSchool is already shared via HandleInertiaRequests
         ]);
     }
 
@@ -253,143 +272,176 @@ class TeacherController extends Controller
      * Display the specified resource.
      */
     public function show(Request $request, $id)
-{
-    // Fetch announcements first
-    $announcementStatus = $request->query('status', 'all'); // 'all', 'active', 'upcoming', 'expired'
-    
-    // Base announcement query
-    $announcementQuery = Announcement::query();
-    
-    // Apply date filtering based on status parameter
-    $now = Carbon::now();
-    
-    if ($announcementStatus === 'active') {
-        $announcementQuery->where(function($q) use ($now) {
-            $q->where(function($q) use ($now) {
-                $q->whereNull('date_start')
-                  ->orWhere('date_start', '<=', $now);
-            })->where(function($q) use ($now) {
-                $q->whereNull('date_end')
-                  ->orWhere('date_end', '>=', $now);
+    {
+        // Fetch announcements first
+        $announcementStatus = $request->query('status', 'all'); // 'all', 'active', 'upcoming', 'expired'
+        
+        // Base announcement query
+        $announcementQuery = Announcement::query();
+        
+        // Apply date filtering based on status parameter
+        $now = Carbon::now();
+        
+        if ($announcementStatus === 'active') {
+            $announcementQuery->where(function($q) use ($now) {
+                $q->where(function($q) use ($now) {
+                    $q->whereNull('date_start')
+                      ->orWhere('date_start', '<=', $now);
+                })->where(function($q) use ($now) {
+                    $q->whereNull('date_end')
+                      ->orWhere('date_end', '>=', $now);
+                });
+            });
+        } elseif ($announcementStatus === 'upcoming') {
+            $announcementQuery->where('date_start', '>', $now);
+        } elseif ($announcementStatus === 'expired') {
+            $announcementQuery->where('date_end', '<', $now);
+        }
+        
+        // Get user role for role-based visibility
+        $userRole = Auth::user() ? Auth::user()->role : null;
+        
+        // Apply role-based visibility filter based on user role
+        if ($userRole === 'admin') {
+            // Admin sees all announcements (no visibility filter needed)
+        } else {
+            // Employees only see announcements with visibility 'all' or matching their role
+            $announcementQuery->where(function($q) use ($userRole) {
+                $q->where('visibility', 'all')
+                  ->orWhere('visibility', $userRole);
+            });
+        }
+        
+        // Order announcements by date (most recent first)
+        $announcementQuery->orderBy('date_announcement', 'desc');
+        
+        // Execute announcement query
+        $announcements = $announcementQuery->get();
+
+        // Fetch the teacher with related data
+        $teacher = Teacher::with(['subjects', 'classes', 'schools'])->find($id);
+        
+        if (!$teacher) {
+            abort(404);
+        }
+        
+        // Fetch all memberships where the teacher is involved
+        $memberships = Membership::whereIn('payment_status', ['paid', 'pending'])
+            ->whereJsonContains('teachers', [['teacherId' => (string) $teacher->id]])
+            ->with(['invoices', 'student', 'student.school', 'student.class', 'offer'])
+            ->get();
+        
+        // Extract invoices from memberships and calculate the teacher's share
+        $invoices = $memberships->flatMap(function ($membership) use ($teacher) {
+            // Skip if the student doesn't exist
+            if (!$membership->student) {
+                return [];
+            }
+            
+            return $membership->invoices->map(function ($invoice) use ($membership, $teacher) {
+                // Calculate the payment percentage
+                $paymentPercentage = ($invoice->amountPaid / $invoice->totalAmount) * 100;
+                
+                // Find the teacher's data in the membership
+                $teacherData = collect($membership->teachers)->first(function($item) use ($teacher) {
+                    return isset($item['teacherId']) && $item['teacherId'] == $teacher->id;
+                });
+                
+                // Calculate the teacher's share
+                $teacherAmount = $teacherData && isset($teacherData['amount']) 
+                    ? ($teacherData['amount'] * $invoice->months) * ($paymentPercentage / 100) 
+                    : 0;
+                
+                // Get school information
+                $schoolName = 'Unknown';
+                $schoolId = null;
+                
+                if ($membership->student->school) {
+                    $schoolName = $membership->student->school->name;
+                    $schoolId = $membership->student->school->id;
+                } else {
+                    $schoolId = $membership->student->schoolId;
+                    $school = School::find($schoolId);
+                    if ($school) {
+                        $schoolName = $school->name;
+                    }
+                }
+                
+                // Get class name safely
+                $className = $membership->student->class ? $membership->student->class->name : 'Unknown';
+                
+                // Format the date consistently
+                $billDate = $invoice->billDate ? $invoice->billDate->format('Y-m-d') : null;
+                
+                return [
+                    'id' => $invoice->id,
+                    'membership_id' => $invoice->membership_id,
+                    'student_id' => $invoice->student_id,
+                    'student_name' => $membership->student->firstName . ' ' . $membership->student->lastName,
+                    'student_class' => $className,
+                    'student_school' => $schoolName,
+                    'schoolId' => $schoolId,
+                    'billDate' => $billDate,
+                    'months' => $invoice->months,
+                    'creationDate' => $invoice->creationDate,
+                    'totalAmount' => $invoice->totalAmount,
+                    'amountPaid' => $invoice->amountPaid,
+                    'rest' => $invoice->rest,
+                    'offer_id' => $invoice->offer_id,
+                    'offer_name' => $invoice->offer ? $invoice->offer->offer_name : null,
+                    'endDate' => $invoice->endDate,
+                    'includePartialMonth' => $invoice->includePartialMonth,
+                    'partialMonthAmount' => $invoice->partialMonthAmount,
+                    'teacher_amount' => $teacherAmount,
+                ];
             });
         });
-    } elseif ($announcementStatus === 'upcoming') {
-        $announcementQuery->where('date_start', '>', $now);
-    } elseif ($announcementStatus === 'expired') {
-        $announcementQuery->where('date_end', '<', $now);
+        
+        // Paginate the invoices
+        $perPage = 100; // Number of invoices per page
+        $currentPage = request()->get('page', 1); // Get the current page from the request
+        $paginatedInvoices = new \Illuminate\Pagination\LengthAwarePaginator(
+            $invoices->forPage($currentPage, $perPage),
+            $invoices->count(),
+            $perPage,
+            $currentPage,
+            ['path' => request()->url(), 'query' => request()->query()]
+        );
+        
+        // Fetch other necessary data
+        $schools = School::all();
+        $classes = Classes::all();
+        $subjects = Subject::all();
+        
+        return Inertia::render('Menu/SingleTeacherPage', [
+            'teacher' => [
+                'id' => $teacher->id,
+                'first_name' => $teacher->first_name,
+                'last_name' => $teacher->last_name,
+                'address' => $teacher->address,
+                'phone_number' => $teacher->phone_number,
+                'email' => $teacher->email,
+                'status' => $teacher->status,
+                'wallet' => $teacher->wallet,
+                'profile_image' => $teacher->profile_image ?? null, 
+                'subjects' => $teacher->subjects,
+                'classes' => $teacher->classes,
+                'schools' => $teacher->schools,
+                'created_at' => $teacher->created_at,
+                'totalStudents' => $teacher->classes->sum('number_of_students')
+            ],
+            'invoices' => $paginatedInvoices,
+            'schools' => $schools,
+            'subjects' => $subjects,
+            'classes' => $classes,
+            'announcements' => $announcements,
+            'filters' => [
+                'status' => $announcementStatus,
+            ],
+            'userRole' => $userRole,
+        ]);
     }
-    
-    // Get user role for role-based visibility
-    $userRole = Auth::user() ? Auth::user()->role : null;
-    
-    // Apply role-based visibility filter based on user role
-    if ($userRole === 'admin') {
-        // Admin sees all announcements (no visibility filter needed)
-    } else {
-        // Employees only see announcements with visibility 'all' or matching their role
-        $announcementQuery->where(function($q) use ($userRole) {
-            $q->where('visibility', 'all')
-              ->orWhere('visibility', $userRole);
-        });
-    }
-    
-    // Order announcements by date (most recent first)
-    $announcementQuery->orderBy('date_announcement', 'desc');
-    
-    // Execute announcement query
-    $announcements = $announcementQuery->get();
 
-    // Fetch the teacher with related data
-    $teacher = Teacher::with(['subjects', 'classes', 'schools'])->find($id);
-    
-    if (!$teacher) {
-        abort(404);
-    }
-    
-    // Fetch all memberships where the teacher is involved
-    $memberships = Membership::whereIn('payment_status', ['paid', 'pending'])
-        ->whereJsonContains('teachers', [['teacherId' => (string) $teacher->id]])
-        ->with(['invoices', 'student'])
-        ->get();
-    
-    // Extract invoices from memberships and calculate the teacher's share
-    $invoices = $memberships->flatMap(function ($membership) use ($teacher) {
-        return $membership->invoices->map(function ($invoice) use ($membership, $teacher) {
-            // Calculate the payment percentage
-            $paymentPercentage = ($invoice->amountPaid / $invoice->totalAmount) * 100;
-            
-            // Find the teacher's data in the membership
-            $teacherData = collect($membership->teachers)->firstWhere('teacherId', (string) $teacher->id);
-            
-            // Calculate the teacher's share
-            $teacherAmount = $teacherData ? ($teacherData['amount'] * $invoice->months) * ($paymentPercentage / 100) : 0;
-            
-            return [
-                'id' => $invoice->id,
-                'membership_id' => $invoice->membership_id,
-                'student_id' => $invoice->student_id,
-                'student_name' => $membership->student->firstName . ' ' . $membership->student->lastName,
-                'student_class' => $membership->student->class->name,
-                'billDate' => $invoice->billDate,
-                'months' => $invoice->months,
-                'creationDate' => $invoice->creationDate,
-                'totalAmount' => $invoice->totalAmount,
-                'amountPaid' => $invoice->amountPaid,
-                'rest' => $invoice->rest,
-                'offer_id' => $invoice->offer_id,
-                'offer_name' => $invoice->offer ? $invoice->offer->offer_name : null,
-                'endDate' => $invoice->endDate,
-                'includePartialMonth' => $invoice->includePartialMonth,
-                'partialMonthAmount' => $invoice->partialMonthAmount,
-                'teacher_amount' => $teacherAmount, // Add the teacher's share
-            ];
-        });
-    });
-    
-    // Paginate the invoices
-    $perPage = 100; // Number of invoices per page
-    $currentPage = request()->get('page', 1); // Get the current page from the request
-    $paginatedInvoices = new \Illuminate\Pagination\LengthAwarePaginator(
-        $invoices->forPage($currentPage, $perPage),
-        $invoices->count(),
-        $perPage,
-        $currentPage,
-        ['path' => request()->url(), 'query' => request()->query()]
-    );
-    
-    // Fetch other necessary data
-    $schools = School::all();
-    $classes = Classes::all();
-    $subjects = Subject::all();
-    
-    return Inertia::render('Menu/SingleTeacherPage', [
-        'teacher' => [
-            'id' => $teacher->id,
-            'first_name' => $teacher->first_name,
-            'last_name' => $teacher->last_name,
-            'address' => $teacher->address,
-            'phone_number' => $teacher->phone_number,
-            'email' => $teacher->email,
-            'status' => $teacher->status,
-            'wallet' => $teacher->wallet,
-            'profile_image' => $teacher->profile_image ?? null, 
-            'subjects' => $teacher->subjects,
-            'classes' => $teacher->classes,
-            'schools' => $teacher->schools,
-            'created_at' => $teacher->created_at,
-            'invoices' => $paginatedInvoices->items() // Pass the paginated invoices
-        ],
-        'invoices' => $paginatedInvoices, // Pass the paginator object to the frontend
-        'schools' => $schools,
-        'subjects' => $subjects,
-        'classes' => $classes,
-        'announcements' => $announcements, // Pass announcements to the frontend
-        'filters' => [
-            'status' => $announcementStatus,
-        ],
-        'userRole' => $userRole, // Pass user role to frontend
-    ]);
-}
     /**
      * Show the form for editing the specified resource.
      */
@@ -408,6 +460,10 @@ class TeacherController extends Controller
     public function update(Request $request, Teacher $teacher)
     {
         try {
+            // Store the current school_id and school_name from session
+            $currentSchoolId = session('school_id');
+            $currentSchoolName = session('school_name');
+
             $validatedData = $request->validate([
                 'first_name' => 'required|string|max:100',
                 'last_name' => 'required|string|max:100',
@@ -450,8 +506,34 @@ class TeacherController extends Controller
             $teacher->subjects()->sync($request->subjects ?? []);
             $teacher->classes()->sync($request->classes ?? []);
             $teacher->schools()->sync($request->schools ?? []);
+            
+            // Restore the session variables if they existed
+            if ($currentSchoolId) {
+                session([
+                    'school_id' => $currentSchoolId,
+                    'school_name' => $currentSchoolName
+                ]);
+            }
 
-            return redirect()->route('teachers.show', $teacher->id)->with('success', 'Teacher updated successfully.');
+            // Check if this is a form update
+            $isFormUpdate = $request->has('is_form_update');
+            
+            // For form updates, always stay on the teacher's profile page
+            if ($isFormUpdate) {
+                return redirect()->route('teachers.show', $teacher->id)->with('success', 'Teacher updated successfully.');
+            }
+            
+            // Check if this is an admin viewing as another user
+            $isViewingAs = session()->has('admin_user_id');
+            
+            // For other types of updates, apply the admin view logic
+            if ($isViewingAs) {
+                // If admin is viewing as teacher, redirect to dashboard
+                return redirect()->route('dashboard')->with('success', 'Teacher updated successfully.');
+            } else {
+                // For normal updates, redirect to teacher's show page
+                return redirect()->route('teachers.show', $teacher->id)->with('success', 'Teacher updated successfully.');
+            }
         } catch (\Exception $e) {
             \Log::error('Error updating teacher: ' . $e->getMessage());
             return redirect()->back()->with('error', 'Failed to update teacher. Please try again.');
