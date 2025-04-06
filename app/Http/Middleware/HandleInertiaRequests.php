@@ -48,21 +48,30 @@ class HandleInertiaRequests extends Middleware
     }
 
     public function share(Request $request): array
-    {
-        $user = $request->user();
+{
+    $user = $request->user();
 
-        return [
-            ...parent::share($request),
-            'auth' => [
-                'user' => $user,
-                'isViewingAs' => Session::has('admin_user_id'),
-                'profile_image' => $this->getUserProfileImage($user),
-            ],
-            'flash' => [
-                'message' => fn () => $request->session()->get('success'),
-                'error' => fn () => $request->session()->get('error'),
-            ],
-            'users' => $this->getUsersList($user),
-        ];
-    }
+    return [
+        ...parent::share($request),
+
+        'auth' => [
+            'user' => $user,
+            'isViewingAs' => Session::has('admin_user_id'),
+            'profile_image' => $this->getUserProfileImage($user),
+        ],
+
+        'flash' => [
+            'message' => fn () => $request->session()->get('success'),
+            'error' => fn () => $request->session()->get('error'),
+        ],
+
+        'users' => $this->getUsersList($user),
+
+        // ✅ Add active school globally
+        'activeSchool' => session('school_id') ? [
+            'id' => session('school_id'),
+            'name' => session('school_name'),
+        ] : null,
+    ];
+}
 }

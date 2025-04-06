@@ -6,6 +6,8 @@ use App\Models\Level;
 use Illuminate\Http\Request;
 use Inertia\Inertia; // Import Inertia
 use App\Models\Subject;
+use App\Models\School;
+
 class LevelController extends Controller
 {
     /**
@@ -14,11 +16,13 @@ class LevelController extends Controller
     public function index()
     {
         $levels = Level::all();
-        $Subjects = Subject::all();
+        $subjects = Subject::all();
+        $schools = School::all();
        
         return Inertia::render('Menu/Othersettings', [
             'levels' => $levels,
-            'subjects' => $Subjects
+            'subjects' => $subjects,
+            'schools' => $schools
         ]);
     }
     /**

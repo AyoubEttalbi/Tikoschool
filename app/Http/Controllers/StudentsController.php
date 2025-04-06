@@ -15,6 +15,7 @@ use App\Models\Teacher;
 use App\Models\Membership;
 use App\Models\Invoice;
 use App\Models\Attendance;
+use App\Models\Result;
 use Cloudinary\Cloudinary;
 use Cloudinary\Configuration\Configuration;
 use Cloudinary\Api\Upload\UploadApi;
@@ -235,16 +236,40 @@ protected function transformStudentData($student)
                 'phoneNumber' => 'nullable|string|max:20',
                 'email' => 'nullable|string|email|max:255|unique:students,email',
                 'massarCode' => 'nullable|string|max:50|unique:students,massarCode',
-                'levelId' => 'require|exists:levels,id',
-                'classId' => 'require|exists:classes,id',
-                'schoolId' => 'require|exists:schools,id',
+                'levelId' => 'required|exists:levels,id',
+                'classId' => 'required|exists:classes,id',
+                'schoolId' => 'required|exists:schools,id',
                 'status' => 'required|in:active,inactive',
-                'hasDisease' => 'sometimes|boolean',
-                'diseaseName' => 'nullable|required_if:hasDisease,true|string|max:255',
-                'medication' => 'nullable|string',
-                'assurance' => 'required|boolean',
+                'hasDisease' => 'sometimes',
+                'diseaseName' => 'nullable|required_if:hasDisease,1,true',
+                'medication' => 'nullable',
+                'assurance' => 'required',
                 'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120', // Added for image upload
             ]);
+
+            // Process hasDisease field - use simple integer conversion
+            if (isset($validatedData['hasDisease'])) {
+                // Convert to integer 1 or 0 explicitly, avoiding boolean conversion that might cause issues
+                $hasDiseaseValue = (is_string($validatedData['hasDisease']) && strtolower($validatedData['hasDisease']) === 'true') || 
+                                   $validatedData['hasDisease'] === 1 || 
+                                   $validatedData['hasDisease'] === '1' ? 1 : 0;
+                                   
+                // Update the validated data with the integer value
+                $validatedData['hasDisease'] = $hasDiseaseValue;
+            } else {
+                $validatedData['hasDisease'] = 0;
+            }
+            
+            // Process assurance field in the same way
+            if (isset($validatedData['assurance'])) {
+                $assuranceValue = (is_string($validatedData['assurance']) && strtolower($validatedData['assurance']) === 'true') || 
+                                  $validatedData['assurance'] === 1 || 
+                                  $validatedData['assurance'] === '1' ? 1 : 0;
+                                  
+                $validatedData['assurance'] = $assuranceValue;
+            } else {
+                $validatedData['assurance'] = 0;
+            }
 
             // Handle profile image upload to Cloudinary
             if ($request->hasFile('profile_image')) {
@@ -253,11 +278,33 @@ protected function transformStudentData($student)
                 $validatedData['profile_image'] = $uploadResult['secure_url'];
             }
 
-            // Create the student
+            // If hasDisease is false (0), set diseaseName and medication to NULL
+            if ($validatedData['hasDisease'] === 0) {
+                $validatedData['diseaseName'] = null;
+                $validatedData['medication'] = null;
+            }
+
+            // Create and save the new student
             $student = Student::create($validatedData);
 
+            // Update class student count if assigned to a class
+            if (!empty($validatedData['classId'])) {
+                $class = Classes::find($validatedData['classId']);
+                if ($class) {
+                    $class->updateStudentCount();
+                    
+                    // Log the updated class count
+                    \Log::info('Updated class student count after adding new student', [
+                        'class_id' => $class->id,
+                        'class_name' => $class->name,
+                        'new_student_count' => $class->number_of_students,
+                        'student_id' => $student->id
+                    ]);
+                }
+            }
+
             // Log the activity
-            $this->logActivity('created', $student, null, $student->toArray());
+            $this->logActivity('created', $student);
 
             return redirect()->route('students.index')->with('success', 'Student created successfully.');
         } catch (\Exception $e) {
@@ -349,6 +396,25 @@ protected function transformStudentData($student)
                     'reason' => $attendance->reason
                 ];
             });
+            
+        // Fetch results/grades for the student
+        $results = Result::with(['subject', 'class.level'])
+            ->where('student_id', $student->id)
+            ->get()
+            ->map(function ($result) {
+                return [
+                    'id' => $result->id,
+                    'subject' => $result->subject ? $result->subject->name : 'Unknown Subject',
+                    'level' => $result->class && $result->class->level ? $result->class->level->name : 'Unknown Level',
+                    'teacher' => $result->class ? ($result->class->teacher_name ?? 'Unknown Teacher') : 'Unknown Teacher',
+                    'grade1' => $result->grade1,
+                    'grade2' => $result->grade2,
+                    'grade3' => $result->grade3,
+                    'final_grade' => $result->final_grade,
+                    'notes' => $result->notes,
+                    'exam_date' => $result->exam_date,
+                ];
+            });
 
         // Format the student data with new disease fields
         $studentData = [
@@ -379,6 +445,7 @@ protected function transformStudentData($student)
             'memberships' => $memberships,
             'invoices' => $invoices,
             'attendances' => $attendances,
+            'results' => $results,
         ];
 
         // Fetch schools and classes
@@ -418,6 +485,13 @@ protected function transformStudentData($student)
     {
         try {
             $oldData = $student->toArray();
+            $oldClassId = $student->classId;
+            
+            // Log the raw request data for debugging
+            \Log::info('Student update raw request data:', [
+                'student_id' => $student->id,
+                'request_data' => $request->all(),
+            ]);
 
             $validatedData = $request->validate([
                 'firstName' => 'required|string|max:100',
@@ -430,17 +504,64 @@ protected function transformStudentData($student)
                 'phoneNumber' => 'nullable|string|max:20',
                 'email' => 'nullable|string|email|max:255|unique:students,email,' . $student->id,
                 'massarCode' => 'nullable|string|max:50|unique:students,massarCode,' . $student->id,
-                'levelId' => 'nullable|integer',
-                'classId' => 'nullable|integer',
-                'schoolId' => 'nullable|integer',
+                'levelId' => 'nullable',
+                'classId' => 'nullable',
+                'schoolId' => 'nullable',
                 'status' => 'required|in:active,inactive',
-                'assurance' => 'required|boolean',
-                'hasDisease' => 'sometimes|boolean',
-                'diseaseName' => 'nullable|required_if:hasDisease,true|string|max:255',
+                'assurance' => 'required',
+                'hasDisease' => 'sometimes',
+                'diseaseName' => 'nullable|string|max:255',
                 'medication' => 'nullable|string',
-                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120', // Added for image upload
+                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120',
             ]);
-
+            
+            // Process hasDisease field - ensure it's always an integer 0 or 1
+            $hasDiseaseValue = 0; // Default to 0
+            if (isset($validatedData['hasDisease'])) {
+                // Convert various truthy values to 1
+                if (in_array($validatedData['hasDisease'], [1, '1', true, 'true', 'yes', 'Yes', 'YES'], true)) {
+                    $hasDiseaseValue = 1;
+                }
+            }
+            $validatedData['hasDisease'] = $hasDiseaseValue;
+            
+            // Process assurance field
+            $assuranceValue = 0; // Default to 0
+            if (isset($validatedData['assurance'])) {
+                // Convert various truthy values to 1
+                if (in_array($validatedData['assurance'], [1, '1', true, 'true', 'yes', 'Yes', 'YES'], true)) {
+                    $assuranceValue = 1;
+                }
+            }
+            $validatedData['assurance'] = $assuranceValue;
+            
+            // Handle disease fields based on hasDisease value
+            if ($hasDiseaseValue === 0) {
+                // When hasDisease is false, always set diseaseName and medication to NULL
+                $validatedData['diseaseName'] = null;
+                $validatedData['medication'] = null;
+            } else {
+                // When hasDisease is true, validate that diseaseName is provided
+                if (empty($validatedData['diseaseName'])) {
+                    return redirect()->back()->withErrors(['diseaseName' => 'The disease name field is required when has disease is true.'])->withInput();
+                }
+                
+                // Convert empty strings to null
+                if ($validatedData['diseaseName'] === '') {
+                    $validatedData['diseaseName'] = null;
+                }
+                if (isset($validatedData['medication']) && $validatedData['medication'] === '') {
+                    $validatedData['medication'] = null;
+                }
+            }
+            
+            // Convert other empty strings to null for nullable fields
+            foreach (['CIN', 'phoneNumber', 'email', 'massarCode'] as $field) {
+                if (isset($validatedData[$field]) && $validatedData[$field] === '') {
+                    $validatedData[$field] = null;
+                }
+            }
+            
             // Handle profile image upload to Cloudinary
             if ($request->hasFile('profile_image')) {
                 $uploadedFile = $request->file('profile_image');
@@ -457,7 +578,50 @@ protected function transformStudentData($student)
                 }
             }
 
-            $student->update($validatedData);
+            // Debug: Log the validated data before update
+            \Log::info('Student update data before saving:', [
+                'student_id' => $student->id,
+                'validated_data' => $validatedData,
+            ]);
+
+            // Direct database update to ensure correct values are set
+            // This bypasses Eloquent's casting which might be causing issues
+            \DB::table('students')
+                ->where('id', $student->id)
+                ->update($validatedData);
+                
+            // Refresh the model from database
+            $student->refresh();
+
+            // Check if the class has changed
+            $newClassId = $student->classId;
+            if ($oldClassId != $newClassId) {
+                // Update old class count if there was an old class
+                if ($oldClassId) {
+                    $oldClass = Classes::find($oldClassId);
+                    if ($oldClass) {
+                        $oldClass->updateStudentCount();
+                        \Log::info('Updated old class student count', [
+                            'class_id' => $oldClass->id,
+                            'class_name' => $oldClass->name,
+                            'new_student_count' => $oldClass->number_of_students
+                        ]);
+                    }
+                }
+                
+                // Update new class count if there is a new class
+                if ($newClassId) {
+                    $newClass = Classes::find($newClassId);
+                    if ($newClass) {
+                        $newClass->updateStudentCount();
+                        \Log::info('Updated new class student count', [
+                            'class_id' => $newClass->id,
+                            'class_name' => $newClass->name,
+                            'new_student_count' => $newClass->number_of_students
+                        ]);
+                    }
+                }
+            }
 
             // Log the activity with old and new data
             $this->logActivity('updated', $student, $oldData, $student->toArray());
@@ -466,11 +630,16 @@ protected function transformStudentData($student)
         } catch (\Exception $e) {
             \Log::error('Error updating student', [
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
                 'user_id' => auth()->id(),
-                'data' => $request->all(),
+                'request_data' => $request->all(),
+                'student_id' => $student->id,
+                'student_data' => $student->toArray(),
+                'line' => $e->getLine(),
+                'file' => $e->getFile(),
             ]);
 
-            return redirect()->back()->with('error', 'Failed to update student. Please try again.');
+            return redirect()->back()->with('error', 'Failed to update student: ' . $e->getMessage());
         }
     }
 
@@ -480,6 +649,9 @@ protected function transformStudentData($student)
     public function destroy(Student $student)
     {
         try {
+            // Save class ID before deleting student
+            $classId = $student->classId;
+            
             // Delete the profile image from Cloudinary if it exists
             if ($student->profile_image) {
                 $publicId = $student->profile_image_public_id ?? null;
@@ -491,6 +663,21 @@ protected function transformStudentData($student)
 
             // Delete the student
             $student->delete();
+
+            // Update class student count if student was assigned to a class
+            if ($classId) {
+                $class = Classes::find($classId);
+                if ($class) {
+                    $class->updateStudentCount();
+                    
+                    // Log the updated class count
+                    \Log::info('Updated class student count after removing student', [
+                        'class_id' => $class->id,
+                        'class_name' => $class->name,
+                        'new_student_count' => $class->number_of_students
+                    ]);
+                }
+            }
 
             return redirect()->route('students.index')->with('success', 'Student deleted successfully.');
         } catch (\Exception $e) {

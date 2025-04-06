@@ -154,9 +154,15 @@ const SingleStudentPage = ({ student, Alllevels, Allclasses, Allschools, Alloffe
         </div>
         </div>
         
-
-        
-        <StudentProfile Student_memberships={student.memberships} invoices={student.invoices}   studentId={student.id} studentClassId={student.classId}   attendances={student.attendances}  />
+        {/* Student Profile with grades, invoices, and attendance */}
+        <StudentProfile 
+          Student_memberships={student.memberships} 
+          invoices={student.invoices} 
+          studentId={student.id} 
+          studentClassId={student.classId}
+          attendances={student.attendances}
+          results={student.results}
+        />
 
       </div>
       {/* RIGHT */}

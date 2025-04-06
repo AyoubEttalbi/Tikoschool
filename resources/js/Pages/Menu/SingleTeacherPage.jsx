@@ -14,6 +14,7 @@ const SingleTeacherPage = ({ teacher = {}, announcements=[], classes, subjects, 
   console.log("schools " ,teacher.schools[0].name)
   console.log("classes " ,classes)
   console.log("invoices links" ,invoices.links)
+  console.log('propss',usePage().props)
   return (
     <div className="flex-1 p-4 flex flex-col gap-4 xl:flex-row">
       {/* LEFT */}

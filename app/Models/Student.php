@@ -32,6 +32,19 @@ class Student extends Model
         'medication',
     ];
 
+    /**
+     * The attributes that should be cast.
+     *
+     * @var array
+     */
+    protected $casts = [
+        'hasDisease' => 'integer',
+        'assurance' => 'integer',
+        'levelId' => 'integer',
+        'classId' => 'integer',
+        'schoolId' => 'integer',
+    ];
+
     // Track the old class ID before update
     protected $oldClassId;
 
@@ -102,5 +115,75 @@ class Student extends Model
     public function school()
     {
         return $this->belongsTo(School::class, 'schoolId');
+    }
+
+    // Relationship to Attendances
+    public function attendances()
+    {
+        return $this->hasMany(Attendance::class, 'student_id');
+    }
+
+    /**
+     * Get the hasDisease attribute.
+     * Ensures that the value is explicitly returned as an integer (0 or 1)
+     *
+     * @param  mixed  $value
+     * @return int
+     */
+    public function getHasDiseaseAttribute($value)
+    {
+        // Cast to integer to ensure 0 or 1
+        return (int) $value;
+    }
+
+    /**
+     * Set the hasDisease attribute.
+     * Ensures that the value is stored as an integer (0 or 1)
+     *
+     * @param  mixed  $value
+     * @return void
+     */
+    public function setHasDiseaseAttribute($value)
+    {
+        // Convert various input values to integer (0 or 1)
+        if (is_string($value)) {
+            $value = ($value === 'true' || $value === '1') ? 1 : 0;
+        } else {
+            $value = $value ? 1 : 0;
+        }
+        
+        $this->attributes['hasDisease'] = $value;
+    }
+
+    /**
+     * Get the assurance attribute.
+     * Ensures that the value is explicitly returned as an integer (0 or 1)
+     *
+     * @param  mixed  $value
+     * @return int
+     */
+    public function getAssuranceAttribute($value)
+    {
+        // Cast to integer to ensure 0 or 1
+        return (int) $value;
+    }
+
+    /**
+     * Set the assurance attribute.
+     * Ensures that the value is stored as an integer (0 or 1)
+     *
+     * @param  mixed  $value
+     * @return void
+     */
+    public function setAssuranceAttribute($value)
+    {
+        // Convert various input values to integer (0 or 1)
+        if (is_string($value)) {
+            $value = ($value === 'true' || $value === '1') ? 1 : 0;
+        } else {
+            $value = $value ? 1 : 0;
+        }
+        
+        $this->attributes['assurance'] = $value;
     }
 }

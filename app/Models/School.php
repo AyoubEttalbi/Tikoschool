@@ -3,6 +3,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 class School extends Model
 {
@@ -17,9 +18,11 @@ class School extends Model
     /**
      * Get the teachers associated with the school.
      */
-    public function teachers(): HasMany
+    public function teachers(): BelongsToMany
     {
-        return $this->hasMany(Teacher::class);
+        return $this->belongsToMany(Teacher::class, 'school_teacher', 'school_id', 'teacher_id')
+            ->select('teachers.*') // Explicitly select all columns from teachers table
+            ->withTimestamps();
     }
     public function assistants()
 {

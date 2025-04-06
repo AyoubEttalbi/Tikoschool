@@ -31,10 +31,11 @@ const schema = z.object({
     z.literal("1"),
     z.literal("0")
   ]).transform(val => val === 1 || val === "1" ? "1" : "0").optional(),
-  diseaseName: z.string().optional(),
-  medication: z.string().optional(),
+  diseaseName: z.any().optional(),
+  medication: z.any().optional(),
 }).superRefine((data, ctx) => {
-  if (data.hasDisease === "1" && !data.diseaseName) {
+  // Only validate diseaseName if hasDisease is "1"
+  if (data.hasDisease === "1" && (!data.diseaseName || data.diseaseName.trim() === '')) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: "Disease name is required when student has a disease",
@@ -59,6 +60,9 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
   
   // State for loading
   const [loading, setLoading] = useState(false)
+  
+  // State for validation errors not caught by the form
+  const [serverErrors, setServerErrors] = useState({})
 
   // State to hold filtered classes based on selected level
   const [filteredClasses, setFilteredClasses] = useState([])
@@ -76,8 +80,8 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
       assurance: data?.assurance === 1 ? "1" : "0",
       status: data?.status || "active",
       hasDisease: data?.hasDisease === 1 ? "1" : "0",
-      diseaseName: data?.diseaseName || "",
-      medication: data?.medication || "",
+      diseaseName: data?.hasDisease === 1 ? (data?.diseaseName || "-") : "-",
+      medication: data?.hasDisease === 1 ? (data?.medication || "-") : "-",
       profile_image: null,
       ...data, // Spread existing data for update
     },
@@ -141,6 +145,17 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
   
   // Handle form submission
   const onSubmit = handleSubmit((formData) => {
+    // Reset server errors
+    setServerErrors({});
+    
+    // Validate diseaseName manually if hasDisease is true
+    if (formData.hasDisease === "1" && (!formData.diseaseName || formData.diseaseName.trim() === '')) {
+      setServerErrors({
+        diseaseName: "Disease name is required when selecting Yes for Has Disease"
+      });
+      return;
+    }
+    
     // Create a FormData object to properly handle file uploads
     const formDataObj = new FormData();
     
@@ -151,22 +166,40 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
     formDataObj.append('billingDate', formData.billingDate);
     formDataObj.append('address', formData.address);
     formDataObj.append('guardianNumber', formData.guardianNumber);
-    formDataObj.append('CIN', formData.CIN);
-    formDataObj.append('phoneNumber', formData.phoneNumber);
-    formDataObj.append('email', formData.email);
-    formDataObj.append('massarCode', formData.massarCode);
+    formDataObj.append('CIN', formData.CIN || '');
+    formDataObj.append('phoneNumber', formData.phoneNumber || '');
+    formDataObj.append('email', formData.email || '');
+    formDataObj.append('massarCode', formData.massarCode || '');
     formDataObj.append('levelId', formData.levelId.toString());
     formDataObj.append('classId', formData.classId.toString());
     formDataObj.append('schoolId', formData.schoolId.toString());
     formDataObj.append('status', formData.status || 'active');
-    formDataObj.append('assurance', formData.assurance === "1" ? 1 : 0);
-    formDataObj.append('hasDisease', formData.hasDisease === "1" ? 1 : 0);
     
-    // Only append disease info if hasDisease is true
-    if (formData.hasDisease === "1") {
-      formDataObj.append('diseaseName', formData.diseaseName || '');
-      formDataObj.append('medication', formData.medication || '');
-    }
+    // Explicitly convert hasDisease to 0 or 1 (integer for PHP)
+    const hasDiseaseValue = formData.hasDisease === "1" || formData.hasDisease === 1 || formData.hasDisease === true ? 1 : 0;
+    formDataObj.append('hasDisease', hasDiseaseValue); // Send as integer
+    
+    // Similarly ensure assurance is a numeric value
+    const assuranceValue = formData.assurance === "1" || formData.assurance === 1 || formData.assurance === true ? 1 : 0;
+    formDataObj.append('assurance', assuranceValue); // Send as integer
+    
+    // Always explicitly set diseaseName and medication
+    // If hasDisease is true, use provided values or default to empty
+    // If hasDisease is false, always use empty string
+    const diseaseNameValue = hasDiseaseValue === 1 ? (formData.diseaseName || '') : '';
+    const medicationValue = hasDiseaseValue === 1 ? (formData.medication || '') : '';
+    
+    formDataObj.append('diseaseName', diseaseNameValue);
+    formDataObj.append('medication', medicationValue);
+    
+    // Log for debugging
+    console.log('Form data being sent:', {
+      hasDisease: hasDiseaseValue,
+      assurance: assuranceValue,
+      diseaseName: diseaseNameValue,
+      medication: medicationValue,
+      formOriginal: formData,
+    });
     
     // Append the file if it exists
     if (formData.profile_image) {
@@ -185,6 +218,7 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
         },
         onError: (errors) => {
           console.log("Inertia Errors:", errors);
+          setServerErrors(errors);
           setLoading(false);
         },
       });
@@ -203,6 +237,7 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
         },
         onError: (errors) => {
           console.log("Inertia Errors:", errors);
+          setServerErrors(errors);
           setLoading(false);
         },
       });
@@ -298,6 +333,13 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
         if (value === "0") {
           setValue("diseaseName", "")
           setValue("medication", "")
+          // Clear any errors related to disease fields
+          setServerErrors(prev => {
+            const newErrors = {...prev};
+            delete newErrors.diseaseName;
+            delete newErrors.medication;
+            return newErrors;
+          });
         }
       }}
     >
@@ -319,7 +361,7 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
         label="Disease Name"
         name="diseaseName"
         register={register}
-        error={errors.diseaseName}
+        error={errors.diseaseName || (serverErrors.diseaseName ? {message: serverErrors.diseaseName} : null)}
         defaultValue={data?.diseaseName}
       />
       <InputField

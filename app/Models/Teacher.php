@@ -13,7 +13,6 @@ class Teacher extends Model
     use HasFactory, SoftDeletes;
 
     protected $fillable = [
-        'school_id',
         'first_name',
         'last_name',
         'address',
@@ -81,13 +80,13 @@ class Teacher extends Model
 
     public function schools(): BelongsToMany
     {
-        return $this->belongsToMany(School::class)->withTimestamps();
+        return $this->belongsToMany(School::class, 'school_teacher')
+            ->select('schools.*') // Explicitly select all columns from schools table
+            ->withTimestamps();
     }
 
-public function user()
-{
-    return $this->belongsTo(User::class, 'email', 'email');
-}
-
-    
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'email', 'email');
+    }
 }

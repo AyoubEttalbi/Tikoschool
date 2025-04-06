@@ -21,7 +21,7 @@ class StatsController extends Controller
      */
     public function index(Request $request)
 {
-    // Fetch counts of teachers, students, and assistants (existing logic)
+    // Fetch counts of teachers using the pivot table
     $teacherCounts = DB::table('school_teacher')
         ->select('school_id', DB::raw('COUNT(DISTINCT teacher_id) as count'))
         ->groupBy('school_id')
@@ -142,13 +142,12 @@ class StatsController extends Controller
         'totalAssistantCount' => $totalAssistantCount,
         'schools' => $schools,
         'monthlyIncomes' => $monthlyIncomes,
-        'mostSellingOffers' => $mostSellingOffers, // Pass the most selling offers data
+        'mostSellingOffers' => $mostSellingOffers,
         'announcements' => $announcements,
-        'announcements' => $announcements,
-            'filters' => [
-                'status' => $status,
-            ],
-            'userRole' => $userRole, // Pass user role to frontend
+        'filters' => [
+            'status' => $status,
+        ],
+        'userRole' => $userRole,
     ]);
 }
 }

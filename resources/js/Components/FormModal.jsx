@@ -11,6 +11,8 @@ const AssistantForm = lazy(() => import('./forms/AssistantForm'));
 const SubjectForm = lazy(() => import('./forms/SubjectForm'));
 const LevelForm = lazy(() => import('./forms/LevelForm'));
 const InvoicesFrom = lazy(() => import('./forms/InvoicesFrom'));
+const SchoolForm = lazy(() => import('./forms/SchoolForm'));
+const ResultForm = lazy(() => import('./forms/ResultForm'));
 
 const forms = {
   offer: OfferForm,
@@ -21,7 +23,9 @@ const forms = {
   membership: MembershipForm,
   subject: SubjectForm,
   level: LevelForm,
-  invoice: InvoicesFrom
+  invoice: InvoicesFrom,
+  school: SchoolForm,
+  result: ResultForm
 };
 
 const FormModal = ({ table, type,icon, data, id, levels, route,subjects,classes, schools,offers,teachers,studentId,StudentMemberships }) => {

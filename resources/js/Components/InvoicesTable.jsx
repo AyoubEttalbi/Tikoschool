@@ -63,8 +63,8 @@ const InvoicesTable = ({ invoices = [], Student_memberships = [], studentId = nu
                 <td className="p-3 text-sm text-gray-900">{formatDate(invoice.billDate, "yyyy-MM")}</td>
                 <td className="p-3 text-sm text-gray-900">{formatDate(invoice.created_at, "dd-MMM-yyyy HH:mm")}</td>
                 <td className="p-3 text-sm text-gray-900">{formatDate(invoice.last_payment, "dd-MMM-yyyy HH:mm")}</td>
-                <td className="p-3 text-sm text-gray-900">{invoice.amountPaid}</td>
-                <td className="p-3 text-sm text-gray-900">{invoice.rest}</td>
+                <td className="p-3 text-sm text-gray-900">{invoice.amountPaid} DH</td>
+                <td className="p-3 text-sm text-gray-900">{invoice.rest} DH</td>
                 <td className="p-3 text-sm text-gray-900">
                   {Student_memberships.find((membership) => membership.id === invoice.membership_id)?.offer_name || '---'}
                 </td>

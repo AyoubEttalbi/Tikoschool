@@ -39,20 +39,41 @@ class AuthenticatedSessionController extends Controller
 
         // Get the authenticated user
         $user = Auth::user();
+        
+        // Log authentication info
+        \Log::info('User authenticated', [
+            'id' => $user->id,
+            'email' => $user->email,
+            'role' => $user->role
+        ]);
 
         // Redirect based on the user's role
         if ($user->role === 'teacher') {
             // Find the teacher by email
             $teacher = Teacher::where('email', $user->email)->first();
+            
+            // Log teacher lookup results
+            \Log::info('Teacher lookup result:', [
+                'user_email' => $user->email,
+                'teacher_found' => $teacher ? 'yes' : 'no',
+                'teacher_id' => $teacher ? $teacher->id : null
+            ]);
 
             if ($teacher) {
-                return redirect()->route('teachers.show', $teacher->id);
+                return redirect()->route('profiles.select');
             }
         }
 
         if ($user->role === 'assistant') {
             // Find the assistant by email
             $assistant = Assistant::where('email', $user->email)->first();
+            
+            // Log assistant lookup results
+            \Log::info('Assistant lookup result:', [
+                'user_email' => $user->email,
+                'assistant_found' => $assistant ? 'yes' : 'no',
+                'assistant_id' => $assistant ? $assistant->id : null
+            ]);
 
             if ($assistant) {
                 return redirect()->route('assistants.show', $assistant->id);
