@@ -5,11 +5,11 @@ import { useState } from "react"
 import InputField from "../InputField"
 import { router, Link } from "@inertiajs/react"
 import { Check, ChevronsUpDown, X, Upload, ChevronUp, ChevronDown } from "lucide-react"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/Components/ui/select"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/Components/ui/command"
+import { Popover, PopoverContent, PopoverTrigger } from "@/Components/ui/popover"
+import { Badge } from "@/Components/ui/badge"
+import { Button } from "@/Components/ui/button"
 import Register from "@/Pages/Auth/Register";
 
 // Define the schema

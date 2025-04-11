@@ -4,7 +4,7 @@ import { z } from "zod"
 import InputField from "../InputField"
 import { router } from "@inertiajs/react"
 import { useEffect, useState } from "react"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/Components/ui/select"
 import { Upload } from "lucide-react"
 
 // Update schema to include disease information

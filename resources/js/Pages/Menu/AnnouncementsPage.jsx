@@ -19,7 +19,7 @@ import DangerButton from '@/Components/DangerButton';
 import { SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue } from '@/components/ui/select';
+  SelectValue } from '@/Components/ui/select';
 
 
 export default function AnnouncementsPage({ announcements }) {
