@@ -16,7 +16,8 @@ import InputLabel from '@/Components/InputLabel';
 import PrimaryButton from '@/Components/PrimaryButton';
 import SecondaryButton from '@/Components/SecondaryButton';
 import DangerButton from '@/Components/DangerButton';
-import { SelectContent,
+import { Select,
+  SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue } from '@/Components/ui/select';

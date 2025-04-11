@@ -78,6 +78,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/students/{student}', [StudentsController::class, 'show'])->name('students.show');
     Route::get('/teachers', [TeacherController::class, 'index'])->name('teachers.index');
     Route::get('/teachers/{teacher}', [TeacherController::class, 'show'])->name('teachers.show');
+    Route::get('/schools/{school}', [SchoolController::class, 'show'])->name('schools.show');
     Route::get('/results', [ResultsController::class, 'index'])->name('results.index');
     Route::get('/attendances', [AttendanceController::class, 'index'])->name('attendances.index');
     
