@@ -16,7 +16,7 @@ const SingleRecord = () => {
             <div className="space-y-4 mb-8">
                 <div>
                     <h2 className="text-lg font-medium text-gray-700">Class</h2>
-                    <p className="text-gray-600">{attendance.classe.name}</p>
+                    <p className="text-gray-600">{attendance.class.name}</p>
                 </div>
                 <div>
                     <h2 className="text-lg font-medium text-gray-700">Total Records</h2>

@@ -19,7 +19,7 @@ const columns = [
   { header: "Actions", accessor: "action" },
 ];
 
-const AttendancePage = ({ attendances, assistants, schools, classes, students, teachers, filters, levels }) => {
+const AttendancePage = ({ attendances , assistants, schools, classes, students, teachers, filters, levels }) => {
   const { auth, errors } = usePage().props;
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
@@ -30,18 +30,43 @@ const AttendancePage = ({ attendances, assistants, schools, classes, students, t
   // Initialize attendanceData when students or filters change
   useEffect(() => {
     if (students?.length > 0) {
-      setAttendanceData(students.map(student => ({
-        student_id: student.id,
-        status: 'present', // Default status
-        reason: '', // Default reason
-        date: filters.date || new Date().toISOString().split('T')[0],
-        class_id: filters.class_id
-      })));
+      console.log("Initializing attendanceData with students:", students);
+      
+      const newAttendanceData = students.map(student => {
+        console.log("Student ID:", student.id, "Student:", student);
+        return {
+          student_id: student.student_id || student.id, // Try both possible id locations
+          status: student.status || 'present', // Use existing status if available
+          reason: student.reason || '', // Use existing reason if available
+          date: filters.date || new Date().toISOString().split('T')[0],
+          class_id: filters.class_id
+        };
+      });
+      
+      console.log("New attendance data:", newAttendanceData);
+      setAttendanceData(newAttendanceData);
+    } else {
+      console.log("No students available", { filters });
     }
   }, [students, filters.date, filters.class_id]);
 
+  // Effect to log when students change
+  useEffect(() => {
+    console.log("Students data changed:", { 
+      count: students?.length, 
+      filters, 
+      studentsData: students
+    });
+  }, [students]);
+
   const handleSubmit = (e) => {
     e.preventDefault();
+
+    // Check if attendanceData has student_id for each record
+    if (!attendanceData || attendanceData.length === 0 || !attendanceData[0].student_id) {
+      console.error("Missing student_id in attendance data");
+      return;
+    }
 
     // Always send all attendance data, including "present" records
     const payload = {
@@ -55,18 +80,29 @@ const AttendancePage = ({ attendances, assistants, schools, classes, students, t
     router.post(route('attendances.store'), payload, {
       onSuccess: () => {
         setShowCreateModal(false);
-        // Refresh the page with the new date after submission
-        router.get(route('attendances.index'), { ...filters, date: formDate }, { preserveScroll: true });
+        
+        // Force a full page refresh to ensure we get updated data
+        window.location.href = route('attendances.index', { 
+          ...filters, 
+          date: formDate,
+          _timestamp: new Date().getTime() // Add timestamp to prevent caching
+        });
       },
       onError: (errors) => {
         console.log("errors", errors);
       },
-      preserveScroll: true
+      preserveScroll: false
     });
   };
 
   const handleStatusChange = (index, value) => {
     const newData = [...attendanceData];
+    
+    // Make sure we have a student_id, if not, get it from the students array
+    if (!newData[index].student_id && students[index]) {
+      newData[index].student_id = students[index].student_id || students[index].id;
+    }
+    
     newData[index].status = value;
     if (value !== 'absent') newData[index].reason = ''; // Clear reason if status is not "absent"
     setAttendanceData(newData);
@@ -74,6 +110,12 @@ const AttendancePage = ({ attendances, assistants, schools, classes, students, t
 
   const handleReasonChange = (index, value) => {
     const newData = [...attendanceData];
+    
+    // Make sure we have a student_id, if not, get it from the students array
+    if (!newData[index].student_id && students[index]) {
+      newData[index].student_id = students[index].student_id || students[index].id;
+    }
+    
     newData[index].reason = value;
     setAttendanceData(newData);
   };
@@ -86,6 +128,19 @@ const AttendancePage = ({ attendances, assistants, schools, classes, students, t
   // Reset formDate when opening the create modal
   const handleOpenCreateModal = () => {
     setFormDate(filters.date || new Date().toISOString().split('T')[0]);
+    
+    // If we have students with existing attendance data, make sure to preserve it
+    if (students?.length > 0) {
+      const initialData = students.map(student => ({
+        student_id: student.student_id || student.id,
+        status: student.status || 'present',
+        reason: student.reason || '',
+        date: filters.date || new Date().toISOString().split('T')[0],
+        class_id: filters.class_id
+      }));
+      setAttendanceData(initialData);
+    }
+    
     setShowCreateModal(true);
   };
 
@@ -101,17 +156,17 @@ const AttendancePage = ({ attendances, assistants, schools, classes, students, t
     );
   }
 
-  const renderRow = (attendance) => (
+  const renderRow = (student) => (
     <tr
-      key={attendance.student_id}
+      key={student.id}
       className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-purple-50 transition-colors"
     >
       <td className="p-4 font-medium">
-        {attendance.firstName} {attendance.lastName}
+        {student.firstName} {student.lastName}
       </td>
-      <td>{attendance.class?.name || 'N/A'}</td>
+      <td>{student.class?.name || 'N/A'}</td>
       <td className="hidden md:table-cell">
-        {new Date(attendance.date).toLocaleDateString('en-US', {
+        {new Date(student.date).toLocaleDateString('en-US', {
           weekday: 'short',
           year: 'numeric',
           month: 'short',
@@ -121,16 +176,16 @@ const AttendancePage = ({ attendances, assistants, schools, classes, students, t
       <td>
         <span
           className={`px-2 py-1 rounded-full text-xs font-medium ${
-            attendance.status === 'present'
+            student.status === 'present'
               ? 'bg-green-100 text-green-800'
-              : (attendance.status === 'late' ? 'bg-yellow-100 text-yellow-800' : 'bg-rose-100 text-rose-800')
+              : (student.status === 'late' ? 'bg-yellow-100 text-yellow-800' : 'bg-rose-100 text-rose-800')
           }`}
         >
-          {attendance.status}
+          {student.status}
         </span>
       </td>
       <td className="hidden lg:table-cell text-gray-600">
-        {attendance.reason || '-'}
+        {student.reason || '-'}
       </td>
       <td className="text-gray-600">
         {auth.user.name} ({(auth.user.role)})
@@ -138,7 +193,7 @@ const AttendancePage = ({ attendances, assistants, schools, classes, students, t
       <td>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => handleEditClick(attendance)}
+            onClick={() => handleEditClick(student)}
             className="w-7 h-7 flex items-center justify-center rounded-full bg-lamaYellow hover:bg-yellow-200 transition-colors"
           >
             <img src="/update.png" alt="update" className="w-4 h-4" />
@@ -187,15 +242,25 @@ const AttendancePage = ({ attendances, assistants, schools, classes, students, t
                       <span className="font-medium">
                         {student.firstName} {student.lastName}
                       </span>
-                      <select
-                        value={attendanceData[index]?.status || 'present'}
-                        onChange={(e) => handleStatusChange(index, e.target.value)}
-                        className="pl-3 pr-8 py-1 border rounded-md"
-                      >
-                        <option value="present">Present</option>
-                        <option value="absent">Absent</option>
-                        <option value="late">Late</option>
-                      </select>
+                      <div className="flex items-center gap-2">
+                        {student.exists_in_db && (
+                          <span className="text-xs text-indigo-600 italic">Previously recorded</span>
+                        )}
+                        <select
+                          value={attendanceData[index]?.status || 'present'}
+                          onChange={(e) => {
+                            // Ensure student_id is set when changing status
+                            handleStatusChange(index, e.target.value);
+                          }}
+                          className={`pl-3 pr-8 py-1 border rounded-md ${
+                            student.exists_in_db ? 'border-indigo-300 bg-indigo-50' : ''
+                          }`}
+                        >
+                          <option value="present">Present</option>
+                          <option value="absent">Absent</option>
+                          <option value="late">Late</option>
+                        </select>
+                      </div>
                     </div>
                     {(attendanceData[index]?.status === 'absent' || attendanceData[index]?.status === 'late') && (
                       <input
@@ -249,7 +314,7 @@ const AttendancePage = ({ attendances, assistants, schools, classes, students, t
       <Table
         columns={columns}
         renderRow={renderRow}
-        data={attendances}
+        data={students || []}
         headerClassName="bg-gray-50 text-gray-600 text-sm font-medium"
       />
 

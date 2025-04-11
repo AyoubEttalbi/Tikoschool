@@ -67,28 +67,33 @@ class AttendanceController extends Controller
         $studentsQuery = Student::with('class');
         
         if ($selectedSchoolId) {
-            $studentsQuery->where(DB::raw('"schoolId"'), $selectedSchoolId);
+            $studentsQuery->where('schoolId', $selectedSchoolId);
+            \Log::debug('Filtering students by school ID', ['schoolId' => $selectedSchoolId]);
         }
         
         if ($classId) {
-            $studentsQuery->where(DB::raw('"classId"'), $classId);
+            $studentsQuery->where('classId', $classId);
+            \Log::debug('Filtering students by class ID', ['classId' => $classId]);
             
             if ($search) {
                 $studentsQuery->where(function ($query) use ($search) {
                     $query->where('firstName', 'like', "%{$search}%")
                         ->orWhere('lastName', 'like', "%{$search}%");
                 });
+                \Log::debug('Filtering students by search', ['search' => $search]);
             }
             
             $students = $studentsQuery->get();
+            \Log::debug('Students found', ['count' => $students->count()]);
         } else {
             $students = collect();
+            \Log::debug('No class ID provided, returning empty student collection');
         }
 
         // Get existing attendance for selected date and class
         $existingAttendances = $classId
             ? Attendance::with('class')
-                ->where(DB::raw('"classId"'), $classId)
+                ->where('classId', $classId)
                 ->whereDate('date', $date)
                 ->get()
                 ->keyBy('student_id')
@@ -164,24 +169,25 @@ class AttendanceController extends Controller
             'attendances.*.reason' => 'nullable|string|max:255',
             'date' => 'required|date',
             'class_id' => 'required|exists:classes,id',
+            'teacher_id' => 'nullable|exists:teachers,id',
         ]);
  
         try {
             DB::beginTransaction();
 
             $filtered = collect($validated['attendances'])->filter(fn($att) => $att['status'] !== 'present');
+            
+            // Track which students have records
+            $processedStudentIds = [];
 
             foreach ($filtered as $attendance) {
-                $whereConditions = [
-                    'student_id' => $attendance['student_id'],
-                    'date' => $validated['date']
-                ];
+                $studentId = $attendance['student_id'];
+                $processedStudentIds[] = $studentId;
                 
-                // Add classId condition with proper PostgreSQL quoting
-                $classIdColumn = DB::raw('"classId"');
-                $attendanceModel = Attendance::where('student_id', $attendance['student_id'])
+                // Add classId condition
+                $attendanceModel = Attendance::where('student_id', $studentId)
                     ->where('date', $validated['date'])
-                    ->where($classIdColumn, $validated['class_id'])
+                    ->where('classId', $validated['class_id'])
                     ->first();
                     
                 if ($attendanceModel) {
@@ -191,30 +197,69 @@ class AttendanceController extends Controller
                         'reason' => $attendance['reason'],
                         'recorded_by' => auth()->id()
                     ]);
+                    
+                    \Log::info('Updated existing attendance record', [
+                        'student_id' => $studentId,
+                        'status' => $attendance['status']
+                    ]);
                 } else {
                     // Create new record
                     Attendance::create([
-                        'student_id' => $attendance['student_id'],
+                        'student_id' => $studentId,
                         'date' => $validated['date'],
                         'classId' => $validated['class_id'],
                         'status' => $attendance['status'],
                         'reason' => $attendance['reason'],
                         'recorded_by' => auth()->id()
                     ]);
+                    
+                    \Log::info('Created new attendance record', [
+                        'student_id' => $studentId,
+                        'status' => $attendance['status']
+                    ]);
                 }
             }
 
             // Remove any existing present records
-            Attendance::where(DB::raw('"classId"'), $validated['class_id'])
+            Attendance::where('classId', $validated['class_id'])
                 ->whereDate('date', $validated['date'])
                 ->where('status', 'present')
                 ->delete();
 
             DB::commit();
 
-            return redirect()->back()->with('success', 'Attendance saved successfully');
+            // Log summary of what was processed
+            \Log::info('Attendance saved', [
+                'class_id' => $validated['class_id'],
+                'date' => $validated['date'],
+                'student_count' => count($validated['attendances']),
+                'non_present_count' => $filtered->count(),
+                'processed_student_ids' => $processedStudentIds
+            ]);
+            
+            // Verify students can be retrieved for this class
+            $studentCount = Student::where('classId', $validated['class_id'])->count();
+            \Log::info('Found students for this class', [
+                'class_id' => $validated['class_id'],
+                'student_count' => $studentCount
+            ]);
+
+            // Get the teacher_id, either from validation or request
+            $teacherId = $validated['teacher_id'] ?? $request->input('teacher_id');
+
+            // Redirect with explicit parameters to ensure data is properly loaded
+            return redirect()->route('attendances.index', [
+                'date' => $validated['date'],
+                'class_id' => $validated['class_id'],
+                'teacher_id' => $teacherId,
+                '_timestamp' => time() // Add timestamp to prevent caching
+            ])->with('success', 'Attendance saved successfully');
         } catch (\Exception $e) {
             DB::rollBack();
+            \Log::error('Error saving attendance', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
             return redirect()->back()->with('error', 'Error saving attendance: ' . $e->getMessage());
         }
     }
@@ -222,11 +267,11 @@ class AttendanceController extends Controller
     public function show($id)
     {
         // Fetch the specific attendance record
-        $attendance = Attendance::with(['student', 'classe', 'recordedBy'])
+        $attendance = Attendance::with(['student', 'class', 'recordedBy'])
             ->findOrFail($id);
 
         // Fetch all attendance records for the student
-        $studentAttendances = Attendance::with(['classe', 'recordedBy'])
+        $studentAttendances = Attendance::with(['class', 'recordedBy'])
             ->where('student_id', $attendance->student_id)
             ->latest()
             ->paginate(10);

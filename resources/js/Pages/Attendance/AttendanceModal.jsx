@@ -22,6 +22,7 @@ const AttendanceModal = ({ table, type, id, data, classes, students, onClose }) 
           // Top-level date and class_id
           date: formData.date,
           class_id: data.classId,
+          teacher_id: usePage().props.filters?.teacher_id,
           // Attendances array structure
           attendances: [{
             student_id: data.student_id,
@@ -29,7 +30,15 @@ const AttendanceModal = ({ table, type, id, data, classes, students, onClose }) 
             reason: formData.reason
           }]
         }, {
-          onSuccess: () => onClose(),
+          onSuccess: () => {
+            onClose();
+            // Force full page reload with timestamp to prevent caching
+            window.location.href = route('attendances.index', { 
+              ...usePage().props.filters,
+              date: formData.date,
+              _timestamp: new Date().getTime()
+            });
+          },
           preserveScroll: true
         });
       } else {
@@ -38,12 +47,36 @@ const AttendanceModal = ({ table, type, id, data, classes, students, onClose }) 
     } else {
       // Handle existing records
       if (type === "create") {
-        router.post(route(`${table}.store`), { attendances: [formData] }, {
-          onSuccess: () => onClose(),
+        router.post(route(`${table}.store`), { 
+          attendances: [formData],
+          date: formData.date,
+          class_id: formData.class_id,
+          teacher_id: usePage().props.filters?.teacher_id
+        }, {
+          onSuccess: () => {
+            onClose();
+            // Force full page reload with timestamp to prevent caching
+            window.location.href = route('attendances.index', { 
+              ...usePage().props.filters,
+              date: formData.date,
+              _timestamp: new Date().getTime()
+            });
+          },
         });
       } else {
-        router.put(route(`${table}.update`, id), formData, {
-          onSuccess: () => onClose(),
+        router.put(route(`${table}.update`, id), {
+          ...formData,
+          teacher_id: usePage().props.filters?.teacher_id
+        }, {
+          onSuccess: () => {
+            onClose();
+            // Force full page reload with timestamp to prevent caching
+            window.location.href = route('attendances.index', { 
+              ...usePage().props.filters,
+              date: formData.date,
+              _timestamp: new Date().getTime()
+            });
+          },
         });
       }
     }
@@ -87,6 +120,16 @@ const AttendanceModal = ({ table, type, id, data, classes, students, onClose }) 
               </select>
             </div>
           )}
+          
+          {/* Display student name for update mode */}
+          {type === "update" && (
+            <div>
+              <label className="block text-sm font-medium mb-1">Student</label>
+              <div className="w-full p-2 border rounded-md bg-gray-50">
+                {data.firstName} {data.lastName}
+              </div>
+            </div>
+          )}
 
           {/* Status Input */}
           <div>
@@ -94,7 +137,9 @@ const AttendanceModal = ({ table, type, id, data, classes, students, onClose }) 
             <select
               value={formData.status}
               onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-              className="w-full p-2 border rounded-md"
+              className={`w-full p-2 border rounded-md ${
+                data.exists_in_db ? 'border-indigo-300 bg-indigo-50' : ''
+              }`}
               required
             >
               <option value="present">Present</option>
