@@ -68,8 +68,8 @@ const SingleAssistantPage = ({
     <div className="flex-1 p-4 flex flex-col gap-4 xl:flex-row">
       {/* LEFT */}
       <div className="w-full xl:w-2/3">
-        {/* School Selection Banner */}
-        {selectedSchool && (
+        {/* School Selection Banner - only show if assistant has more than one school */}
+        {selectedSchool && assistant.schools && assistant.schools.length > 1 && (
           <div className="w-full mb-4 p-3 bg-lamaSkyLight border border-lamaSky/20 rounded-md flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="h-8 w-8 bg-white rounded-full flex items-center justify-center">
@@ -110,6 +110,13 @@ const SingleAssistantPage = ({
             <div className="w-2/3 flex flex-col justify-between gap-4">
               <div className="flex items-center gap-4">
                 <h1 className="text-xl font-semibold">{assistant.first_name} {assistant.last_name}</h1>
+                <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                  assistant.status === 'inactive' 
+                    ? 'bg-red-100 text-red-800 border border-red-200' 
+                    : 'bg-green-100 text-green-800 border border-green-200'
+                }`}>
+                  {assistant.status === 'inactive' ? 'Inactive' : 'Active'}
+                </span>
               </div>
               <p className="text-sm text-gray-500">
                 {assistant.bio || "No bio available."}
@@ -163,7 +170,25 @@ const SingleAssistantPage = ({
             <InfoCard icon="/singleAttendance.png" label="Students" value={statistics.students_count} />
             <InfoCard icon="/singleBranch.png" label="School" value={selectedSchool ? selectedSchool.name : "N/A"} />
             <InfoCard icon="/singleLesson.png" label="Classes" value={statistics.classes_count} />
-            <InfoCard icon="/singleClass.png" label="Status" value={assistant.status || "Active"} />
+            <InfoCard 
+              icon={
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-lamaSky">
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+                  <circle cx="9" cy="7" r="4"></circle>
+                  <polyline points="16 11 18 13 22 9"></polyline>
+                </svg>
+              }
+              label="Status" 
+              value={
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                  assistant.status === 'inactive' 
+                    ? 'bg-red-100 text-red-800' 
+                    : 'bg-green-100 text-green-800'
+                }`}>
+                  {assistant.status === 'inactive' ? 'Inactive' : 'Active'}
+                </span>
+              } 
+            />
           </div>
         </div>
 
@@ -442,9 +467,13 @@ const DataTable = ({ data, columns, emptyMessage }) => (
 
 const InfoCard = ({ icon, label, value }) => (
   <div className="bg-white p-4 rounded-md flex gap-4 w-full md:w-[48%] xl:w-[45%] 2xl:w-[48%]">
-    <img src={icon} alt="" width={24} height={24} className="w-6 h-6" />
+    {typeof icon === 'string' ? (
+      <img src={icon} alt="" width={24} height={24} className="w-6 h-6" />
+    ) : (
+      icon
+    )}
     <div>
-      <h1 className="text-xl font-semibold">{value}</h1>
+      <div className="text-xl font-semibold">{value}</div>
       <span className="text-sm text-gray-400">{label}</span>
     </div>
   </div>

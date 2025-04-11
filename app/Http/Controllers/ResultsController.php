@@ -111,6 +111,18 @@ class ResultsController extends Controller
         $classes = $classesQuery->with('level')->get();
         $teachers = $teachersQuery->with(['subjects', 'classes'])->get();
         
+        // If user is a teacher, pass their ID directly for auto-selection
+        $loggedInTeacherId = null;
+        if ($role === 'teacher' && isset($teacher)) {
+            $loggedInTeacherId = $teacher->id;
+            
+            // Log that we're sending the teacher ID to the frontend
+            \Log::info('Sending teacher ID to frontend', [
+                'teacher_id' => $loggedInTeacherId,
+                'user_email' => $user->email
+            ]);
+        }
+        
         return Inertia::render('Menu/ResultsPage', [
             'classes' => $classes,
             'teachers' => $teachers,
@@ -118,6 +130,8 @@ class ResultsController extends Controller
             'subjects' => $subjects,
             'schools' => $schools,
             'teacherSubjectIds' => $teacherSubjectIds,
+            'loggedInTeacherId' => $loggedInTeacherId, // Pass the teacher ID directly
+            'role' => $role, // Make sure role is properly passed
             'selectedSchool' => $selectedSchoolId ? [
                 'id' => $selectedSchoolId,
                 'name' => session('school_name')
@@ -342,20 +356,70 @@ class ResultsController extends Controller
             return response()->json([]);
         }
         
+        // Get students in this class
+        $students = Student::where('classId', $class_id)->get();
+        
+        // Get all student IDs to check their memberships
+        $studentIds = $students->pluck('id')->toArray();
+        
+        // Get all active memberships for these students
+        $memberships = \App\Models\Membership::whereIn('student_id', $studentIds)
+            ->where('is_active', true)
+            ->get();
+            
+        // Create a lookup for student subjects based on their memberships
+        $studentSubjects = [];
+        foreach ($memberships as $membership) {
+            $studentId = $membership->student_id;
+            if (!isset($studentSubjects[$studentId])) {
+                $studentSubjects[$studentId] = [];
+            }
+            
+            // Extract subjects from the teachers array in membership
+            if (is_array($membership->teachers)) {
+                foreach ($membership->teachers as $teacher) {
+                    if (isset($teacher['subject'])) {
+                        // Find the subject ID by name
+                        $subject = \App\Models\Subject::where('name', $teacher['subject'])->first();
+                        if ($subject) {
+                            $studentSubjects[$studentId][] = $subject->id;
+                        }
+                    }
+                }
+            }
+        }
+        
+        \Log::info('Student subjects from memberships:', $studentSubjects);
+        
         // Enable query logging
         \DB::enableQueryLog();
         
-        $results = Result::with(['student', 'subject'])
+        // Get all results for this class
+        $allResults = Result::with(['student', 'subject'])
             ->where('class_id', $class_id)
             ->get();
+        
+        // Filter results based on student memberships
+        $filteredResults = $allResults->filter(function ($result) use ($studentSubjects) {
+            $studentId = $result->student_id;
+            
+            // If we don't have membership data for this student, include all results
+            if (!isset($studentSubjects[$studentId]) || empty($studentSubjects[$studentId])) {
+                return true;
+            }
+            
+            // Only include results for subjects the student is enrolled in
+            return in_array($result->subject_id, $studentSubjects[$studentId]);
+        });
         
         // Log the executed queries
         $queries = \DB::getQueryLog();
         \Log::info('Results SQL Queries:', $queries);
         
-        \Log::info('Found ' . $results->count() . ' results for class ' . $class_id);
+        \Log::info('Found ' . $filteredResults->count() . ' results after membership filtering for class ' . $class_id);
         
-        $groupedResults = $results->groupBy('student_id');
+        // Group filtered results by student ID
+        $groupedResults = $filteredResults->groupBy('student_id');
         
         \Log::info('Returning results for ' . $groupedResults->count() . ' students');
             

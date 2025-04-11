@@ -7,6 +7,7 @@ import DashboardLayout from '@/Layouts/DashboardLayout';
 import FormModal from '@/Components/FormModal';
 import MembershipCard from '@/Components/MembershipCard';
 import StudentProfile from '@/Components/StudentProfile';
+import StudentPromotionStatus from '@/Components/StudentPromotionStatus';
 import { ChevronDown, ChevronUp, Users } from 'lucide-react';
 // import studentProfile from "./studentProfile.png";
 const SingleStudentPage = ({ student, Alllevels, Allclasses, Allschools, Alloffers, Allteachers,memberships }) => {
@@ -39,7 +40,16 @@ const SingleStudentPage = ({ student, Alllevels, Allclasses, Allschools, Alloffe
             </div>
 
             <div className="w-2/3 flex flex-col justify-between gap-4">
-              <h1 className="text-xl font-semibold">{student.firstName} {student.lastName}</h1>
+              <div className="flex items-center gap-4">
+                <h1 className="text-xl font-semibold">{student.firstName} {student.lastName}</h1>
+                <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                  student.status === 'inactive' 
+                    ? 'bg-red-100 text-red-800 border border-red-200' 
+                    : 'bg-green-100 text-green-800 border border-green-200'
+                }`}>
+                  {student.status === 'inactive' ? 'Inactive' : 'Active'}
+                </span>
+              </div>
               <p className="text-sm text-gray-500">
                 {student.bio || "No bio available."}
               </p>
@@ -103,7 +113,28 @@ const SingleStudentPage = ({ student, Alllevels, Allclasses, Allschools, Alloffe
                 <span className="text-sm text-gray-400">Level</span>
               </div>
             </div>
-            {/* CARD */}
+            {/* Status CARD */}
+            <div className="bg-white p-4 rounded-md flex gap-4 w-full md:w-[48%] xl:w-[45%] 2xl:w-[48%]">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6 text-lamaSky">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+                <circle cx="9" cy="7" r="4"></circle>
+                <polyline points="16 11 18 13 22 9"></polyline>
+              </svg>
+              <div className="">
+                <div className="text-xl font-semibold">
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    student.status === 'inactive' 
+                      ? 'bg-red-100 text-red-800 border border-red-200' 
+                      : 'bg-green-100 text-green-800 border border-green-200'
+                  }`}>
+                    {student.status === 'inactive' ? 'Inactive' : 'Active'}
+                  </span>
+                </div>
+                <span className="text-sm text-gray-400">Status</span>
+              </div>
+            </div>
+            
+            {/* CARD - Offers */}
             <div className="bg-white p-4 rounded-md flex gap-4 w-full md:w-[48%] xl:w-[45%] 2xl:w-[48%]">
               <img
                 src="/singleLesson.png"
@@ -117,7 +148,8 @@ const SingleStudentPage = ({ student, Alllevels, Allclasses, Allschools, Alloffe
                 <span className="text-sm text-gray-400">Offers</span>
               </div>
             </div>
-            {/* CARD */}
+            
+            {/* CARD - Class */}
             <div className="bg-white p-4 rounded-md flex gap-4 w-full md:w-[48%] xl:w-[45%] 2xl:w-[48%]">
               <img
                 src="/singleClass.png"
@@ -133,6 +165,13 @@ const SingleStudentPage = ({ student, Alllevels, Allclasses, Allschools, Alloffe
             </div>
           </div>
         </div>
+        
+        {/* Promotion Status */}
+        {(role === "admin" || role === "assistant") && (
+          <div className="mt-4">
+            <StudentPromotionStatus promotionStatus={student.promotion} />
+          </div>
+        )}
         
         {/* Additional Student Information */}
         <div className="mt-2">

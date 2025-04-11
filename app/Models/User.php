@@ -61,5 +61,14 @@ class User extends Authenticatable
         return $this->hasOne(Assistant::class, 'email', 'email');
     }
 
+    /**
+     * Check if the user is an admin.
+     *
+     * @return bool
+     */
+    public function getIsAdminAttribute()
+    {
+        return $this->role === 'admin';
+    }
 
 }

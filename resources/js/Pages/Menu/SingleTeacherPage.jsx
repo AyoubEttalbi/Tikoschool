@@ -5,12 +5,17 @@ import Performance from "@/Components/Performance";
 import TeacherProfile from "@/Components/TeacherProfile";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 
-import { Link, usePage } from "@inertiajs/react";
+import { Link, usePage, router } from "@inertiajs/react";
 
 const SingleTeacherPage = ({ teacher = {}, announcements=[], classes, subjects, schools, invoices, selectedSchool, teacherSchools = [] }) => {
   const role = usePage().props.auth.user.role;
   const isAdmin = role === 'admin';
   const isViewingAs = usePage().props.auth.isViewingAs;
+  
+  // Handle school change
+  const handleSchoolChange = () => {
+    router.visit('/select-profile');
+  };
 
   return (
     <div className="flex-1 p-4 flex flex-col gap-4 xl:flex-row">
@@ -18,18 +23,29 @@ const SingleTeacherPage = ({ teacher = {}, announcements=[], classes, subjects, 
       
       {/* LEFT */}
       <div className="w-full xl:w-2/3">
-      {/* School Selection Banner */}
-      {selectedSchool && (
-        <div className="w-full mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md flex items-center justify-between">
+      {/* School Selection Banner - only show if teacher has more than one school */}
+      {selectedSchool && teacher.schools && teacher.schools.length > 1 && (
+        <div className="w-full mb-4 p-3 bg-lamaSkyLight border border-lamaSky/20 rounded-md flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-500" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M10.394 2.08a1 1 0 00-.788 0l-7 3a1 1 0 000 1.84L5.25 8.051a.999.999 0 01.356-.257l4-1.714a1 1 0 11.788 1.838l-2.727 1.666 1.94.831a1 1 0 00.787 0l7-3a1 1 0 000-1.838l-7-3zM3.31 9.397L5 10.12v4.102a8.969 8.969 0 00-1.05-.174 1 1 0 01-.89-.89 11.115 11.115 0 01.25-3.762zM9.3 16.573A9.026 9.026 0 007 14.935v-3.957l1.818.78a3 3 0 002.364 0l5.508-2.361a11.026 11.026 0 01.25 3.762 1 1 0 01-.89.89 8.968 8.968 0 00-5.35 2.524 1 1 0 01-1.4 0zM6 18a1 1 0 001-1v-2.065a8.935 8.935 0 00-2-.712V17a1 1 0 001 1z" />
-            </svg>
-            <span className="font-medium">Current School: {selectedSchool.name}</span>
+            <div className="h-8 w-8 bg-white rounded-full flex items-center justify-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-lamaSky" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M10.394 2.08a1 1 0 00-.788 0l-7 3a1 1 0 000 1.84L5.25 8.051a.999.999 0 01.356-.257l4-1.714a1 1 0 11.788 1.838l-2.727 1.666 1.94.831a1 1 0 00.787 0l7-3a1 1 0 000-1.838l-7-3zM3.31 9.397L5 10.12v4.102a8.969 8.969 0 00-1.05-.174 1 1 0 01-.89-.89 11.115 11.115 0 01.25-3.762zM9.3 16.573A9.026 9.026 0 007 14.935v-3.957l1.818.78a3 3 0 002.364 0l5.508-2.361a11.026 11.026 0 01.25 3.762 1 1 0 01-.89.89 8.968 8.968 0 00-5.35 2.524 1 1 0 01-1.4 0zM6 18a1 1 0 001-1v-2.065a8.935 8.935 0 00-2-.712V17a1 1 0 001 1z" />
+              </svg>
+            </div>
+            <div>
+              <div className="text-xs text-gray-600">Current School</div>
+              <span className="font-medium">{selectedSchool.name}</span>
+            </div>
           </div>
-          <Link href="/select-profile" className="text-sm px-3 py-1 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+          <button 
+            onClick={handleSchoolChange}
+            className="text-sm px-3 py-1 flex items-center gap-1 bg-lamaSky text-white rounded-md hover:bg-lamaSky/90 transition-colors"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m-4 6H4m0 0l4 4m-4-4l4-4" />
+            </svg>
             Change School
-          </Link>
+          </button>
         </div>
       )}
         {/* TOP */}
@@ -48,8 +64,12 @@ const SingleTeacherPage = ({ teacher = {}, announcements=[], classes, subjects, 
             <div className="w-2/3 flex flex-col justify-between gap-4">
               <div className="flex items-center gap-4">
                 <h1 className="text-xl font-semibold">{teacher.first_name} {teacher.last_name}</h1>
-                <span className={`px-2 py-1 rounded-full text-xs ${teacher.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                  {teacher.status}
+                <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                  teacher.status === 'active' 
+                    ? 'bg-green-100 text-green-800 border border-green-200' 
+                    : 'bg-red-100 text-red-800 border border-red-200'
+                }`}>
+                  {teacher.status === 'active' ? 'Active' : 'Inactive'}
                 </span>
               </div>
               <p className="text-sm text-gray-500">

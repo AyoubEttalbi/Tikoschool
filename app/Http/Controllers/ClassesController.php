@@ -153,15 +153,41 @@ class ClassesController extends Controller
         // Update both student and teacher counts
         $class->updateCounts();
         
+        // Get students in this class
         $students = DB::table('students')->where('classId', $class->id);
+        $studentsList = $students->get();
+        
+        // Get student IDs for promotion data lookup
+        $studentIds = $studentsList->pluck('id')->toArray();
+        
+        // First check if there's promotion data in the session (from setupPromotions redirect)
+        $promotionData = session('promotionData', null);
+        
+        // If no session data, query the database
+        if (!$promotionData) {
+            // Get promotion data for these students using Eloquent models
+            $studentsWithPromotions = Student::whereIn('id', $studentIds)->with(['promotions' => function($query) {
+                $query->where('school_year', date('Y'));
+            }])->get();
+            
+            // Convert to a format compatible with the existing code
+            $promotionData = collect();
+            foreach ($studentsWithPromotions as $student) {
+                if ($student->promotions->isNotEmpty()) {
+                    $promotionData->push($student->promotions->first());
+                }
+            }
+        }
+        
         return Inertia::render('Menu/SingleClassPage', [
             'class' => $class->load('level'), 
-            'students' => $students->get(),
+            'students' => $studentsList,
             'Alllevels' => $levels,
             'Allclasses' => $classes,
             'className' => $class->name,
             'Allschools' => $schools,
-            'teachers' => $teachers
+            'teachers' => $teachers,
+            'promotionData' => $promotionData
         ]);
     }
 

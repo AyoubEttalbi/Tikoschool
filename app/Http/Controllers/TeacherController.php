@@ -413,6 +413,18 @@ class TeacherController extends Controller
         $classes = Classes::all();
         $subjects = Subject::all();
         
+        // Get the currently selected school from session
+        $selectedSchool = null;
+        $selectedSchoolId = session('school_id');
+        $selectedSchoolName = session('school_name');
+        
+        if ($selectedSchoolId && $selectedSchoolName) {
+            $selectedSchool = [
+                'id' => $selectedSchoolId,
+                'name' => $selectedSchoolName
+            ];
+        }
+        
         return Inertia::render('Menu/SingleTeacherPage', [
             'teacher' => [
                 'id' => $teacher->id,
@@ -439,6 +451,7 @@ class TeacherController extends Controller
                 'status' => $announcementStatus,
             ],
             'userRole' => $userRole,
+            'selectedSchool' => $selectedSchool, // Add the selected school
         ]);
     }
 

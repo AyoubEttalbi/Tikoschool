@@ -198,4 +198,30 @@ class Student extends Model
         
         $this->attributes['assurance'] = $value;
     }
+
+    /**
+     * Get the promotion records for this student.
+     */
+    public function promotions()
+    {
+        return $this->hasMany(StudentPromotion::class, 'student_id');
+    }
+    
+    /**
+     * Get the current year's promotion status.
+     */
+    public function getCurrentPromotion()
+    {
+        $currentYear = date('Y');
+        return $this->promotions()->where('school_year', $currentYear)->first();
+    }
+    
+    /**
+     * Check if student is promoted for the current year.
+     */
+    public function isPromoted()
+    {
+        $promotion = $this->getCurrentPromotion();
+        return $promotion ? $promotion->is_promoted : true; // Default to true if no record
+    }
 }

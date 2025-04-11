@@ -438,6 +438,18 @@ protected function transformStudentData($student)
                     'exam_date' => $result->exam_date,
                 ];
             });
+            
+        // Fetch promotion status for the student
+        $promotion = $student->getCurrentPromotion();
+        $promotionData = $promotion ? [
+            'id' => $promotion->id,
+            'student_id' => $promotion->student_id,
+            'is_promoted' => $promotion->is_promoted,
+            'notes' => $promotion->notes,
+            'school_year' => $promotion->school_year,
+            'created_at' => $promotion->created_at,
+            'updated_at' => $promotion->updated_at,
+        ] : null;
 
         // Format the student data with new disease fields
         $studentData = [
@@ -469,6 +481,7 @@ protected function transformStudentData($student)
             'invoices' => $invoices,
             'attendances' => $attendances,
             'results' => $results,
+            'promotion' => $promotionData,
         ];
 
         // Fetch schools and classes

@@ -1,4 +1,3 @@
-
 import { Link,usePage } from "@inertiajs/react";
 
 const menuItems = [
@@ -35,6 +34,12 @@ const menuItems = [
         label: "Classes",
         href: "/classes",
         visible: ["admin", "teacher", "assistant"],
+      },
+      {
+        icon: "/class.png",
+        label: "Teacher-Class",
+        href: "/teacher-classes",
+        visible: ["admin"],
       },
       {
         icon: "/offer.png",
