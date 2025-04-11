@@ -15,19 +15,26 @@ const AdminEarningsSection = ({ adminEarnings }) => {
   const [itemsPerPage, setItemsPerPage] = useState(6);
   const [showTrend, setShowTrend] = useState(false);
 
- // Get all available years from the data
- const availableYears = useMemo(() => {
-  // Extract all unique years from the earningsData
-  const years = [...new Set(earningsData.map(item => Number(item.year)))];
-  return years.sort((a, b) => b - a); // Sort in descending order
-}, [earningsData]);
+  // Log adminEarnings data for debugging
+  useEffect(() => {
+    console.log('Admin Earnings:', adminEarnings);
+    console.log('Yearly Totals:', yearlyTotals);
+    console.log('Yearly Monthly Totals:', yearlyMonthlyTotals);
+  }, [adminEarnings]);
 
-// Set the selected year to the most recent year with data
-useEffect(() => {
-  if (earningsData.length > 0 && availableYears.length > 0) {
-    setSelectedYear(availableYears[0]); // Set to the most recent year
-  }
-}, [earningsData, availableYears]);
+  // Get all available years from the data
+  const availableYears = useMemo(() => {
+    // Extract all unique years from the earningsData
+    const years = [...new Set(earningsData.map(item => Number(item.year)))];
+    return years.sort((a, b) => b - a); // Sort in descending order
+  }, [earningsData]);
+
+  // Set the selected year to the most recent year with data
+  useEffect(() => {
+    if (earningsData.length > 0 && availableYears.length > 0) {
+      setSelectedYear(availableYears[0]); // Set to the most recent year
+    }
+  }, [earningsData, availableYears]);
 
   const monthOrder = ["January", "February", "March", "April", "May", "June", 
                       "July", "August", "September", "October", "November", "December"];

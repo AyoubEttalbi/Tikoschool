@@ -19,7 +19,7 @@ const EmployeeSummaryTable = ({ employeePayments = [], adminEarnings = [], onEdi
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [filteredData, setFilteredData] = useState([]);
   
-  // Ensure employeePayments is an array
+  // Ensure employeePayments is always an array
   const safeEmployeePayments = Array.isArray(employeePayments) ? employeePayments : [];
   
   console.log(safeEmployeePayments);
@@ -87,7 +87,10 @@ const EmployeeSummaryTable = ({ employeePayments = [], adminEarnings = [], onEdi
   }, [selectedMonth, selectedYear, safeEmployeePayments]);
   
   const handleViewHistory = (employeeId) => {
-    router.get(`/employees/${employeeId}/transactions?month=${selectedMonth + 1}&year=${selectedYear}`);
+    const employee = safeEmployeePayments.find(emp => emp.id === employeeId);
+    if (employee) {
+      onView(employee);
+    }
   };
 
   // Calculate the total amounts properly (as numbers)
