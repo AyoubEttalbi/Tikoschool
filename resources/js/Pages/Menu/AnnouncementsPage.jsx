@@ -16,16 +16,11 @@ import InputLabel from '@/Components/InputLabel';
 import PrimaryButton from '@/Components/PrimaryButton';
 import SecondaryButton from '@/Components/SecondaryButton';
 import DangerButton from '@/Components/DangerButton';
-
-
-// Fix the Select import to use the correct component
-import {
-  Select,
-  SelectContent,
+import { SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue
-} from '@/components/ui/select';
+  SelectValue } from '@/components/ui/select';
+
 
 export default function AnnouncementsPage({ announcements }) {
   const [showCreateModal, setShowCreateModal] = useState(false);
