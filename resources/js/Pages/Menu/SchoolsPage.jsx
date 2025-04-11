@@ -3,8 +3,9 @@ import DashboardLayout from '@/Layouts/DashboardLayout';
 import { Head, Link } from '@inertiajs/react';
 import { usePage } from '@inertiajs/react';
 import FormModal from '@/Components/FormModal';
-import SchoolForm from '@/Components/Forms/SchoolForm';
+
 import { PencilIcon, TrashIcon } from '@heroicons/react/24/outline';
+import SchoolForm from '@/Components/forms/SchoolForm';
 
 const SchoolsPage = ({ schools }) => {
   const role = usePage().props.auth.user.role;
