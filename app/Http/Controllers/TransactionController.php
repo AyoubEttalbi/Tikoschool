@@ -146,7 +146,7 @@ private function calculateAdminEarningsPerMonth()
     foreach ($monthlyEarnings as $earning) {
         $yearMonth = $earning->year . '-' . sprintf('%02d', $earning->month);
         if (isset($allMonths[$yearMonth])) {
-            $allMonths[$yearMonth]['totalPaid'] = $earning->totalPaid;
+            $allMonths[$yearMonth]['totalPaid'] = $earning->totalPaid ?? 0;
         }
     }
     
@@ -167,13 +167,13 @@ private function calculateAdminEarningsPerMonth()
             ->sum('amount');
         
         // Calculate profit
-        $profit = $data['totalPaid'] - $monthlyExpenses;
+        $profit = ($data['totalPaid'] ?? 0) - $monthlyExpenses;
         
         $processedEarnings[] = [
             'year' => $data['year'],
             'month' => $data['month'],
             'monthName' => $data['monthName'],
-            'totalRevenue' => $data['totalPaid'],  // Change from totalPaid to totalRevenue
+            'totalRevenue' => $data['totalPaid'] ?? 0,  // Change from totalPaid to totalRevenue with null check
             'totalExpenses' => $monthlyExpenses,
             'profit' => $profit,
             'yearMonth' => $yearMonth  // This is fine to keep but not required by the frontend
@@ -249,7 +249,7 @@ public function getAdminEarningsDashboard()
     foreach ($monthlyEarnings as $earning) {
         $yearMonth = $earning->year . '-' . sprintf('%02d', $earning->month);
         if (isset($allMonths[$yearMonth])) {
-            $allMonths[$yearMonth]['totalPaid'] = $earning->totalPaid;
+            $allMonths[$yearMonth]['totalPaid'] = $earning->totalPaid ?? 0;
         }
     }
     
@@ -270,13 +270,13 @@ public function getAdminEarningsDashboard()
             ->sum('amount');
         
         // Calculate profit
-        $profit = $data['totalPaid'] - $monthlyExpenses;
+        $profit = ($data['totalPaid'] ?? 0) - $monthlyExpenses;
         
         $processedEarnings[] = [
             'year' => $data['year'],
             'month' => $data['month'],
             'monthName' => $data['monthName'],
-            'totalRevenue' => $data['totalPaid'],  // Change from totalPaid to totalRevenue
+            'totalRevenue' => $data['totalPaid'] ?? 0,  // Change from totalPaid to totalRevenue with null check
             'totalExpenses' => $monthlyExpenses,
             'profit' => $profit,
             'yearMonth' => $yearMonth  // This is fine to keep but not required by the frontend
@@ -347,7 +347,7 @@ private function calculateAdminEarningsForComparison()
     foreach ($monthlyEarnings as $earning) {
         $yearMonth = $earning->year . '-' . sprintf('%02d', $earning->month);
         if (isset($allMonths[$yearMonth])) {
-            $allMonths[$yearMonth]['totalPaid'] = $earning->totalPaid;
+            $allMonths[$yearMonth]['totalPaid'] = $earning->totalPaid ?? 0;
         }
     }
     
@@ -368,13 +368,13 @@ private function calculateAdminEarningsForComparison()
             ->sum('amount');
         
         // Calculate profit
-        $profit = $data['totalPaid'] - $monthlyExpenses;
+        $profit = ($data['totalPaid'] ?? 0) - $monthlyExpenses;
         
         $processedEarnings[] = [
             'year' => $data['year'],
             'month' => $data['month'],
             'monthName' => $data['monthName'],
-            'totalRevenue' => $data['totalPaid'],  // Change from totalPaid to totalRevenue
+            'totalRevenue' => $data['totalPaid'] ?? 0,  // Change from totalPaid to totalRevenue with null check
             'totalExpenses' => $monthlyExpenses,
             'profit' => $profit,
             'yearMonth' => $yearMonth  // This is fine to keep but not required by the frontend
