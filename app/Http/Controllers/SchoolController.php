@@ -145,7 +145,7 @@ class SchoolController extends Controller
     private function getSchoolStatistics(School $school)
     {
         // Get total counts
-        $totalStudents = Student::where('schoolId', $school->id)->count();
+        $totalStudents = Student::where(DB::raw('"schoolId"'), $school->id)->count();
         
         // Use the many-to-many relationship instead of direct column query
         $totalTeachers = $school->teachers()->count();
@@ -168,7 +168,7 @@ class SchoolController extends Controller
         $enrollmentTrend = [];
         for ($i = 5; $i >= 0; $i--) {
             $date = Carbon::now()->subMonths($i);
-            $count = Student::where('schoolId', $school->id)
+            $count = Student::where(DB::raw('"schoolId"'), $school->id)
                 ->whereRaw('EXTRACT(MONTH FROM created_at) = ?', [$date->month])
                 ->whereRaw('EXTRACT(YEAR FROM created_at) = ?', [$date->year])
                 ->count();
@@ -255,7 +255,7 @@ class SchoolController extends Controller
             ->toArray();
 
         // Get students list with attendance and performance
-        $students = Student::where('schoolId', $school->id)
+        $students = Student::where(DB::raw('"schoolId"'), $school->id)
             ->with(['class', 'attendances'])
             ->get()
             ->map(function ($student) {

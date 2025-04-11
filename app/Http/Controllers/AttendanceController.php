@@ -67,11 +67,11 @@ class AttendanceController extends Controller
         $studentsQuery = Student::with('class');
         
         if ($selectedSchoolId) {
-            $studentsQuery->where('schoolId', $selectedSchoolId);
+            $studentsQuery->where(DB::raw('"schoolId"'), $selectedSchoolId);
         }
         
         if ($classId) {
-            $studentsQuery->where('classId', $classId);
+            $studentsQuery->where(DB::raw('"classId"'), $classId);
             
             if ($search) {
                 $studentsQuery->where(function ($query) use ($search) {
@@ -88,7 +88,7 @@ class AttendanceController extends Controller
         // Get existing attendance for selected date and class
         $existingAttendances = $classId
             ? Attendance::with('class')
-                ->where('classId', $classId)
+                ->where(DB::raw('"classId"'), $classId)
                 ->whereDate('date', $date)
                 ->get()
                 ->keyBy('student_id')
@@ -152,22 +152,40 @@ class AttendanceController extends Controller
             $filtered = collect($validated['attendances'])->filter(fn($att) => $att['status'] !== 'present');
 
             foreach ($filtered as $attendance) {
-                Attendance::updateOrCreate(
-                    [
-                        'student_id' => $attendance['student_id'],
-                        'date' => $validated['date'],
-                        'classId' => $validated['class_id']
-                    ],
-                    [
+                $whereConditions = [
+                    'student_id' => $attendance['student_id'],
+                    'date' => $validated['date']
+                ];
+                
+                // Add classId condition with proper PostgreSQL quoting
+                $classIdColumn = DB::raw('"classId"');
+                $attendanceModel = Attendance::where('student_id', $attendance['student_id'])
+                    ->where('date', $validated['date'])
+                    ->where($classIdColumn, $validated['class_id'])
+                    ->first();
+                    
+                if ($attendanceModel) {
+                    // Update existing record
+                    $attendanceModel->update([
                         'status' => $attendance['status'],
                         'reason' => $attendance['reason'],
                         'recorded_by' => auth()->id()
-                    ]
-                );
+                    ]);
+                } else {
+                    // Create new record
+                    Attendance::create([
+                        'student_id' => $attendance['student_id'],
+                        'date' => $validated['date'],
+                        'classId' => $validated['class_id'],
+                        'status' => $attendance['status'],
+                        'reason' => $attendance['reason'],
+                        'recorded_by' => auth()->id()
+                    ]);
+                }
             }
 
             // Remove any existing present records
-            Attendance::where('classId', $validated['class_id'])
+            Attendance::where(DB::raw('"classId"'), $validated['class_id'])
                 ->whereDate('date', $validated['date'])
                 ->where('status', 'present')
                 ->delete();

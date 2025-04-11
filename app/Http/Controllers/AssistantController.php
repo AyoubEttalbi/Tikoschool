@@ -297,7 +297,7 @@ class AssistantController extends Controller
          
          // Filter students by the selected school
          $students = \App\Models\Student::when($selectedSchoolId, function ($query) use ($selectedSchoolId) {
-             return $query->where('schoolId', $selectedSchoolId);
+             return $query->where(DB::raw('"schoolId"'), $selectedSchoolId);
          })->get();
          
          $subjects = Subject::all();
@@ -365,7 +365,7 @@ class AssistantController extends Controller
                      
                      // Also get absences from students belonging to the assistant's schools
                      $query->orWhereHas('student', function($studentQuery) use ($schoolIds) {
-                         $studentQuery->whereIn('schoolId', $schoolIds);
+                         $studentQuery->whereIn(DB::raw('"schoolId"'), $schoolIds);
                      });
                  })
                  ->where('date', '>=', $today->copy()->subDays(7)) // Only count from last 7 days for "See more"
@@ -385,7 +385,7 @@ class AssistantController extends Controller
                      
                      // Also get absences from students belonging to the assistant's schools
                      $query->orWhereHas('student', function($studentQuery) use ($schoolIds) {
-                         $studentQuery->whereIn('schoolId', $schoolIds);
+                         $studentQuery->whereIn(DB::raw('"schoolId"'), $schoolIds);
                      });
                  })
                  ->where('date', '>=', $today->copy()->subDays(7)) // Show only from last 7 days
@@ -423,7 +423,7 @@ class AssistantController extends Controller
              // Get total count for invoices in the last 7 days
              $totalUnpaidInvoices = \App\Models\Invoice::where(function($query) use ($schoolIds) {
                  $query->whereHas('student', function($studentQuery) use ($schoolIds) {
-                     $studentQuery->whereIn('schoolId', $schoolIds);
+                     $studentQuery->whereIn(DB::raw('"schoolId"'), $schoolIds);
                  });
              })
              ->where('rest', '>', 0) // Invoices with remaining balance
@@ -434,7 +434,7 @@ class AssistantController extends Controller
              $unpaidInvoices = \App\Models\Invoice::with(['student', 'student.class', 'student.school', 'offer'])
                  ->where(function($query) use ($schoolIds) {
                      $query->whereHas('student', function($studentQuery) use ($schoolIds) {
-                         $studentQuery->whereIn('schoolId', $schoolIds);
+                         $studentQuery->whereIn(DB::raw('"schoolId"'), $schoolIds);
                      });
                  })
                  ->where('rest', '>', 0) // Invoices with remaining balance
@@ -482,7 +482,7 @@ class AssistantController extends Controller
              // Get total count of expiring memberships for the "See more" button
              $totalExpiringMemberships = \App\Models\Membership::where(function($query) use ($schoolIds) {
                  $query->whereHas('student', function($studentQuery) use ($schoolIds) {
-                     $studentQuery->whereIn('schoolId', $schoolIds);
+                     $studentQuery->whereIn(DB::raw('"schoolId"'), $schoolIds);
                  });
              })
              ->where('endDate', '>=', $today) // Not expired yet
@@ -493,7 +493,7 @@ class AssistantController extends Controller
              $expiringMemberships = \App\Models\Membership::with(['student'])
                  ->where(function($query) use ($schoolIds) {
                      $query->whereHas('student', function($studentQuery) use ($schoolIds) {
-                         $studentQuery->whereIn('schoolId', $schoolIds);
+                         $studentQuery->whereIn(DB::raw('"schoolId"'), $schoolIds);
                      });
                  })
                  ->where('endDate', '>=', $today) // Not expired yet
@@ -527,7 +527,7 @@ class AssistantController extends Controller
              // Get total count of recent payments for the "See more" button
              $totalRecentPayments = \App\Models\Invoice::where(function($query) use ($schoolIds) {
                  $query->whereHas('student', function($studentQuery) use ($schoolIds) {
-                     $studentQuery->whereIn('schoolId', $schoolIds);
+                     $studentQuery->whereIn(DB::raw('"schoolId"'), $schoolIds);
                  });
              })
              ->where('amountPaid', '>', 0) // Has some payment
@@ -538,7 +538,7 @@ class AssistantController extends Controller
              $recentPayments = \App\Models\Invoice::with(['student', 'student.class', 'student.school', 'offer'])
                  ->where(function($query) use ($schoolIds) {
                      $query->whereHas('student', function($studentQuery) use ($schoolIds) {
-                         $studentQuery->whereIn('schoolId', $schoolIds);
+                         $studentQuery->whereIn(DB::raw('"schoolId"'), $schoolIds);
                      });
                  })
                  ->where('amountPaid', '>', 0) // Has some payment
@@ -583,7 +583,7 @@ class AssistantController extends Controller
          }
          
          // Get additional statistics based on the selected school
-         $studentsCount = \App\Models\Student::whereIn('schoolId', $schoolIds)->count();
+         $studentsCount = \App\Models\Student::whereIn(DB::raw('"schoolId"'), $schoolIds)->count();
          $classesCount = \App\Models\Classes::whereIn('school_id', $schoolIds)->count();
          
          return Inertia::render('Menu/SingleAssistantPage', [

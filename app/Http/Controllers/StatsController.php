@@ -33,10 +33,10 @@ class StatsController extends Controller
         ->first()
         ->count;
 
-    $studentCounts = Student::select('schoolId', DB::raw('COUNT(*) as count'))
-        ->groupBy('schoolId')
+    $studentCounts = Student::select(DB::raw('"schoolId"'), DB::raw('COUNT(*) as count'))
+        ->groupBy(DB::raw('"schoolId"'))
         ->get()
-        ->keyBy('schoolId');
+        ->keyBy('schoolid');
 
     $totalStudentCount = Student::count();
 
@@ -60,17 +60,17 @@ class StatsController extends Controller
             DB::raw('SUM(invoices."totalAmount") as income'),
             DB::raw('SUM(invoices."amountPaid") as expense'),
             DB::raw('EXTRACT(MONTH FROM invoices.created_at) as month'),
-            'students."schoolId"'
+            DB::raw('students."schoolId"')
         )
-        ->whereNotNull('students."schoolId"')
-        ->groupBy('month', 'students."schoolId"')
+        ->whereNotNull(DB::raw('students."schoolId"'))
+        ->groupBy('month', DB::raw('students."schoolId"'))
         ->get()
         ->map(function ($item) {
             return [
                 'name' => date('M', mktime(0, 0, 0, $item->month, 10)),
                 'income' => $item->income,
                 'expense' => $item->expense,
-                'school_id' => $item->schoolId,
+                'school_id' => $item->schoolid, // Note: PostgreSQL lowercases the column alias
             ];
         });
 

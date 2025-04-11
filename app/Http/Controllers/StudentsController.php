@@ -19,6 +19,8 @@ use App\Models\Result;
 use Cloudinary\Cloudinary;
 use Cloudinary\Configuration\Configuration;
 use Cloudinary\Api\Upload\UploadApi;
+use Illuminate\Support\Facades\DB;
+
 class StudentsController extends Controller
 {
     // Helper function to get Cloudinary
@@ -107,7 +109,7 @@ class StudentsController extends Controller
          // Get the selected school from session and apply filter
          $selectedSchoolId = session('school_id');
          if ($selectedSchoolId) {
-             $query->where('schoolId', $selectedSchoolId);
+             $query->where(DB::raw('"schoolId"'), $selectedSchoolId);
              
              // Log the filtering
              \Log::info('Students filtered by school', [
@@ -192,15 +194,15 @@ protected function applyRelationshipSearch($query, $searchTerm)
 protected function applyFilters($query, $filters)
 {
     if (!empty($filters['school'])) {
-        $query->where('schoolId', $filters['school']);
+        $query->where(DB::raw('"schoolId"'), $filters['school']);
     }
 
     if (!empty($filters['class'])) {
-        $query->where('classId', $filters['class']);
+        $query->where(DB::raw('"classId"'), $filters['class']);
     }
 
     if (!empty($filters['level'])) {
-        $query->where('levelId', $filters['level']);
+        $query->where(DB::raw('"levelId"'), $filters['level']);
     }
 }
 
