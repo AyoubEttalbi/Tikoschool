@@ -103,6 +103,24 @@ private function getAvailableYears()
 }
 
 /**
+ * Check if a table exists in the database
+ *
+ * @param string $tableName
+ * @return bool
+ */
+private function tableExists($tableName)
+{
+    try {
+        // For PostgreSQL
+        $result = DB::select("SELECT to_regclass('public.{$tableName}') IS NOT NULL as exists");
+        return $result[0]->exists;
+    } catch (\Exception $e) {
+        // If any error occurs, assume table doesn't exist
+        return false;
+    }
+}
+
+/**
  * Calculate admin earnings based on invoices, grouped by month
  *
  * @return array
@@ -156,13 +174,16 @@ private function calculateAdminEarningsPerMonth()
         // Get total expenses for this month (teacher wallets + assistant salaries)
         $monthDate = Carbon::createFromDate($data['year'], $data['month'], 1);
         
-        // Add revenue from course enrollments
-        $monthlyEnrollmentRevenue = DB::table('enrollments')
-            ->join('courses', 'enrollments.course_id', '=', 'courses.id')
-            ->whereRaw('EXTRACT(YEAR FROM enrollments.created_at) = ?', [$data['year']])
-            ->whereRaw('EXTRACT(MONTH FROM enrollments.created_at) = ?', [$data['month']])
-            ->whereNull('enrollments.deleted_at')
-            ->sum('courses.price');
+        // Add revenue from course enrollments if the enrollments table exists
+        $monthlyEnrollmentRevenue = 0;
+        if ($this->tableExists('enrollments')) {
+            $monthlyEnrollmentRevenue = DB::table('enrollments')
+                ->join('courses', 'enrollments.course_id', '=', 'courses.id')
+                ->whereRaw('EXTRACT(YEAR FROM enrollments.created_at) = ?', [$data['year']])
+                ->whereRaw('EXTRACT(MONTH FROM enrollments.created_at) = ?', [$data['month']])
+                ->whereNull('enrollments.deleted_at')
+                ->sum('courses.price');
+        }
         
         $monthlyExpenses = DB::table('transactions')
             ->where(function ($query) {
@@ -175,7 +196,7 @@ private function calculateAdminEarningsPerMonth()
             ->sum('amount');
         
         // Calculate total revenue (invoices + enrollments)
-        $totalRevenue = ($data['totalPaid'] ?? 0) + ($monthlyEnrollmentRevenue ?? 0);
+        $totalRevenue = ($data['totalPaid'] ?? 0) + ($monthlyEnrollmentRevenue);
         
         // Calculate profit
         $profit = $totalRevenue - $monthlyExpenses;
@@ -271,12 +292,15 @@ public function getAdminEarningsDashboard()
         $monthDate = Carbon::createFromDate($data['year'], $data['month'], 1);
         
         // Add revenue from course enrollments
-        $monthlyEnrollmentRevenue = DB::table('enrollments')
-            ->join('courses', 'enrollments.course_id', '=', 'courses.id')
-            ->whereRaw('EXTRACT(YEAR FROM enrollments.created_at) = ?', [$data['year']])
-            ->whereRaw('EXTRACT(MONTH FROM enrollments.created_at) = ?', [$data['month']])
-            ->whereNull('enrollments.deleted_at')
-            ->sum('courses.price');
+        $monthlyEnrollmentRevenue = 0;
+        if ($this->tableExists('enrollments')) {
+            $monthlyEnrollmentRevenue = DB::table('enrollments')
+                ->join('courses', 'enrollments.course_id', '=', 'courses.id')
+                ->whereRaw('EXTRACT(YEAR FROM enrollments.created_at) = ?', [$data['year']])
+                ->whereRaw('EXTRACT(MONTH FROM enrollments.created_at) = ?', [$data['month']])
+                ->whereNull('enrollments.deleted_at')
+                ->sum('courses.price');
+        }
         
         $monthlyExpenses = DB::table('transactions')
             ->where(function ($query) {
@@ -289,7 +313,7 @@ public function getAdminEarningsDashboard()
             ->sum('amount');
         
         // Calculate total revenue (invoices + enrollments)
-        $totalRevenue = ($data['totalPaid'] ?? 0) + ($monthlyEnrollmentRevenue ?? 0);
+        $totalRevenue = ($data['totalPaid'] ?? 0) + ($monthlyEnrollmentRevenue);
         
         // Calculate profit
         $profit = $totalRevenue - $monthlyExpenses;
@@ -380,12 +404,15 @@ private function calculateAdminEarningsForComparison()
         $monthDate = Carbon::createFromDate($data['year'], $data['month'], 1);
         
         // Add revenue from course enrollments
-        $monthlyEnrollmentRevenue = DB::table('enrollments')
-            ->join('courses', 'enrollments.course_id', '=', 'courses.id')
-            ->whereRaw('EXTRACT(YEAR FROM enrollments.created_at) = ?', [$data['year']])
-            ->whereRaw('EXTRACT(MONTH FROM enrollments.created_at) = ?', [$data['month']])
-            ->whereNull('enrollments.deleted_at')
-            ->sum('courses.price');
+        $monthlyEnrollmentRevenue = 0;
+        if ($this->tableExists('enrollments')) {
+            $monthlyEnrollmentRevenue = DB::table('enrollments')
+                ->join('courses', 'enrollments.course_id', '=', 'courses.id')
+                ->whereRaw('EXTRACT(YEAR FROM enrollments.created_at) = ?', [$data['year']])
+                ->whereRaw('EXTRACT(MONTH FROM enrollments.created_at) = ?', [$data['month']])
+                ->whereNull('enrollments.deleted_at')
+                ->sum('courses.price');
+        }
             
         // Get existing monthly expenses
         $monthlyExpenses = DB::table('transactions')
@@ -399,7 +426,7 @@ private function calculateAdminEarningsForComparison()
             ->sum('amount');
         
         // Calculate total revenue (invoices + enrollments)
-        $totalRevenue = ($data['totalPaid'] ?? 0) + ($monthlyEnrollmentRevenue ?? 0);
+        $totalRevenue = ($data['totalPaid'] ?? 0) + ($monthlyEnrollmentRevenue);
         
         // Calculate profit
         $profit = $totalRevenue - $monthlyExpenses;
