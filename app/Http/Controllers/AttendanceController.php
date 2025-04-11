@@ -112,7 +112,7 @@ class AttendanceController extends Controller
             ];
         });
 
-        return Inertia::render('Attendance/Index', [
+        return Inertia::render('Menu/AttendancePage', [
             'teachers' => $teachers->map(fn($teacher) => [
                 'id' => $teacher->id, 
                 'name' => $teacher->first_name . ' ' . $teacher->last_name
