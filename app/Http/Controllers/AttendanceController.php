@@ -266,20 +266,52 @@ class AttendanceController extends Controller
 
     public function show($id)
     {
-        // Fetch the specific attendance record
-        $attendance = Attendance::with(['student', 'class', 'recordedBy'])
-            ->findOrFail($id);
-
-        // Fetch all attendance records for the student
-        $studentAttendances = Attendance::with(['class', 'recordedBy'])
-            ->where('student_id', $attendance->student_id)
-            ->latest()
-            ->paginate(10);
-
-        return Inertia::render('Menu/SingleRecord', [
-            'attendance' => $attendance,
-            'studentAttendances' => $studentAttendances,
-        ]);
+        try {
+            // Fetch the specific attendance record
+            $attendance = Attendance::with(['student', 'class', 'recordedBy'])
+                ->findOrFail($id);
+    
+            // Fetch all attendance records for the student
+            $studentAttendances = Attendance::with(['class', 'recordedBy'])
+                ->where('student_id', $attendance->student_id)
+                ->latest()
+                ->paginate(10);
+    
+            // Make sure we're returning the properly structured data
+            return Inertia::render('Menu/SingleRecord', [
+                'attendance' => [
+                    'id' => $attendance->id,
+                    'student' => [
+                        'id' => $attendance->student->id,
+                        'firstName' => $attendance->student->firstName,
+                        'lastName' => $attendance->student->lastName,
+                    ],
+                    'class' => [
+                        'id' => $attendance->class->id,
+                        'name' => $attendance->class->name,
+                    ],
+                    'status' => $attendance->status,
+                    'reason' => $attendance->reason,
+                    'date' => $attendance->date,
+                    'recordedBy' => $attendance->recordedBy ? [
+                        'id' => $attendance->recordedBy->id,
+                        'name' => $attendance->recordedBy->name,
+                        'role' => $attendance->recordedBy->role,
+                    ] : null,
+                ],
+                'studentAttendances' => $studentAttendances,
+            ]);
+        } catch (\Exception $e) {
+            // Log the error
+            \Log::error('Error showing attendance record', [
+                'id' => $id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            // Redirect with error message
+            return redirect()->route('attendances.index')->with('error', 'Error viewing attendance record: ' . $e->getMessage());
+        }
     }
 
 
@@ -366,7 +398,7 @@ class AttendanceController extends Controller
     $tableName = $model->getTable();
 
     $properties = [
-        'TargetName' => $model->student->name,
+        'TargetName' => $model->student->firstName . ' ' . $model->student->lastName,
         'action' => $action,
         'table' => $tableName,
         'user' => auth()->user()->name,

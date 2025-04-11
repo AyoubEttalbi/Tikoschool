@@ -4,7 +4,22 @@ import Pagination from "@/Components/Pagination";
 
 const SingleRecord = () => {
     const { attendance, studentAttendances } = usePage().props;
-    console.log("attendance", attendance);
+    
+    if (!attendance || !attendance.student || !attendance.class) {
+        return (
+            <div className="bg-white p-6 rounded-lg shadow-sm flex-1 m-4 mt-0">
+                <p>Loading attendance data...</p>
+                <div className="mt-6">
+                    <Link
+                        href={route('attendances.index')}
+                        className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+                    >
+                        Back to Attendance Records
+                    </Link>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="bg-white p-6 rounded-lg shadow-sm flex-1 m-4 mt-0">
@@ -20,7 +35,7 @@ const SingleRecord = () => {
                 </div>
                 <div>
                     <h2 className="text-lg font-medium text-gray-700">Total Records</h2>
-                    <p className="text-gray-600">{studentAttendances.length}</p>
+                    <p className="text-gray-600">{studentAttendances.total || 0}</p>
                 </div>
             </div>
 
@@ -44,10 +59,10 @@ const SingleRecord = () => {
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                        {studentAttendances.data.map((record) => (
+                        {studentAttendances.data && studentAttendances.data.map((record) => (
                             <tr key={record.id}>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                    {new Date(record.date).toLocaleDateString('en-US', {
+                                    {record.date && new Date(record.date).toLocaleDateString('en-US', {
                                         weekday: 'short',
                                         year: 'numeric',
                                         month: 'short',
@@ -56,10 +71,13 @@ const SingleRecord = () => {
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm">
                                     <span
-                                        className={`px-2 py-1 rounded-full text-xs font-medium ${record.status === 'present'
+                                        className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                            record.status === 'present'
                                                 ? 'bg-green-100 text-green-800'
-                                                : 'bg-rose-100 text-rose-800'
-                                            }`}
+                                                : record.status === 'late'
+                                                    ? 'bg-yellow-100 text-yellow-800'
+                                                    : 'bg-rose-100 text-rose-800'
+                                        }`}
                                     >
                                         {record.status}
                                     </span>
@@ -68,13 +86,17 @@ const SingleRecord = () => {
                                     {record.reason || '-'}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                    {record.recorded_by ? `${record.recorded_by.name} as a ${record.recorded_by.role}` : '-'}
+                                    {record.recordedBy && record.recordedBy.name 
+                                        ? `${record.recordedBy.name} (${record.recordedBy.role})` 
+                                        : '-'}
                                 </td>
                             </tr>
                         ))}
                     </tbody>
                 </table>
-                <Pagination links={studentAttendances.links} className="mt-6" />
+                {studentAttendances.links && (
+                    <Pagination links={studentAttendances.links} className="mt-6" />
+                )}
             </div>
 
             {/* Back Button */}
@@ -87,9 +109,7 @@ const SingleRecord = () => {
                 </Link>
             </div>
         </div>
-
     );
-
 };
 
 SingleRecord.layout = (page) => <DashboardLayout>{page}</DashboardLayout>;
