@@ -245,19 +245,37 @@ public function getAdminEarningsDashboard()
     // Set start date to the beginning of the earliest year
     $startDate = Carbon::createFromDate($earliestYear, 1, 1)->format('Y-m-d');
     
+    // Try to directly get total amounts from invoices
+    try {
+        $totalAmountQuery = DB::select("SELECT SUM(\"amountPaid\") as total FROM invoices WHERE deleted_at IS NULL");
+        \Log::info('Total amount from invoices: ', ['amount' => $totalAmountQuery[0]->total ?? 0]);
+    } catch (\Exception $e) {
+        \Log::error('Error querying invoices: ' . $e->getMessage());
+    }
+    
     // Get all paid amounts from invoices, grouped by month
-    $monthlyEarnings = DB::table('invoices')
-        ->select(
-            DB::raw('EXTRACT(YEAR FROM "billDate") as year'),
-            DB::raw('EXTRACT(MONTH FROM "billDate") as month'),
-            DB::raw('SUM("amountPaid") as totalPaid')
-        )
-        ->whereNull('deleted_at')
-        ->where('billDate', '>=', $startDate)
-        ->groupBy('year', 'month')
-        ->orderBy('year', 'desc')
-        ->orderBy('month', 'desc')
-        ->get();
+    try {
+        $monthlyEarnings = DB::table('invoices')
+            ->select(
+                DB::raw('EXTRACT(YEAR FROM "billDate") as year'),
+                DB::raw('EXTRACT(MONTH FROM "billDate") as month'),
+                DB::raw('SUM("amountPaid") as totalPaid')
+            )
+            ->whereNull('deleted_at')
+            ->where('billDate', '>=', $startDate)
+            ->groupBy('year', 'month')
+            ->orderBy('year', 'desc')
+            ->orderBy('month', 'desc')
+            ->get();
+        
+        \Log::info('Monthly earnings query result:', [
+            'count' => $monthlyEarnings->count(),
+            'data' => $monthlyEarnings->take(5)->toArray()
+        ]);
+    } catch (\Exception $e) {
+        \Log::error('Error in monthly earnings query: ' . $e->getMessage());
+        $monthlyEarnings = collect([]);
+    }
     
     // Initialize array for all months in the period
     $allMonths = [];
@@ -281,7 +299,10 @@ public function getAdminEarningsDashboard()
     foreach ($monthlyEarnings as $earning) {
         $yearMonth = $earning->year . '-' . sprintf('%02d', $earning->month);
         if (isset($allMonths[$yearMonth])) {
-            $allMonths[$yearMonth]['totalPaid'] = $earning->totalPaid ?? 0;
+            // Log the amount being set for each month
+            $amount = $earning->totalPaid ?? 0;
+            \Log::info("Setting totalPaid for $yearMonth to: $amount");
+            $allMonths[$yearMonth]['totalPaid'] = $amount;
         }
     }
     
@@ -317,6 +338,15 @@ public function getAdminEarningsDashboard()
         
         // Calculate profit
         $profit = $totalRevenue - $monthlyExpenses;
+
+        // Log the calculated values for this month
+        \Log::info("Month $yearMonth calculation:", [
+            'totalPaid' => $data['totalPaid'] ?? 0,
+            'monthlyEnrollmentRevenue' => $monthlyEnrollmentRevenue,
+            'totalRevenue' => $totalRevenue,
+            'monthlyExpenses' => $monthlyExpenses,
+            'profit' => $profit
+        ]);
         
         $processedEarnings[] = [
             'year' => $data['year'],
@@ -325,7 +355,7 @@ public function getAdminEarningsDashboard()
             'totalRevenue' => $totalRevenue, // Updated to include both invoice payments and course enrollments
             'totalExpenses' => $monthlyExpenses,
             'profit' => $profit,
-            'yearMonth' => $yearMonth  // This is fine to keep but not required by the frontend
+            'yearMonth' => $yearMonth
         ];
     }
     

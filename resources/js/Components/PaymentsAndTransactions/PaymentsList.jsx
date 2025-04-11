@@ -22,6 +22,9 @@ const PaymentsList = ({
   const [filterType, setFilterType] = useState('all');
   const [selectedTab, setSelectedTab] = useState(0);
 
+  // Ensure users is an array
+  const safeUsers = Array.isArray(users) ? users : [];
+
   const groupedTransactions = useMemo(() => {
     if (!transactions.data) return [];
     
@@ -30,7 +33,7 @@ const PaymentsList = ({
       const userId = transaction.user_id;
       if (!acc[userId]) {
         // Find the user from the users array to get their role and salary
-        const userInfo = users.find(user => user.id === userId) || {};
+        const userInfo = safeUsers.find(user => user.id === userId) || {};
         
         acc[userId] = {
           userId: userId,
@@ -78,7 +81,7 @@ const PaymentsList = ({
     });
     
     return transactionsByUser;
-  }, [transactions.data, users]);
+  }, [transactions.data, safeUsers]);
 
   const allTransactions = useMemo(() => {
     if (!transactions.data) return [];
@@ -131,7 +134,7 @@ const PaymentsList = ({
               onDelete={onDeleteEmployee}
               onMakePayment={onMakePayment} 
               onAddExpense={onAddExpense}
-              users={users} 
+              users={safeUsers} 
             />
           </Tab.Panel>
           <Tab.Panel>

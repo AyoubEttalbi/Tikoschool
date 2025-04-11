@@ -17,8 +17,12 @@ const EmployeeSummaryTable = ({ employeePayments = [], adminEarnings = [], onEdi
   const [viewingEmployeeId, setViewingEmployeeId] = useState(null);
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-  const [filteredData, setFilteredData] = useState(employeePayments);
-  console.log(employeePayments);
+  const [filteredData, setFilteredData] = useState([]);
+  
+  // Ensure employeePayments is an array
+  const safeEmployeePayments = Array.isArray(employeePayments) ? employeePayments : [];
+  
+  console.log(safeEmployeePayments);
   console.log('adminEarnings', adminEarnings);
   
   // Generate months for dropdown
@@ -43,7 +47,7 @@ const EmployeeSummaryTable = ({ employeePayments = [], adminEarnings = [], onEdi
   
   // Filter data based on selected month and year
   useEffect(() => {
-    const filtered = employeePayments.map(employee => {
+    const filtered = safeEmployeePayments.map(employee => {
       // Filter transactions based on selected month and year
       const filteredTransactions = employee.transactions ? employee.transactions.filter(transaction => {
         const transactionDate = new Date(transaction.payment_date);
@@ -80,7 +84,7 @@ const EmployeeSummaryTable = ({ employeePayments = [], adminEarnings = [], onEdi
     });
     
     setFilteredData(filtered);
-  }, [selectedMonth, selectedYear, employeePayments]);
+  }, [selectedMonth, selectedYear, safeEmployeePayments]);
   
   const handleViewHistory = (employeeId) => {
     router.get(`/employees/${employeeId}/transactions?month=${selectedMonth + 1}&year=${selectedYear}`);

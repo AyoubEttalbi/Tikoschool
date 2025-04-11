@@ -115,6 +115,13 @@ const PaymentForm = ({ transaction = null, errors = {}, formType, onCancel, user
 
   // Filter users based on transaction type
   useEffect(() => {
+    // Ensure users is an array
+    if (!Array.isArray(users)) {
+      console.error('Users is not an array:', users);
+      setFilteredUsers([]);
+      return;
+    }
+    
     if (users && users.length > 0) {
       let filtered = users;
       

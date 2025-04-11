@@ -35,6 +35,9 @@ const PaymentsPage = ({
   const [activeView, setActiveView] = useState(formType ? 'form' : (transaction && !formType ? 'details' : 'list'));
   const [localAdminEarnings, setLocalAdminEarnings] = useState(adminEarnings || []);
 
+  // Ensure users is an array
+  const safeUsers = Array.isArray(users) ? users : [];
+
   // Fetch admin earnings data if not provided
   useEffect(() => {
     if (!adminEarnings || (adminEarnings?.earnings && adminEarnings.earnings.length === 0)) {
@@ -191,7 +194,7 @@ const PaymentsPage = ({
                 onView={handleViewDetails}
                 onEdit={handleEditTransaction}
                 onDelete={handleDeleteTransaction}
-                users={users}
+                users={safeUsers}
                 onMakePayment={handleMakePayment}
                 onAddExpense={handleAddExpense}
                 onEditEmployee={handleEditEmployee}
@@ -207,7 +210,7 @@ const PaymentsPage = ({
                 formType={formType || 'create'}
                 onCancel={handleCancelForm}
                 onSubmit={handleSubmit}
-                users={users}
+                users={safeUsers}
               />
             )}
             {activeView === 'details' && transaction && (

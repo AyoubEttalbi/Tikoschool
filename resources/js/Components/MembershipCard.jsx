@@ -64,7 +64,7 @@ export default function MembershipCard({ Student_memberships =[], teachers =[] ,
                 </div>
               </div>
             </div>
-            <FormModal table="membership" type="update" teachers={teachers} data={membership} id={membership.id} studentId={studentId} offers={offers} />
+            {/* <FormModal table="membership" type="update" teachers={teachers} data={membership} id={membership.id} studentId={studentId} offers={offers} /> */}
             
           </div>
 
