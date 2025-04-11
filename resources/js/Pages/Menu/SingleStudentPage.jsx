@@ -8,7 +8,7 @@ import FormModal from '@/Components/FormModal';
 import MembershipCard from '@/Components/MembershipCard';
 import StudentProfile from '@/Components/StudentProfile';
 import StudentPromotionStatus from '@/Components/StudentPromotionStatus';
-import { ChevronDown, ChevronUp, Users } from 'lucide-react';
+import { ChevronDown, ChevronUp, Users, AlertCircle } from 'lucide-react';
 // import studentProfile from "./studentProfile.png";
 const SingleStudentPage = ({ student, Alllevels, Allclasses, Allschools, Alloffers, Allteachers,memberships }) => {
   const role = usePage().props.auth.user.role;
@@ -299,14 +299,49 @@ const SingleStudentPage = ({ student, Alllevels, Allclasses, Allschools, Alloffe
         <div className="w-full max-w-lg p-6 bg-white rounded-lg shadow-md border border-gray-200">
           <div className="flex justify-between items-center mb-6">
             <div className="flex items-center gap-2 text-blue-600 font-medium mr-4">
-              
-              <span className='flex flex-row'><Users className="h-5 w-5 mr-3" />Memberships:</span>
+              <span className='flex flex-row'>
+                <Users className="h-5 w-5 mr-3" />
+                Memberships:
+                {/* Display badge with number of unpaid memberships */}
+                {student.memberships && student.memberships.filter(m => m.payment_status !== "paid").length > 0 && (
+                  <span className="ml-2 bg-amber-100 text-amber-800 text-xs font-medium px-2 py-0.5 rounded-full">
+                    {student.memberships.filter(m => m.payment_status !== "paid").length} unpaid
+                  </span>
+                )}
+              </span>
             </div>
-            <FormModal table="membership" type="create" id={student.id} offers={Alloffers} teachers={Allteachers} studentId={student.id} />
+            <div className="flex items-center gap-2">
+              {/* Add invoice button specifically for unpaid memberships */}
+              {student.memberships && student.memberships.filter(m => m.payment_status !== "paid").length > 0 && (
+                <FormModal 
+                  table="invoice" 
+                  type="create" 
+                  StudentMemberships={student.memberships} 
+                  studentId={student.id} 
+                />
+              )}
+              <FormModal table="membership" type="create" id={student.id} offers={Alloffers} teachers={Allteachers} studentId={student.id} />
+            </div>
           </div>
           {
             student.memberships ? (
-              <MembershipCard Student_memberships={student.memberships} teachers={Allteachers} offers={Alloffers} studentId={student.id}/>
+              <>
+                {student.memberships.filter(m => m.payment_status !== "paid").length > 0 && (
+                  <div className="mb-4 p-3 bg-amber-50 border-l-4 border-amber-500 rounded-md">
+                    <div className="flex items-start">
+                      <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5 mr-2" />
+                      <div>
+                        <h3 className="text-sm font-medium text-amber-800">Unpaid Memberships</h3>
+                        <p className="text-sm text-amber-700 mt-1">
+                          This student has {student.memberships.filter(m => m.payment_status !== "paid").length} unpaid {student.memberships.filter(m => m.payment_status !== "paid").length === 1 ? 'membership' : 'memberships'}.
+                          Add an invoice to complete the payment process.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <MembershipCard Student_memberships={student.memberships} teachers={Allteachers} offers={Alloffers} studentId={student.id}/>
+              </>
             ) : (
               <div className="flex flex-col items-center gap-4">
                 <img src="/student.png" alt="Student" width={64} height={64} className="mb-4" />

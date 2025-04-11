@@ -1,4 +1,4 @@
-import { Clock, Edit, GraduationCap, Users, DollarSign, Calendar, UserCheck, Check, X } from "lucide-react";
+import { Clock, Edit, GraduationCap, Users, DollarSign, Calendar, UserCheck, Check, X, AlertCircle } from "lucide-react";
 import FormModal from "./FormModal";
 import { usePage } from "@inertiajs/react";
 
@@ -12,6 +12,11 @@ export default function MembershipCard({ Student_memberships =[], teachers =[] ,
     const teacher = teachers.find((t) => t.id === parseInt(teacherId));
     return teacher ? `${teacher.first_name} ${teacher.last_name}` : "Unknown Teacher";
   };
+  
+  // Helper function to check if the membership has an unpaid invoice for the current month
+  const hasUnpaidInvoice = (membership) => {
+    return membership.payment_status !== "paid";
+  };
 
   return (
     <div className="space-y-4">
@@ -23,9 +28,15 @@ export default function MembershipCard({ Student_memberships =[], teachers =[] ,
                 <GraduationCap className="h-5 w-5 text-gray-600" />
                 <span>
                   Offer: <span className="text-gray-900 font-semibold">{membership.offer_name}</span>
-                  
                 </span>
-                <span >{membership.payment_status === "paid" ? <Check className="text-green-500"/> : <X className="text-red-500"/>}</span>
+                {hasUnpaidInvoice(membership) ? (
+                  <div className="flex items-center">
+                    <AlertCircle className="h-5 w-5 text-amber-500" />
+                    <span className="text-xs text-amber-600 ml-1">Unpaid</span>
+                  </div>
+                ) : (
+                  <Check className="h-5 w-5 text-green-500" />
+                )}
               </div>
 
               <div className="space-y-2">

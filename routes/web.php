@@ -190,6 +190,7 @@ Route::middleware('auth')->group(function () {
             Route::post('/recurring-transactions/process-month', 'processMonthRecurringTransactions')->name('transactions.process-month-recurring');
             Route::get('/employee-transactions/{employee}', 'employeeTransactions')->name('employee.transactions');
             Route::get('/employees/{employee}/transactions', 'transactions')->name('employees.transactions');
+            Route::get('/admin-earnings-dashboard', 'getAdminEarningsDashboard')->name('admin.earnings.dashboard');
         });
 
         // Payments page

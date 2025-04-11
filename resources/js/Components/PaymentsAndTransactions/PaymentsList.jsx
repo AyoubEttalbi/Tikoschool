@@ -3,6 +3,7 @@ import { Tab } from '@headlessui/react';
 import EmployeeSummaryTable from './EmployeeSummaryTable';
 import AllTransactionsTable from './AllTransactionsTable';
 import Pagination from '@/Components/Pagination';
+import AdminEarningsSection from './AdminEarningsSection';
 
 const PaymentsList = ({
   transactions = [],
@@ -19,6 +20,7 @@ const PaymentsList = ({
   console.log('transactions 2', transactions);
   console.log('users 2', users);
   const [filterType, setFilterType] = useState('all');
+  const [selectedTab, setSelectedTab] = useState(0);
 
   const groupedTransactions = useMemo(() => {
     if (!transactions.data) return [];
@@ -89,7 +91,7 @@ const PaymentsList = ({
 
   return (
     <div className="flex flex-col">
-      <Tab.Group>
+      <Tab.Group onChange={setSelectedTab}>
         <div className="border-b border-gray-200 mb-4">
           <div className="flex justify-between items-center">
             <Tab.List className="flex space-x-4">
@@ -99,15 +101,22 @@ const PaymentsList = ({
               <Tab className={({ selected }) => `py-2 px-4 text-sm font-medium border-b-2 ${selected ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}>
                 All Transactions
               </Tab>
+              <Tab className={({ selected }) => `py-2 px-4 text-sm font-medium border-b-2 ${selected ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}>
+                Revenue Dashboard
+              </Tab>
             </Tab.List>
             <div className="flex items-center space-x-2">
-              <span className="text-sm text-gray-500">Filter:</span>
-              <select className="text-sm border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500" value={filterType} onChange={(e) => setFilterType(e.target.value)}>
-                <option value="all">All Types</option>
-                <option value="salary">Salary</option>
-                <option value="wallet">Payments</option>
-                <option value="expense">Expenses</option>
-              </select>
+              {selectedTab !== 2 && (
+                <>
+                  <span className="text-sm text-gray-500">Filter:</span>
+                  <select className="text-sm border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500" value={filterType} onChange={(e) => setFilterType(e.target.value)}>
+                    <option value="all">All Types</option>
+                    <option value="salary">Salary</option>
+                    <option value="wallet">Payments</option>
+                    <option value="expense">Expenses</option>
+                  </select>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -132,6 +141,9 @@ const PaymentsList = ({
               onEdit={onEdit} 
               onDelete={onDelete} 
             />
+          </Tab.Panel>
+          <Tab.Panel>
+            <AdminEarningsSection adminEarnings={adminEarnings} />
           </Tab.Panel>
         </Tab.Panels>
       </Tab.Group>

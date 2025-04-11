@@ -279,6 +279,11 @@ const RecurringTransactionsPage = ({
 
   // Determine payment status based on available data
   const getPaymentStatus = (transaction) => {
+    // Check if this transaction is marked as paid for this month
+    if (transaction.paid_this_month) {
+      return 'Paid';
+    }
+    
     // Check if last payment date exists and is within the current month
     if (transaction.payment_date) {
       const lastPayment = new Date(transaction.payment_date);
@@ -292,14 +297,43 @@ const RecurringTransactionsPage = ({
       }
     }
     
+    // Check if this is a user-related payment and user has already been paid this month
+    if ((transaction.type === 'salary' || transaction.type === 'payment') && transaction.user_id) {
+      const selectedDate = month ? new Date(`${month}-01`) : new Date();
+      const selectedMonth = selectedDate.getMonth();
+      const selectedYear = selectedDate.getFullYear();
+      
+      // Look through all transactions to find if same user was paid this month
+      const userPaidThisMonth = recurringTransactions.some(t => 
+        t.user_id === transaction.user_id && 
+        t.type === transaction.type && 
+        t.id !== transaction.id &&
+        t.payment_date && 
+        new Date(t.payment_date).getMonth() === selectedMonth && 
+        new Date(t.payment_date).getFullYear() === selectedYear &&
+        t.paid_this_month
+      );
+      
+      if (userPaidThisMonth) {
+        return 'User Already Paid';
+      }
+    }
+    
     return 'Unpaid';
   };
 
   // Get payment status color class
   const getPaymentStatusColorClass = (status) => {
-    return status === 'Paid' ? 'bg-green-100 text-green-800'
-      : status === 'Unpaid' ? 'bg-yellow-100 text-yellow-800'
-      : 'bg-gray-100 text-gray-800';
+    switch (status) {
+      case 'Paid':
+        return 'bg-green-100 text-green-800 border border-green-200';
+      case 'User Already Paid':
+        return 'bg-blue-100 text-blue-800 border border-blue-200';
+      case 'Unpaid':
+        return 'bg-yellow-100 text-yellow-800 border border-yellow-200';
+      default:
+        return 'bg-gray-100 text-gray-800 border border-gray-200';
+    }
   };
 
   // Filter transactions based on date criteria
@@ -573,9 +607,14 @@ const [showFilters, setShowFilters] = useState(false);
                           {formatDate(transaction.next_payment_date)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm">
-                          <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${paymentStatusColorClass}`}>
+                          <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${paymentStatusColorClass}`}>
                             {paymentStatus}
                           </span>
+                          {paymentStatus === 'User Already Paid' && (
+                            <div className="mt-1 text-xs text-gray-500">
+                              Same user already received payment
+                            </div>
+                          )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm">
                           <span className={`font-medium ${statusColorClass}`}>
@@ -585,12 +624,13 @@ const [showFilters, setShowFilters] = useState(false);
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                           <button
                             onClick={() => handleProcessTransaction(transaction.id)}
-                            disabled={isProcessing || paymentStatus === 'Paid'}
+                            disabled={isProcessing || paymentStatus === 'Paid' || paymentStatus === 'User Already Paid'}
                             className={`text-blue-600 hover:text-blue-900 mr-4 ${
-                              (isProcessing || paymentStatus === 'Paid') ? 'opacity-50 cursor-not-allowed' : ''
+                              (isProcessing || paymentStatus === 'Paid' || paymentStatus === 'User Already Paid') ? 'opacity-50 cursor-not-allowed' : ''
                             }`}
                           >
-                            {paymentStatus === 'Paid' ? 'Already Processed' : 'Process Now'}
+                            {paymentStatus === 'Paid' ? 'Already Processed' : 
+                             paymentStatus === 'User Already Paid' ? 'User Already Paid' : 'Process Now'}
                           </button>
                         </td>
                       </tr>

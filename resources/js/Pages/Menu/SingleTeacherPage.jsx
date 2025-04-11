@@ -7,7 +7,7 @@ import DashboardLayout from "@/Layouts/DashboardLayout";
 
 import { Link, usePage, router } from "@inertiajs/react";
 
-const SingleTeacherPage = ({ teacher = {}, announcements=[], classes, subjects, schools, invoices, selectedSchool, teacherSchools = [] }) => {
+const SingleTeacherPage = ({ teacher = {}, announcements=[], classes, subjects, schools, invoices, selectedSchool, teacherSchools = [], recurringTransactions = [] }) => {
   const role = usePage().props.auth.user.role;
   const isAdmin = role === 'admin';
   const isViewingAs = usePage().props.auth.isViewingAs;
@@ -142,6 +142,8 @@ const SingleTeacherPage = ({ teacher = {}, announcements=[], classes, subjects, 
           <TeacherProfile 
             invoices={invoices && invoices.data ? invoices.data : []} 
             paginate={invoices && invoices.links ? invoices.links : []} 
+            recurringTransactions={recurringTransactions}
+            teacher={teacher}
           />
         </div>
         {/* BOTTOM */}

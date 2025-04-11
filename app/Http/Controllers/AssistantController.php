@@ -586,6 +586,26 @@ class AssistantController extends Controller
          $studentsCount = \App\Models\Student::whereIn(DB::raw('"schoolId"'), $schoolIds)->count();
          $classesCount = \App\Models\Classes::whereIn('school_id', $schoolIds)->count();
          
+         // Get recurring transactions for this assistant
+         $recurringTransactions = \App\Models\Transaction::where('is_recurring', 1)
+             ->where('user_id', $assistant->id)
+             ->get();
+             
+         // Check if any recurring transactions have been paid this month
+         $currentMonth = now()->format('Y-m');
+         $startDate = \Carbon\Carbon::parse($currentMonth . '-01')->startOfMonth();
+         $endDate = \Carbon\Carbon::parse($currentMonth . '-01')->endOfMonth();
+         
+         foreach ($recurringTransactions as $transaction) {
+             // Check if a corresponding one-time transaction exists for this month
+             $isPaidThisMonth = \App\Models\Transaction::where('is_recurring', 0)
+                 ->where('description', 'like', '%(Recurring payment from #' . $transaction->id . ')%')
+                 ->whereBetween('payment_date', [$startDate, $endDate])
+                 ->exists();
+             
+             $transaction->paid_this_month = $isPaidThisMonth;
+         }
+         
          return Inertia::render('Menu/SingleAssistantPage', [
              'assistant' => [
                  'id' => $assistant->id,
@@ -621,6 +641,7 @@ class AssistantController extends Controller
                  'students_count' => $studentsCount,
                  'classes_count' => $classesCount,
              ],
+             'recurringTransactions' => $recurringTransactions,
          ]);
      }
     /**

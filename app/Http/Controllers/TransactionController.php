@@ -156,6 +156,14 @@ private function calculateAdminEarningsPerMonth()
         // Get total expenses for this month (teacher wallets + assistant salaries)
         $monthDate = Carbon::createFromDate($data['year'], $data['month'], 1);
         
+        // Add revenue from course enrollments
+        $monthlyEnrollmentRevenue = DB::table('enrollments')
+            ->join('courses', 'enrollments.course_id', '=', 'courses.id')
+            ->whereRaw('EXTRACT(YEAR FROM enrollments.created_at) = ?', [$data['year']])
+            ->whereRaw('EXTRACT(MONTH FROM enrollments.created_at) = ?', [$data['month']])
+            ->whereNull('enrollments.deleted_at')
+            ->sum('courses.price');
+        
         $monthlyExpenses = DB::table('transactions')
             ->where(function ($query) {
                 $query->where('type', 'salary')
@@ -166,14 +174,17 @@ private function calculateAdminEarningsPerMonth()
             ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$data['month']])
             ->sum('amount');
         
+        // Calculate total revenue (invoices + enrollments)
+        $totalRevenue = ($data['totalPaid'] ?? 0) + ($monthlyEnrollmentRevenue ?? 0);
+        
         // Calculate profit
-        $profit = ($data['totalPaid'] ?? 0) - $monthlyExpenses;
+        $profit = $totalRevenue - $monthlyExpenses;
         
         $processedEarnings[] = [
             'year' => $data['year'],
             'month' => $data['month'],
             'monthName' => $data['monthName'],
-            'totalRevenue' => $data['totalPaid'] ?? 0,  // Change from totalPaid to totalRevenue with null check
+            'totalRevenue' => $totalRevenue, // Updated to include both invoice payments and course enrollments
             'totalExpenses' => $monthlyExpenses,
             'profit' => $profit,
             'yearMonth' => $yearMonth  // This is fine to keep but not required by the frontend
@@ -259,6 +270,14 @@ public function getAdminEarningsDashboard()
         // Get total expenses for this month (teacher wallets + assistant salaries + expenses)
         $monthDate = Carbon::createFromDate($data['year'], $data['month'], 1);
         
+        // Add revenue from course enrollments
+        $monthlyEnrollmentRevenue = DB::table('enrollments')
+            ->join('courses', 'enrollments.course_id', '=', 'courses.id')
+            ->whereRaw('EXTRACT(YEAR FROM enrollments.created_at) = ?', [$data['year']])
+            ->whereRaw('EXTRACT(MONTH FROM enrollments.created_at) = ?', [$data['month']])
+            ->whereNull('enrollments.deleted_at')
+            ->sum('courses.price');
+        
         $monthlyExpenses = DB::table('transactions')
             ->where(function ($query) {
                 $query->where('type', 'salary')
@@ -269,14 +288,17 @@ public function getAdminEarningsDashboard()
             ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$data['month']])
             ->sum('amount');
         
+        // Calculate total revenue (invoices + enrollments)
+        $totalRevenue = ($data['totalPaid'] ?? 0) + ($monthlyEnrollmentRevenue ?? 0);
+        
         // Calculate profit
-        $profit = ($data['totalPaid'] ?? 0) - $monthlyExpenses;
+        $profit = $totalRevenue - $monthlyExpenses;
         
         $processedEarnings[] = [
             'year' => $data['year'],
             'month' => $data['month'],
             'monthName' => $data['monthName'],
-            'totalRevenue' => $data['totalPaid'] ?? 0,  // Change from totalPaid to totalRevenue with null check
+            'totalRevenue' => $totalRevenue, // Updated to include both invoice payments and course enrollments
             'totalExpenses' => $monthlyExpenses,
             'profit' => $profit,
             'yearMonth' => $yearMonth  // This is fine to keep but not required by the frontend
@@ -357,6 +379,15 @@ private function calculateAdminEarningsForComparison()
         // Get total expenses for this month (teacher wallets + assistant salaries + expenses)
         $monthDate = Carbon::createFromDate($data['year'], $data['month'], 1);
         
+        // Add revenue from course enrollments
+        $monthlyEnrollmentRevenue = DB::table('enrollments')
+            ->join('courses', 'enrollments.course_id', '=', 'courses.id')
+            ->whereRaw('EXTRACT(YEAR FROM enrollments.created_at) = ?', [$data['year']])
+            ->whereRaw('EXTRACT(MONTH FROM enrollments.created_at) = ?', [$data['month']])
+            ->whereNull('enrollments.deleted_at')
+            ->sum('courses.price');
+            
+        // Get existing monthly expenses
         $monthlyExpenses = DB::table('transactions')
             ->where(function ($query) {
                 $query->where('type', 'salary')
@@ -367,14 +398,17 @@ private function calculateAdminEarningsForComparison()
             ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$data['month']])
             ->sum('amount');
         
+        // Calculate total revenue (invoices + enrollments)
+        $totalRevenue = ($data['totalPaid'] ?? 0) + ($monthlyEnrollmentRevenue ?? 0);
+        
         // Calculate profit
-        $profit = ($data['totalPaid'] ?? 0) - $monthlyExpenses;
+        $profit = $totalRevenue - $monthlyExpenses;
         
         $processedEarnings[] = [
             'year' => $data['year'],
             'month' => $data['month'],
             'monthName' => $data['monthName'],
-            'totalRevenue' => $data['totalPaid'] ?? 0,  // Change from totalPaid to totalRevenue with null check
+            'totalRevenue' => $totalRevenue,  // Updated to include both payment sources
             'totalExpenses' => $monthlyExpenses,
             'profit' => $profit,
             'yearMonth' => $yearMonth  // This is fine to keep but not required by the frontend
@@ -433,9 +467,32 @@ public function index()
     {
         $validated = $this->validateTransactionData($request);
         
+        // Get the user to check their role
+        $user = null;
+        if (!empty($validated['user_id'])) {
+            $user = User::find($validated['user_id']);
+        }
+        
+        // Check if this is a payment for a teacher and validate against wallet
+        if ($user && $user->role === 'teacher' && $validated['type'] === 'payment') {
+            // Get teacher's wallet
+            $teacher = $user->teacher;
+            if ($teacher && $validated['amount'] > $teacher->wallet) {
+                return redirect()->back()
+                    ->withErrors(['amount' => 'Payment amount cannot exceed the teacher\'s wallet balance.'])
+                    ->withInput();
+            }
+            
+            // Auto-append to description if not already mentioned
+            if (!str_contains(strtolower($validated['description'] ?? ''), 'wallet payment')) {
+                $validated['description'] = ($validated['description'] ? $validated['description'] . ' - ' : '') . 
+                    'Wallet payment for teacher ' . $user->name;
+            }
+        }
+        
         $transaction = Transaction::create($validated);
         
-        if (in_array($transaction->type, ['salary', 'wallet']) && $transaction->user_id) {
+        if (in_array($transaction->type, ['salary', 'wallet', 'payment']) && $transaction->user_id) {
             $this->updateEmployeeBalance($transaction);
         }
         
@@ -490,15 +547,47 @@ public function index()
         $oldAmount = $transaction->amount;
         $oldUserId = $transaction->user_id;
         
+        // Get the user to check their role
+        $user = null;
+        if (!empty($validated['user_id'])) {
+            $user = User::find($validated['user_id']);
+        }
+        
+        // Check if this is a payment for a teacher and validate against wallet
+        if ($user && $user->role === 'teacher' && $validated['type'] === 'payment') {
+            // Get teacher's wallet
+            $teacher = $user->teacher;
+            
+            // Only check the wallet balance if the amount is increasing or this is a new payment
+            $isNewPayment = $oldType !== 'payment' || $oldUserId !== $validated['user_id'];
+            $amountIncreased = $oldType === 'payment' && $oldUserId === $validated['user_id'] && $validated['amount'] > $oldAmount;
+            
+            if ($teacher && ($isNewPayment || $amountIncreased)) {
+                $additionalAmount = $isNewPayment ? $validated['amount'] : ($validated['amount'] - $oldAmount);
+                
+                if ($additionalAmount > $teacher->wallet) {
+                    return redirect()->back()
+                        ->withErrors(['amount' => 'Payment amount cannot exceed the teacher\'s wallet balance.'])
+                        ->withInput();
+                }
+            }
+            
+            // Auto-append to description if not already mentioned
+            if (!str_contains(strtolower($validated['description'] ?? ''), 'wallet payment')) {
+                $validated['description'] = ($validated['description'] ? $validated['description'] . ' - ' : '') . 
+                    'Wallet payment for teacher ' . $user->name;
+            }
+        }
+        
         // Update the transaction
         $transaction->update($validated);
 
         // If payment type or amount changed, adjust employee balance
         if (($oldType !== $validated['type'] || $oldAmount !== $validated['amount'] || $oldUserId !== $validated['user_id']) 
-            && in_array($validated['type'], ['salary', 'wallet'])) {
+            && in_array($validated['type'], ['salary', 'wallet', 'payment'])) {
             
             // Revert old transaction effect if necessary
-            if (in_array($oldType, ['salary', 'wallet'])) {
+            if (in_array($oldType, ['salary', 'wallet', 'payment'])) {
                 $this->revertEmployeeBalance([
                     'type' => $oldType,
                     'user_id' => $oldUserId,
@@ -524,7 +613,7 @@ public function index()
         $transaction = Transaction::findOrFail($id);
         
         // Revert the effect of the transaction on employee balance
-        if (in_array($transaction->type, ['salary', 'wallet'])) {
+        if (in_array($transaction->type, ['salary', 'wallet', 'payment'])) {
             $this->revertEmployeeBalance($transaction);
         }
         
@@ -652,7 +741,7 @@ public function index()
                     
                     if ($teacher && $teacher->wallet > 0) {
                         $amount = $teacher->wallet;
-                        $type = 'wallet';
+                        $type = 'payment'; // Changed from 'wallet' to 'payment' for teacher payments
                     }
                 } elseif ($user->role === 'assistant') {
                     $assistant = DB::table('assistants')
@@ -808,24 +897,30 @@ public function processRecurring()
      * @return void
      */
     private function updateEmployeeBalance($transaction)
-{
-    if (!$transaction->user_id) {
-        return;
-    }
-
-    $user = User::find($transaction->user_id);
-    if (!$user) {
-        return;
-    }
-
-    if ($transaction->type === 'wallet' && $user->role === 'teacher') {
-        $teacher = $user->teacher;
-        if ($teacher) {
-            $teacher->increment('wallet', $transaction->amount);
+    {
+        if (!$transaction->user_id) {
+            return;
         }
+
+        $user = User::find($transaction->user_id);
+        if (!$user) {
+            return;
+        }
+
+        if ($transaction->type === 'wallet' && $user->role === 'teacher') {
+            $teacher = $user->teacher;
+            if ($teacher) {
+                $teacher->increment('wallet', $transaction->amount);
+            }
+        } elseif ($transaction->type === 'payment' && $user->role === 'teacher') {
+            // For payments to teachers, deduct from wallet
+            $teacher = $user->teacher;
+            if ($teacher) {
+                $teacher->decrement('wallet', $transaction->amount);
+            }
+        }
+        // For salary payments, we don't modify the salary field
     }
-    // For salary payments, we don't modify the salary field
-}
 
 
     /**
@@ -853,6 +948,12 @@ public function processRecurring()
             $teacher = $user->teacher;
             if ($teacher) {
                 $teacher->decrement('wallet', $amount);
+            }
+        } elseif ($type === 'payment' && $user->role === 'teacher') {
+            // For payment reversals, add back to wallet
+            $teacher = $user->teacher;
+            if ($teacher) {
+                $teacher->increment('wallet', $amount);
             }
         }
     }
@@ -1137,6 +1238,107 @@ public function processMonthRecurringTransactions(Request $request)
     /**
      * Update the next payment date based on frequency
      */
+    private function updateNextPaymentDate($transaction)
+    {
+        $currentNextPaymentDate = Carbon::parse($transaction->next_payment_date ?: $transaction->payment_date);
+        
+        switch ($transaction->frequency) {
+            case 'daily':
+                $nextPaymentDate = $currentNextPaymentDate->addDay();
+                break;
+            case 'weekly':
+                $nextPaymentDate = $currentNextPaymentDate->addWeek();
+                break;
+            case 'biweekly':
+                $nextPaymentDate = $currentNextPaymentDate->addWeeks(2);
+                break;
+            case 'monthly':
+                $nextPaymentDate = $currentNextPaymentDate->addMonth();
+                break;
+            case 'quarterly':
+                $nextPaymentDate = $currentNextPaymentDate->addMonths(3);
+                break;
+            case 'semiannually':
+                $nextPaymentDate = $currentNextPaymentDate->addMonths(6);
+                break;
+            case 'annually':
+                $nextPaymentDate = $currentNextPaymentDate->addYear();
+                break;
+            default:
+                $nextPaymentDate = $currentNextPaymentDate->addMonth(); // Default to monthly
+        }
+        
+        $transaction->next_payment_date = $nextPaymentDate;
+        $transaction->save();
+    }
+}
+                
+                if ($nextPaymentDate->lte($today)) {
+                    // Create a new transaction based on the recurring one
+                    $newTransaction = new Transaction();
+                    $newTransaction->user_id = $transaction->user_id;
+                    $newTransaction->type = $transaction->type;
+                    $newTransaction->amount = $transaction->amount;
+                    $newTransaction->rest = $transaction->rest;
+                    $newTransaction->description = $transaction->description . ' (Recurring payment from #' . $transaction->id . ')';
+                    $newTransaction->payment_date = now();
+                    $newTransaction->is_recurring = 0; // This is a one-time transaction
+                    $newTransaction->save();
+
+                    // Update the next payment date of the recurring transaction
+                    $this->updateNextPaymentDate($transaction);
+                    
+                    $count++;
+                }
+            }
+
+            if ($count > 0) {
+                return redirect()->back()->with('success', $count . ' transactions processed successfully.');
+            } else {
+                return redirect()->back()->with('success', 'No transactions were due for processing.');
+            }
+        } catch (\Exception $e) {
+            return redirect()->back()->with('error', 'Error processing transactions: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Update the next payment date based on frequency
+     */
+    private function updateNextPaymentDate($transaction)
+    {
+        $currentNextPaymentDate = Carbon::parse($transaction->next_payment_date ?: $transaction->payment_date);
+        
+        switch ($transaction->frequency) {
+            case 'daily':
+                $nextPaymentDate = $currentNextPaymentDate->addDay();
+                break;
+            case 'weekly':
+                $nextPaymentDate = $currentNextPaymentDate->addWeek();
+                break;
+            case 'biweekly':
+                $nextPaymentDate = $currentNextPaymentDate->addWeeks(2);
+                break;
+            case 'monthly':
+                $nextPaymentDate = $currentNextPaymentDate->addMonth();
+                break;
+            case 'quarterly':
+                $nextPaymentDate = $currentNextPaymentDate->addMonths(3);
+                break;
+            case 'semiannually':
+                $nextPaymentDate = $currentNextPaymentDate->addMonths(6);
+                break;
+            case 'annually':
+                $nextPaymentDate = $currentNextPaymentDate->addYear();
+                break;
+            default:
+                $nextPaymentDate = $currentNextPaymentDate->addMonth(); // Default to monthly
+        }
+        
+        $transaction->next_payment_date = $nextPaymentDate;
+        $transaction->save();
+    }
+}
     private function updateNextPaymentDate($transaction)
     {
         $currentNextPaymentDate = Carbon::parse($transaction->next_payment_date ?: $transaction->payment_date);

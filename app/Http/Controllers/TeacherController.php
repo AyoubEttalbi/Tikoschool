@@ -413,6 +413,26 @@ class TeacherController extends Controller
         $classes = Classes::all();
         $subjects = Subject::all();
         
+        // Get recurring transactions for this teacher
+        $recurringTransactions = \App\Models\Transaction::where('is_recurring', 1)
+            ->where('user_id', $teacher->id)
+            ->get();
+            
+        // Check if any recurring transactions have been paid this month
+        $currentMonth = now()->format('Y-m');
+        $startDate = \Carbon\Carbon::parse($currentMonth . '-01')->startOfMonth();
+        $endDate = \Carbon\Carbon::parse($currentMonth . '-01')->endOfMonth();
+        
+        foreach ($recurringTransactions as $transaction) {
+            // Check if a corresponding one-time transaction exists for this month
+            $isPaidThisMonth = \App\Models\Transaction::where('is_recurring', 0)
+                ->where('description', 'like', '%(Recurring payment from #' . $transaction->id . ')%')
+                ->whereBetween('payment_date', [$startDate, $endDate])
+                ->exists();
+            
+            $transaction->paid_this_month = $isPaidThisMonth;
+        }
+        
         // Get the currently selected school from session
         $selectedSchool = null;
         $selectedSchoolId = session('school_id');
@@ -452,6 +472,7 @@ class TeacherController extends Controller
             ],
             'userRole' => $userRole,
             'selectedSchool' => $selectedSchool, // Add the selected school
+            'recurringTransactions' => $recurringTransactions, // Add the recurring transactions
         ]);
     }
 

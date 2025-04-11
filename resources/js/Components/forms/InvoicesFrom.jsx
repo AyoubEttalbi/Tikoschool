@@ -259,15 +259,19 @@ const InvoicesForm = ({ type, data, setOpen, StudentMemberships = [], studentId 
                                     ) : (
                                         <>
                                             <option value="">Select a membership</option>
-                                            {StudentMemberships.filter((membership) => membership.payment_status !== "paid").map((membership) => (
-                                                <option key={membership.id} value={membership.id}>
+                                            {StudentMemberships.map((membership) => (
+                                                <option 
+                                                    key={membership.id} 
+                                                    value={membership.id}
+                                                    className={membership.payment_status !== "paid" ? "bg-amber-50 font-medium" : ""}
+                                                >
                                                     {membership.offer_name} (Price: {Math.round(membership.price)} DH)
+                                                    {membership.payment_status !== "paid" && " - Unpaid"}
                                                 </option>
                                             ))}
                                         </>
                                     )
                                 }
-
                             </select>
                             {errors.membership_id && (
                                 <span className="text-sm text-red-500">{errors.membership_id.message}</span>
@@ -282,6 +286,12 @@ const InvoicesForm = ({ type, data, setOpen, StudentMemberships = [], studentId 
                                     <div className="font-medium">{selectedMembership.offer_name}</div>
                                     <div className="text-gray-600">Monthly Price:</div>
                                     <div className="font-medium">{Math.round(selectedMembership.price)} DH</div>
+                                    {selectedMembership.payment_status !== "paid" && (
+                                        <>
+                                            <div className="text-gray-600">Payment Status:</div>
+                                            <div className="font-medium text-amber-600">Unpaid</div>
+                                        </>
+                                    )}
                                 </div>
                             </div>
                         )}

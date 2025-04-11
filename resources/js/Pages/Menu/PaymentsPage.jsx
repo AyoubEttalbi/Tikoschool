@@ -12,6 +12,7 @@ import BatchPaymentForm from '@/Components/PaymentsAndTransactions/BatchPaymentF
 import RecurringTransactionsPage from '../Payments/RecurringTransactionsPage';
 import Pagination from '@/Components/Pagination';
 import AdminEarningsSection from '@/Components/PaymentsAndTransactions/AdminEarningsSection';
+import axios from 'axios';
 
 const PaymentsPage = ({
   transactions,
@@ -32,6 +33,20 @@ const PaymentsPage = ({
   const [showForm, setShowForm] = useState(formType ? true : false);
   const [showDetails, setShowDetails] = useState(transaction ? true : false);
   const [activeView, setActiveView] = useState(formType ? 'form' : (transaction && !formType ? 'details' : 'list'));
+  const [localAdminEarnings, setLocalAdminEarnings] = useState(adminEarnings || []);
+
+  // Fetch admin earnings data if not provided
+  useEffect(() => {
+    if (!adminEarnings || (adminEarnings?.earnings && adminEarnings.earnings.length === 0)) {
+      axios.get(route('admin.earnings.dashboard'))
+        .then(response => {
+          setLocalAdminEarnings(response.data);
+        })
+        .catch(error => {
+          console.error('Error fetching admin earnings:', error);
+        });
+    }
+  }, [adminEarnings]);
 
   // Update state when props change (e.g., after navigation)
   useEffect(() => {
@@ -181,12 +196,13 @@ const PaymentsPage = ({
                 onAddExpense={handleAddExpense}
                 onEditEmployee={handleEditEmployee}
                 onDeleteEmployee={handleDeleteEmployee}
-                adminEarnings={adminEarnings}
+                adminEarnings={localAdminEarnings}
               />
             )}
             {activeView === 'form' && (
               <PaymentForm
                 transaction={transaction}
+                transactions={transactions.data}
                 errors={errors}
                 formType={formType || 'create'}
                 onCancel={handleCancelForm}
@@ -209,6 +225,7 @@ const PaymentsPage = ({
                 assistantCount={assistantCount}
                 totalWallet={totalWallet}
                 totalSalary={totalSalary}
+                transactions={transactions.data}
                 errors={errors}
                 onCancel={handleCancelForm}
                 onSubmit={handleBatchSubmit}
@@ -225,7 +242,7 @@ const PaymentsPage = ({
           </div>
         </div>
         <Pagination links={transactions.links} />
-        {adminEarnings && <AdminEarningsSection adminEarnings={adminEarnings} />}
+        {localAdminEarnings && <AdminEarningsSection adminEarnings={localAdminEarnings} />}
         {/* <UserSelect users={users}/> */}
         {/* <TransactionAnalytics transactions={transactions} /> */}
       </div>
