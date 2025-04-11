@@ -77,14 +77,14 @@ private function getAvailableYears()
 {
     // Get years from invoices table
     $invoiceYears = DB::table('invoices')
-        ->select(DB::raw('DISTINCT YEAR(billDate) as year'))
+        ->select(DB::raw('DISTINCT EXTRACT(YEAR FROM "billDate") as year'))
         ->whereNull('deleted_at')
         ->pluck('year')
         ->toArray();
     
     // Get years from transactions table
     $transactionYears = DB::table('transactions')
-        ->select(DB::raw('DISTINCT YEAR(payment_date) as year'))
+        ->select(DB::raw('DISTINCT EXTRACT(YEAR FROM payment_date) as year'))
         ->pluck('year')
         ->toArray();
     
