@@ -118,9 +118,9 @@ private function calculateAdminEarningsPerMonth()
     // Get all paid amounts from invoices, grouped by month
     $monthlyEarnings = DB::table('invoices')
         ->select(
-            DB::raw('YEAR(billDate) as year'),
-            DB::raw('MONTH(billDate) as month'),
-            DB::raw('SUM(amountPaid) as totalPaid')
+            DB::raw('EXTRACT(YEAR FROM "billDate") as year'),
+            DB::raw('EXTRACT(MONTH FROM "billDate") as month'),
+            DB::raw('SUM("amountPaid") as totalPaid')
         )
         ->whereNull('deleted_at')
         ->where('billDate', '>=', $startDate)
@@ -162,8 +162,8 @@ private function calculateAdminEarningsPerMonth()
                       ->orWhere('type', 'payment')
                       ->orWhere('type', 'expense');
             })
-            ->whereYear('payment_date', $data['year'])
-            ->whereMonth('payment_date', $data['month'])
+            ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$data['year']])
+            ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$data['month']])
             ->sum('amount');
         
         // Calculate profit
@@ -216,9 +216,9 @@ public function getAdminEarningsDashboard()
     // Get all paid amounts from invoices, grouped by month
     $monthlyEarnings = DB::table('invoices')
         ->select(
-            DB::raw('YEAR(billDate) as year'),
-            DB::raw('MONTH(billDate) as month'),
-            DB::raw('SUM(amountPaid) as totalPaid')
+            DB::raw('EXTRACT(YEAR FROM "billDate") as year'),
+            DB::raw('EXTRACT(MONTH FROM "billDate") as month'),
+            DB::raw('SUM("amountPaid") as totalPaid')
         )
         ->whereNull('deleted_at')
         ->where('billDate', '>=', $startDate)
@@ -265,8 +265,8 @@ public function getAdminEarningsDashboard()
                       ->orWhere('type', 'payment')
                       ->orWhere('type', 'expense');
             })
-            ->whereYear('payment_date', $data['year'])
-            ->whereMonth('payment_date', $data['month'])
+            ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$data['year']])
+            ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$data['month']])
             ->sum('amount');
         
         // Calculate profit
@@ -315,9 +315,9 @@ private function calculateAdminEarningsForComparison()
     // Get all paid amounts from invoices, grouped by month and year
     $monthlyEarnings = DB::table('invoices')
         ->select(
-            DB::raw('YEAR(billDate) as year'),
-            DB::raw('MONTH(billDate) as month'),
-            DB::raw('SUM(amountPaid) as totalPaid')
+            DB::raw('EXTRACT(YEAR FROM "billDate") as year'),
+            DB::raw('EXTRACT(MONTH FROM "billDate") as month'),
+            DB::raw('SUM("amountPaid") as totalPaid')
         )
         ->whereNull('deleted_at')
         ->where('billDate', '>=', $startDate)
@@ -363,8 +363,8 @@ private function calculateAdminEarningsForComparison()
                       ->orWhere('type', 'payment')
                       ->orWhere('type', 'expense');
             })
-            ->whereYear('payment_date', $data['year'])
-            ->whereMonth('payment_date', $data['month'])
+            ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$data['year']])
+            ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$data['month']])
             ->sum('amount');
         
         // Calculate profit

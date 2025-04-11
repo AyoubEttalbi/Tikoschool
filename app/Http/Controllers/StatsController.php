@@ -57,13 +57,13 @@ class StatsController extends Controller
     // Fetch monthly incomes (existing logic)
     $monthlyIncomes = Invoice::join('students', 'invoices.student_id', '=', 'students.id')
         ->select(
-            DB::raw('SUM(invoices.totalAmount) as income'),
-            DB::raw('SUM(invoices.amountPaid) as expense'),
-            DB::raw('MONTH(invoices.created_at) as month'),
-            'students.schoolId'
+            DB::raw('SUM(invoices."totalAmount") as income'),
+            DB::raw('SUM(invoices."amountPaid") as expense'),
+            DB::raw('EXTRACT(MONTH FROM invoices.created_at) as month'),
+            'students."schoolId"'
         )
-        ->whereNotNull('students.schoolId')
-        ->groupBy('month', 'students.schoolId')
+        ->whereNotNull('students."schoolId"')
+        ->groupBy('month', 'students."schoolId"')
         ->get()
         ->map(function ($item) {
             return [
@@ -80,7 +80,7 @@ class StatsController extends Controller
         ->select(
             'offers.offer_name as name',
             DB::raw('COUNT(DISTINCT invoices.student_id) as student_count'),
-            DB::raw('SUM(invoices.totalAmount) as total_price')
+            DB::raw('SUM(invoices."totalAmount") as total_price')
         )
         ->groupBy('offers.id', 'offers.offer_name')
         ->orderByDesc('student_count')
