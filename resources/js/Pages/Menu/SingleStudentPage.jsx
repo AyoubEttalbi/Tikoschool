@@ -311,15 +311,7 @@ const SingleStudentPage = ({ student, Alllevels, Allclasses, Allschools, Alloffe
               </span>
             </div>
             <div className="flex items-center gap-2">
-              {/* Add invoice button specifically for unpaid memberships */}
-              {student.memberships && student.memberships.filter(m => m.payment_status !== "paid").length > 0 && (
-                <FormModal 
-                  table="invoice" 
-                  type="create" 
-                  StudentMemberships={student.memberships} 
-                  studentId={student.id} 
-                />
-              )}
+              
               <FormModal table="membership" type="create" id={student.id} offers={Alloffers} teachers={Allteachers} studentId={student.id} />
             </div>
           </div>

@@ -271,7 +271,14 @@ const EmployeeSummaryTable = ({ employeePayments = [], adminEarnings = [], onEdi
       <div className="bg-white shadow rounded-lg p-6">
         <h3 className="text-lg font-medium text-gray-900 mb-4">Monthly Summary - {months.find(m => m.value === selectedMonth)?.label} {selectedYear}</h3>
         
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <div className="bg-purple-50 rounded-lg p-4">
+            <p className="text-sm text-purple-700">Total Monthly Revenue</p>
+            <p className="text-2xl font-bold text-purple-900">
+              {formatCurrency(adminEarnings?.yearlyMonthlyTotals?.[selectedYear]?.monthlyBreakdown?.[selectedMonth] || 0)}
+            </p>
+          </div>
+          
           <div className="bg-blue-50 rounded-lg p-4">
             <p className="text-sm text-blue-700">Total Monthly Salaries</p>
             <p className="text-2xl font-bold text-blue-900">

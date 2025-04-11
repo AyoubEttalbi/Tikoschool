@@ -5,6 +5,9 @@ import { calculateChange, formatCurrency } from './Utils';
 
 const AdminEarningsSection = ({ adminEarnings }) => {
   const earningsData = Array.isArray(adminEarnings) ? adminEarnings : (adminEarnings?.earnings || []);
+  const yearlyTotals = adminEarnings?.yearlyTotals || {};
+  const yearlyMonthlyTotals = adminEarnings?.yearlyMonthlyTotals || {};
+  
   const [viewMode, setViewMode] = useState('monthly');
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [visualizationType, setVisualizationType] = useState('bar');
@@ -131,6 +134,9 @@ useEffect(() => {
 
   const totalPages = Math.ceil(filteredEarnings.length / itemsPerPage);
 
+  // Get yearly total revenue for the selected year
+  const yearlyTotalRevenue = yearlyTotals[selectedYear] || 0;
+
   return (
     <div className="bg-white shadow-md rounded-lg p-6 mt-6">
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4">
@@ -225,6 +231,7 @@ useEffect(() => {
         revenueChange={revenueChange}
         expensesChange={expensesChange}
         profitChange={profitChange}
+        yearlyTotalRevenue={yearlyTotalRevenue}
       />
       
       <EarningsChart 
@@ -517,6 +524,26 @@ useEffect(() => {
           </div>
         </div>
       )}
+      
+      {/* Yearly Total Revenue Summary */}
+      <div className="mt-8 mb-4 bg-gradient-to-br from-purple-50 to-indigo-50 rounded-xl p-5 shadow-sm border border-purple-100">
+        <div className="flex items-center mb-3">
+          <div className="rounded-full bg-purple-100 p-2 mr-3">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-medium text-purple-800">Total Revenue for {selectedYear}</h3>
+        </div>
+        <div className="flex items-baseline">
+          <p className="text-3xl font-bold text-purple-900 mb-1">
+            {formatCurrency(yearlyTotalRevenue)}
+          </p>
+        </div>
+        <p className="text-sm text-purple-700 mt-2">
+          Total revenue from all invoices for the year {selectedYear}
+        </p>
+      </div>
     </div>
   );
 };

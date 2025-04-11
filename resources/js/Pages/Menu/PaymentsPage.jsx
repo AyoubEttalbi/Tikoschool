@@ -30,13 +30,14 @@ const PaymentsPage = ({
 }) => {
   console.log('userrrr', users);
   console.log('transactions', transactions);
+  
+  // Ensure users is always an array
+  const safeUsers = Array.isArray(users) ? users : [];
+  
   const [showForm, setShowForm] = useState(formType ? true : false);
   const [showDetails, setShowDetails] = useState(transaction ? true : false);
   const [activeView, setActiveView] = useState(formType ? 'form' : (transaction && !formType ? 'details' : 'list'));
   const [localAdminEarnings, setLocalAdminEarnings] = useState(adminEarnings || []);
-
-  // Ensure users is an array
-  const safeUsers = Array.isArray(users) ? users : [];
 
   // Fetch admin earnings data if not provided
   useEffect(() => {
@@ -232,6 +233,7 @@ const PaymentsPage = ({
                 errors={errors}
                 onCancel={handleCancelForm}
                 onSubmit={handleBatchSubmit}
+                users={safeUsers}
               />
             )}
             {activeView === 'recurring' && (

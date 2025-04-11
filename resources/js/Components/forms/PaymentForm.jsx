@@ -113,53 +113,46 @@ const PaymentForm = ({ transaction = null, errors = {}, formType, onCancel, user
     return null;
   };
 
-  // Filter users based on transaction type
+  // Effect to handle user selection and updates to form fields
   useEffect(() => {
-    // Ensure users is an array
-    if (!Array.isArray(users)) {
-      console.error('Users is not an array:', users);
-      setFilteredUsers([]);
-      return;
+    // Ensure users is an array, otherwise use empty array
+    const safeUsers = Array.isArray(users) ? users : [];
+    
+    // Initialize an empty array to store filtered users
+    let filtered = [];
+    
+    // Only try to filter if we have users
+    if (safeUsers.length > 0) {
+      // Filter by transaction type - only for salary type
+      filtered = values.type === 'salary' 
+        ? safeUsers.filter(user => ['teacher', 'assistant', 'admin', 'staff'].includes(user.role || '')) 
+        : safeUsers;
     }
     
-    if (users && users.length > 0) {
-      let filtered = users;
+    setFilteredUsers(filtered);
+    
+    // If we have a selected user ID, find the user object
+    if (values.user_id) {
+      const user = filtered.find(u => u.id === values.user_id);
+      setSelectedUser(user || null);
       
-      // Filter by transaction type - only for salary type
-      if (values.type === 'salary') {
-        filtered = users.filter(user => 
-          user.role === 'teacher' ||
-          user.role === 'assistant' ||
-          user.role === 'admin' ||
-          user.role === 'staff'
-        );
-      }
-      
-      setFilteredUsers(filtered);
-      
-      // If we have a selected user ID, find the user object
-      if (values.user_id) {
-        const user = filtered.find(u => u.id === values.user_id);
-        setSelectedUser(user || null);
-        
-        // If user is found, set the amount based on role
-        if (user) {
-          // Get the full salary amount
-          let fullSalary = '';
-          if (user.role === 'teacher' && user.wallet) {
-            fullSalary = user.wallet;
-          } else if ((user.role === 'assistant' || user.role === 'admin' || user.role === 'staff') && user.salary) {
-            fullSalary = user.salary;
-          }
-          
-          // Set initial amount to empty string - admin will input this
-          setValues(prevValues => ({
-            ...prevValues,
-            amount: '',
-            full_salary: fullSalary,
-            rest: fullSalary // Initially rest is full salary (nothing paid yet)
-          }));
+      // If user is found, set the amount based on role
+      if (user) {
+        // Get the full salary amount
+        let fullSalary = '';
+        if (user.role === 'teacher' && user.wallet) {
+          fullSalary = user.wallet;
+        } else if ((user.role === 'assistant' || user.role === 'admin' || user.role === 'staff') && user.salary) {
+          fullSalary = user.salary;
         }
+        
+        // Set initial amount to empty string - admin will input this
+        setValues(prevValues => ({
+          ...prevValues,
+          amount: '',
+          full_salary: fullSalary,
+          rest: fullSalary // Initially rest is full salary (nothing paid yet)
+        }));
       }
     }
   }, [values.type, users, values.user_id]);

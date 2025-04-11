@@ -56,7 +56,7 @@ private function getCommonData()
     $availableYears = $this->getAvailableYears();
     
     return [
-        'users' => $usersWithDetails,
+        'users' => $usersWithDetails->toArray(),
         'transactions' => $transactions,
         'teacherCount' => $teacherCount,
         'assistantCount' => $assistantCount,
@@ -253,6 +253,29 @@ public function getAdminEarningsDashboard()
         \Log::error('Error querying invoices: ' . $e->getMessage());
     }
     
+    // Get yearly totals from invoices for each year
+    try {
+        $yearlyTotals = DB::table('invoices')
+            ->select(
+                DB::raw('EXTRACT(YEAR FROM "billDate") as year'),
+                DB::raw('SUM("amountPaid") as yearTotal')
+            )
+            ->whereNull('deleted_at')
+            ->groupBy('year')
+            ->orderBy('year', 'desc')
+            ->get()
+            ->keyBy('year')
+            ->map(function ($item) {
+                return $item->yearTotal;
+            })
+            ->toArray();
+        
+        \Log::info('Yearly totals:', $yearlyTotals);
+    } catch (\Exception $e) {
+        \Log::error('Error querying yearly totals: ' . $e->getMessage());
+        $yearlyTotals = [];
+    }
+    
     // Get all paid amounts from invoices, grouped by month
     try {
         $monthlyEarnings = DB::table('invoices')
@@ -308,6 +331,8 @@ public function getAdminEarningsDashboard()
     
     // Calculate additional metrics for each month
     $processedEarnings = [];
+    $yearlyMonthlyTotals = [];
+    
     foreach ($allMonths as $yearMonth => $data) {
         // Get total expenses for this month (teacher wallets + assistant salaries + expenses)
         $monthDate = Carbon::createFromDate($data['year'], $data['month'], 1);
@@ -333,11 +358,23 @@ public function getAdminEarningsDashboard()
             ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$data['month']])
             ->sum('amount');
         
-        // Calculate total revenue (invoices + enrollments)
-        $totalRevenue = ($data['totalPaid'] ?? 0) + ($monthlyEnrollmentRevenue);
+        // Calculate total revenue (invoices only)
+        $totalRevenue = $data['totalPaid'] ?? 0;
         
         // Calculate profit
         $profit = $totalRevenue - $monthlyExpenses;
+
+        // Store monthly totals by year
+        $year = $data['year'];
+        if (!isset($yearlyMonthlyTotals[$year])) {
+            $yearlyMonthlyTotals[$year] = [
+                'totalRevenue' => 0,
+                'monthlyBreakdown' => []
+            ];
+        }
+        
+        $yearlyMonthlyTotals[$year]['totalRevenue'] += $totalRevenue;
+        $yearlyMonthlyTotals[$year]['monthlyBreakdown'][$data['month']] = $totalRevenue;
 
         // Log the calculated values for this month
         \Log::info("Month $yearMonth calculation:", [
@@ -352,7 +389,7 @@ public function getAdminEarningsDashboard()
             'year' => $data['year'],
             'month' => $data['month'],
             'monthName' => $data['monthName'],
-            'totalRevenue' => $totalRevenue, // Updated to include both invoice payments and course enrollments
+            'totalRevenue' => $totalRevenue, // Now just invoice payments
             'totalExpenses' => $monthlyExpenses,
             'profit' => $profit,
             'yearMonth' => $yearMonth
@@ -362,7 +399,9 @@ public function getAdminEarningsDashboard()
     // Include available years in the response
     return response()->json([
         'earnings' => $processedEarnings,
-        'availableYears' => $availableYears
+        'availableYears' => $availableYears,
+        'yearlyTotals' => $yearlyTotals,
+        'yearlyMonthlyTotals' => $yearlyMonthlyTotals
     ]);
 }
 
@@ -388,19 +427,32 @@ private function calculateAdminEarningsForComparison()
     // Set start date to the beginning of the earliest year
     $startDate = Carbon::createFromDate($earliestYear, 1, 1);
     
+    // Log for debugging
+    \Log::info('Admin earnings calculation start date:', ['startDate' => $startDate->format('Y-m-d')]);
+    
     // Get all paid amounts from invoices, grouped by month and year
-    $monthlyEarnings = DB::table('invoices')
-        ->select(
-            DB::raw('EXTRACT(YEAR FROM "billDate") as year'),
-            DB::raw('EXTRACT(MONTH FROM "billDate") as month'),
-            DB::raw('SUM("amountPaid") as totalPaid')
-        )
-        ->whereNull('deleted_at')
-        ->where('billDate', '>=', $startDate)
-        ->groupBy('year', 'month')
-        ->orderBy('year', 'desc')
-        ->orderBy('month', 'desc')
-        ->get();
+    try {
+        $monthlyEarnings = DB::table('invoices')
+            ->select(
+                DB::raw('EXTRACT(YEAR FROM "billDate") as year'),
+                DB::raw('EXTRACT(MONTH FROM "billDate") as month'),
+                DB::raw('SUM("amountPaid"::numeric) as totalPaid')
+            )
+            ->whereNull('deleted_at')
+            ->where('billDate', '>=', $startDate)
+            ->groupBy('year', 'month')
+            ->orderBy('year', 'desc')
+            ->orderBy('month', 'desc')
+            ->get();
+        
+        \Log::info('Monthly earnings raw data:', [
+            'count' => $monthlyEarnings->count(),
+            'first_records' => $monthlyEarnings->take(3)->toArray()
+        ]);
+    } catch (\Exception $e) {
+        \Log::error('Error querying monthly earnings: ' . $e->getMessage());
+        $monthlyEarnings = collect([]);
+    }
     
     // Calculate the number of months to include in the analysis
     $now = now();
@@ -423,7 +475,9 @@ private function calculateAdminEarningsForComparison()
     foreach ($monthlyEarnings as $earning) {
         $yearMonth = $earning->year . '-' . sprintf('%02d', $earning->month);
         if (isset($allMonths[$yearMonth])) {
-            $allMonths[$yearMonth]['totalPaid'] = $earning->totalPaid ?? 0;
+            // Make sure to cast to float to avoid string issues
+            $allMonths[$yearMonth]['totalPaid'] = (float)($earning->totalPaid ?? 0);
+            \Log::info("Setting totalPaid for $yearMonth:", ['amount' => (float)($earning->totalPaid ?? 0)]);
         }
     }
     
@@ -436,39 +490,56 @@ private function calculateAdminEarningsForComparison()
         // Add revenue from course enrollments
         $monthlyEnrollmentRevenue = 0;
         if ($this->tableExists('enrollments')) {
-            $monthlyEnrollmentRevenue = DB::table('enrollments')
-                ->join('courses', 'enrollments.course_id', '=', 'courses.id')
-                ->whereRaw('EXTRACT(YEAR FROM enrollments.created_at) = ?', [$data['year']])
-                ->whereRaw('EXTRACT(MONTH FROM enrollments.created_at) = ?', [$data['month']])
-                ->whereNull('enrollments.deleted_at')
-                ->sum('courses.price');
+            try {
+                $monthlyEnrollmentRevenue = DB::table('enrollments')
+                    ->join('courses', 'enrollments.course_id', '=', 'courses.id')
+                    ->whereRaw('EXTRACT(YEAR FROM enrollments.created_at) = ?', [$data['year']])
+                    ->whereRaw('EXTRACT(MONTH FROM enrollments.created_at) = ?', [$data['month']])
+                    ->whereNull('enrollments.deleted_at')
+                    ->sum('courses.price');
+            } catch (\Exception $e) {
+                \Log::error('Error querying enrollment revenue: ' . $e->getMessage());
+            }
         }
             
         // Get existing monthly expenses
-        $monthlyExpenses = DB::table('transactions')
-            ->where(function ($query) {
-                $query->where('type', 'salary')
-                      ->orWhere('type', 'payment')
-                      ->orWhere('type', 'expense');
-            })
-            ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$data['year']])
-            ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$data['month']])
-            ->sum('amount');
+        try {
+            $monthlyExpenses = DB::table('transactions')
+                ->where(function ($query) {
+                    $query->where('type', 'salary')
+                          ->orWhere('type', 'payment')
+                          ->orWhere('type', 'expense');
+                })
+                ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$data['year']])
+                ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$data['month']])
+                ->sum('amount');
+        } catch (\Exception $e) {
+            \Log::error('Error querying monthly expenses: ' . $e->getMessage());
+            $monthlyExpenses = 0;
+        }
         
         // Calculate total revenue (invoices + enrollments)
-        $totalRevenue = ($data['totalPaid'] ?? 0) + ($monthlyEnrollmentRevenue);
+        $totalRevenue = ((float)$data['totalPaid']) + ((float)$monthlyEnrollmentRevenue);
         
         // Calculate profit
-        $profit = $totalRevenue - $monthlyExpenses;
+        $profit = $totalRevenue - (float)$monthlyExpenses;
+        
+        \Log::info("Month $yearMonth calculation results:", [
+            'totalPaid' => (float)$data['totalPaid'],
+            'monthlyEnrollmentRevenue' => (float)$monthlyEnrollmentRevenue,
+            'totalRevenue' => $totalRevenue,
+            'monthlyExpenses' => (float)$monthlyExpenses,
+            'profit' => $profit
+        ]);
         
         $processedEarnings[] = [
             'year' => $data['year'],
             'month' => $data['month'],
             'monthName' => $data['monthName'],
-            'totalRevenue' => $totalRevenue,  // Updated to include both payment sources
-            'totalExpenses' => $monthlyExpenses,
+            'totalRevenue' => $totalRevenue,
+            'totalExpenses' => (float)$monthlyExpenses,
             'profit' => $profit,
-            'yearMonth' => $yearMonth  // This is fine to keep but not required by the frontend
+            'yearMonth' => $yearMonth
         ];
     }
     
@@ -522,39 +593,46 @@ public function index()
      */
     public function store(Request $request)
     {
-        $validated = $this->validateTransactionData($request);
-        
-        // Get the user to check their role
-        $user = null;
-        if (!empty($validated['user_id'])) {
-            $user = User::find($validated['user_id']);
-        }
-        
-        // Check if this is a payment for a teacher and validate against wallet
-        if ($user && $user->role === 'teacher' && $validated['type'] === 'payment') {
-            // Get teacher's wallet
-            $teacher = $user->teacher;
-            if ($teacher && $validated['amount'] > $teacher->wallet) {
-                return redirect()->back()
-                    ->withErrors(['amount' => 'Payment amount cannot exceed the teacher\'s wallet balance.'])
-                    ->withInput();
+        try {
+            $validated = $this->validateTransactionData($request);
+            
+            // Get the user to check their role
+            $user = null;
+            if (!empty($validated['user_id'])) {
+                $user = User::find($validated['user_id']);
             }
             
-            // Auto-append to description if not already mentioned
-            if (!str_contains(strtolower($validated['description'] ?? ''), 'wallet payment')) {
-                $validated['description'] = ($validated['description'] ? $validated['description'] . ' - ' : '') . 
-                    'Wallet payment for teacher ' . $user->name;
+            // Check if this is a payment for a teacher and validate against wallet
+            if ($user && $user->role === 'teacher' && $validated['type'] === 'payment') {
+                // Get teacher's wallet
+                $teacher = $user->teacher;
+                if ($teacher && $validated['amount'] > $teacher->wallet) {
+                    return redirect()->back()
+                        ->withErrors(['amount' => 'Payment amount cannot exceed the teacher\'s wallet balance.'])
+                        ->withInput();
+                }
+                
+                // Auto-append to description if not already mentioned
+                if (!str_contains(strtolower($validated['description'] ?? ''), 'wallet payment')) {
+                    $validated['description'] = ($validated['description'] ? $validated['description'] . ' - ' : '') . 
+                        'Wallet payment for teacher ' . $user->name;
+                }
             }
+            
+            $transaction = Transaction::create($validated);
+            
+            if (in_array($transaction->type, ['salary', 'wallet', 'payment']) && $transaction->user_id) {
+                $this->updateEmployeeBalance($transaction);
+            }
+            
+            return redirect()->route('transactions.index')
+                ->with('success', 'Transaction created successfully!');
+        } catch (\Exception $e) {
+            \Log::error('Error creating transaction: ' . $e->getMessage());
+            return redirect()->back()
+                ->withErrors(['error' => 'An error occurred while creating the transaction.'])
+                ->withInput();
         }
-        
-        $transaction = Transaction::create($validated);
-        
-        if (in_array($transaction->type, ['salary', 'wallet', 'payment']) && $transaction->user_id) {
-            $this->updateEmployeeBalance($transaction);
-        }
-        
-        return redirect()->route('transactions.index')
-            ->with('success', 'Transaction created successfully!');
     }
 
     /**

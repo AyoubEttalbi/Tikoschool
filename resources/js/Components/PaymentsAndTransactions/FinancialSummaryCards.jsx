@@ -1,7 +1,7 @@
 import React from 'react';
 import { formatCurrency } from './Utils';
 
-const FinancialSummaryCards = ({ totalRevenue, totalExpenses, totalProfit, revenueChange, expensesChange, profitChange }) => {
+const FinancialSummaryCards = ({ totalRevenue, totalExpenses, totalProfit, revenueChange, expensesChange, profitChange, yearlyTotalRevenue }) => {
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
       <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-5 shadow-sm border border-blue-100">
@@ -28,7 +28,7 @@ const FinancialSummaryCards = ({ totalRevenue, totalExpenses, totalProfit, reven
           )}
         </div>
         <p className="text-xs text-blue-700">
-          From student payments & course enrollments
+          From invoice payments
         </p>
       </div>
       
