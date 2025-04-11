@@ -2,8 +2,8 @@ import { useState } from "react";
 import { router, usePage } from "@inertiajs/react";
 
 const AttendanceModal = ({ table, type, id, data, classes, students, onClose }) => {
-  console.log("data", data);
-  const { errors } = usePage().props;
+  const { errors, filters } = usePage().props;
+  
   const [formData, setFormData] = useState({
     student_id: data?.student_id || "",
     status: data?.status || "present",
@@ -22,7 +22,7 @@ const AttendanceModal = ({ table, type, id, data, classes, students, onClose }) 
           // Top-level date and class_id
           date: formData.date,
           class_id: data.classId,
-          teacher_id: usePage().props.filters?.teacher_id,
+          teacher_id: filters?.teacher_id,
           // Attendances array structure
           attendances: [{
             student_id: data.student_id,
@@ -34,7 +34,7 @@ const AttendanceModal = ({ table, type, id, data, classes, students, onClose }) 
             onClose();
             // Force full page reload with timestamp to prevent caching
             window.location.href = route('attendances.index', { 
-              ...usePage().props.filters,
+              ...filters,
               date: formData.date,
               _timestamp: new Date().getTime()
             });
@@ -51,13 +51,13 @@ const AttendanceModal = ({ table, type, id, data, classes, students, onClose }) 
           attendances: [formData],
           date: formData.date,
           class_id: formData.class_id,
-          teacher_id: usePage().props.filters?.teacher_id
+          teacher_id: filters?.teacher_id
         }, {
           onSuccess: () => {
             onClose();
             // Force full page reload with timestamp to prevent caching
             window.location.href = route('attendances.index', { 
-              ...usePage().props.filters,
+              ...filters,
               date: formData.date,
               _timestamp: new Date().getTime()
             });
@@ -66,13 +66,13 @@ const AttendanceModal = ({ table, type, id, data, classes, students, onClose }) 
       } else {
         router.put(route(`${table}.update`, id), {
           ...formData,
-          teacher_id: usePage().props.filters?.teacher_id
+          teacher_id: filters?.teacher_id
         }, {
           onSuccess: () => {
             onClose();
             // Force full page reload with timestamp to prevent caching
             window.location.href = route('attendances.index', { 
-              ...usePage().props.filters,
+              ...filters,
               date: formData.date,
               _timestamp: new Date().getTime()
             });
