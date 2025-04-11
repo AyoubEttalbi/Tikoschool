@@ -112,14 +112,25 @@ class AttendanceController extends Controller
             ];
         });
 
+        // Fetch assistants and levels data
+        $assistants = Assistant::with('schools')->get();
+        $levels = Level::all();
+
         return Inertia::render('Menu/AttendancePage', [
             'teachers' => $teachers->map(fn($teacher) => [
                 'id' => $teacher->id, 
-                'name' => $teacher->first_name . ' ' . $teacher->last_name
+                'name' => $teacher->first_name . ' ' . $teacher->last_name,
+                'first_name' => $teacher->first_name,
+                'last_name' => $teacher->last_name,
+                'email' => $teacher->email,
+                'schools' => $teacher->schools,
+                'classes' => $teacher->classes
             ]),
             'classes' => $classes->map(fn($class) => [
                 'id' => $class->id, 
-                'name' => $class->name
+                'name' => $class->name,
+                'level_id' => $class->level_id,
+                'school_id' => $class->school_id
             ]),
             'students' => $studentsWithAttendance,
             'filters' => [
@@ -131,7 +142,16 @@ class AttendanceController extends Controller
             'selectedSchool' => $selectedSchoolId ? [
                 'id' => $selectedSchoolId,
                 'name' => session('school_name')
-            ] : null
+            ] : null,
+            'assistants' => $assistants->map(fn($assistant) => [
+                'id' => $assistant->id,
+                'first_name' => $assistant->first_name,
+                'last_name' => $assistant->last_name,
+                'email' => $assistant->email,
+                'schools' => $assistant->schools
+            ]),
+            'levels' => $levels,
+            'schools' => School::all()
         ]);
     }
 
