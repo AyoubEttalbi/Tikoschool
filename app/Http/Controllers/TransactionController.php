@@ -110,10 +110,11 @@ private function getAvailableYears()
 private function tableExists($tableName)
 {
     try {
-        // For MySQL
-        $result = DB::select("SHOW TABLES LIKE '{$tableName}'");
-        return count($result) > 0;
+        // For PostgreSQL
+        $result = DB::select("SELECT to_regclass('public.$tableName') as exists");
+        return !empty($result[0]->exists);
     } catch (\Exception $e) {
+        \Log::error('Error checking if table exists: ' . $e->getMessage());
         // If any error occurs, assume table doesn't exist
         return false;
     }
@@ -137,7 +138,7 @@ private function calculateAdminEarningsPerMonth()
         ->select(
             DB::raw('EXTRACT(YEAR FROM invoices."billDate") as year'),
             DB::raw('EXTRACT(MONTH FROM invoices."billDate") as month'),
-            DB::raw('SUM(CAST(amountPaid AS DECIMAL(10,2))) as totalPaid')
+            DB::raw('SUM(CAST(invoices."amountPaid" AS DECIMAL(10,2))) as totalPaid')
         )
         ->whereNull('deleted_at')
         ->where('billDate', '>=', $startDate)
@@ -261,8 +262,8 @@ public function getAdminEarningsDashboard()
         $invoiceCount = DB::table('invoices')->whereNull('deleted_at')->count();
         \Log::info('Total invoices count:', ['count' => $invoiceCount]);
         
-        // Check total sum - use MySQL syntax
-        $totalAmountQuery = DB::select("SELECT SUM(amountPaid) as total FROM invoices WHERE deleted_at IS NULL");
+        // Check total sum - use PostgreSQL syntax
+        $totalAmountQuery = DB::select("SELECT SUM(\"amountPaid\") as total FROM invoices WHERE deleted_at IS NULL");
         \Log::info('Raw total from invoices:', ['raw_total' => $totalAmountQuery[0]->total ?? 'null']);
     } catch (\Exception $e) {
         \Log::error('Error in direct invoice query: ' . $e->getMessage());
@@ -274,7 +275,7 @@ public function getAdminEarningsDashboard()
         $yearlyTotals = DB::table('invoices')
             ->select(
                 DB::raw('EXTRACT(YEAR FROM invoices."billDate") as year'),
-                DB::raw('SUM(CAST(amountPaid AS DECIMAL(10,2))) as yearTotal')
+                DB::raw('SUM(CAST(invoices."amountPaid" AS DECIMAL(10,2))) as yearTotal')
             )
             ->whereNull('deleted_at')
             ->groupBy('year')
@@ -309,7 +310,7 @@ public function getAdminEarningsDashboard()
             ->whereRaw('EXTRACT(MONTH FROM "billDate") = ?', [$currentDate->month])
             ->whereRaw('EXTRACT(YEAR FROM "billDate") = ?', [$currentDate->year])
             ->whereNull('deleted_at')
-            ->sum(DB::raw('CAST(amountPaid AS DECIMAL(10,2))'));
+            ->sum(DB::raw('CAST(invoices."amountPaid" AS DECIMAL(10,2))'));
             
         // Get enrollment revenue for current month if table exists
         $currentMonthEnrollmentRevenue = 0;
@@ -341,7 +342,7 @@ public function getAdminEarningsDashboard()
             ->select(
                 DB::raw('EXTRACT(YEAR FROM invoices."billDate") as year'),
                 DB::raw('EXTRACT(MONTH FROM invoices."billDate") as month'),
-                DB::raw('SUM(CAST(amountPaid AS DECIMAL(10,2))) as totalPaid')
+                DB::raw('SUM(CAST(invoices."amountPaid" AS DECIMAL(10,2))) as totalPaid')
             )
             ->whereNull('deleted_at')
             ->where('billDate', '>=', $startDate)
@@ -515,7 +516,7 @@ public function debugInvoiceData()
             SELECT column_name, data_type 
             FROM information_schema.columns 
             WHERE table_name = 'invoices' 
-            AND (column_name = 'amountPaid' OR column_name = 'billDate')
+            AND (column_name = 'amountpaid' OR column_name = 'billdate')
         ");
         
         $result['columnInfo'] = $columnCheck;
@@ -523,8 +524,8 @@ public function debugInvoiceData()
         // Get yearly totals
         $yearlyTotals = DB::table('invoices')
             ->select(
-                DB::raw('YEAR(billDate) as year'),
-                DB::raw('SUM(amountPaid) as yearTotal')
+                DB::raw('EXTRACT(YEAR FROM invoices."billDate") as year'),
+                DB::raw('SUM(CAST(invoices."amountPaid" AS DECIMAL(10,2))) as yearTotal')
             )
             ->whereNull('deleted_at')
             ->groupBy('year')
@@ -572,7 +573,7 @@ private function calculateAdminEarningsForComparison()
             ->select(
                 DB::raw('EXTRACT(YEAR FROM invoices."billDate") as year'),
                 DB::raw('EXTRACT(MONTH FROM invoices."billDate") as month'),
-                DB::raw('SUM(CAST(amountPaid AS DECIMAL(10,2))) as totalPaid')
+                DB::raw('SUM(CAST(invoices."amountPaid" AS DECIMAL(10,2))) as totalPaid')
             )
             ->whereNull('deleted_at')
             ->where('billDate', '>=', $startDate)
