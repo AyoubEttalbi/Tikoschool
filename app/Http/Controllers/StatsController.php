@@ -57,20 +57,21 @@ class StatsController extends Controller
     // Fetch monthly incomes (existing logic)
     $monthlyIncomes = Invoice::join('students', 'invoices.student_id', '=', 'students.id')
         ->select(
-            DB::raw('SUM(invoices."totalAmount") as income'),
-            DB::raw('SUM(invoices."amountPaid") as expense'),
-            DB::raw('EXTRACT(MONTH FROM invoices.created_at) as month'),
-            DB::raw('students."schoolId"')
+            DB::raw('SUM(invoices.`totalAmount`) as income'),
+            DB::raw('SUM(invoices.`amountPaid`) as expense'),
+            DB::raw('MONTH(invoices.created_at) as month'),
+            DB::raw('students.`schoolId`')
         )
-        ->whereNotNull(DB::raw('students."schoolId"'))
-        ->groupBy('month', DB::raw('students."schoolId"'))
+        ->whereNotNull('students.schoolId')
+        ->whereNull('invoices.deleted_at')
+        ->groupBy('month', 'students.schoolId')
         ->get()
         ->map(function ($item) {
             return [
                 'name' => date('M', mktime(0, 0, 0, $item->month, 10)),
                 'income' => $item->income,
                 'expense' => $item->expense,
-                'school_id' => $item->schoolid, // Note: PostgreSQL lowercases the column alias
+                'school_id' => $item->schoolId, // Changed from lowercase schoolid to match the correct column name
             ];
         });
 
@@ -80,8 +81,9 @@ class StatsController extends Controller
         ->select(
             'offers.offer_name as name',
             DB::raw('COUNT(DISTINCT invoices.student_id) as student_count'),
-            DB::raw('SUM(invoices."totalAmount") as total_price')
+            DB::raw('SUM(invoices.`totalAmount`) as total_price')
         )
+        ->whereNull('invoices.deleted_at')
         ->groupBy('offers.id', 'offers.offer_name')
         ->orderByDesc('student_count')
         ->limit(5) // Limit to top 5 most selling offers

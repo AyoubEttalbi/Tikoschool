@@ -4,9 +4,10 @@ import EarningsChart from './EarningsChart';
 import { calculateChange, formatCurrency } from './Utils';
 
 const AdminEarningsSection = ({ adminEarnings }) => {
-  const earningsData = Array.isArray(adminEarnings) ? adminEarnings : (adminEarnings?.earnings || []);
-  const yearlyTotals = adminEarnings?.yearlyTotals || {};
-  const yearlyMonthlyTotals = adminEarnings?.yearlyMonthlyTotals || {};
+  const earningsData = Array.isArray(adminEarnings?.earnings) ? adminEarnings.earnings : [];
+  const yearlyTotals = typeof adminEarnings?.yearlyTotals === 'object' && adminEarnings.yearlyTotals !== null ? adminEarnings.yearlyTotals : {};
+  const yearlyMonthlyTotals = typeof adminEarnings?.yearlyMonthlyTotals === 'object' && adminEarnings.yearlyMonthlyTotals !== null ? adminEarnings.yearlyMonthlyTotals : {};
+  const debugInfo = adminEarnings?.debug || {};
   
   const [viewMode, setViewMode] = useState('monthly');
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -14,12 +15,14 @@ const AdminEarningsSection = ({ adminEarnings }) => {
   const [page, setPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(6);
   const [showTrend, setShowTrend] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
 
   // Log adminEarnings data for debugging
   useEffect(() => {
     console.log('Admin Earnings:', adminEarnings);
-    console.log('Yearly Totals:', yearlyTotals);
-    console.log('Yearly Monthly Totals:', yearlyMonthlyTotals);
+    console.log('Yearly Totals (raw):', yearlyTotals);
+    console.log('Yearly Monthly Totals (raw):', yearlyMonthlyTotals);
+    console.log('Debug Info:', debugInfo);
   }, [adminEarnings]);
 
   // Get all available years from the data
@@ -142,95 +145,12 @@ const AdminEarningsSection = ({ adminEarnings }) => {
   const totalPages = Math.ceil(filteredEarnings.length / itemsPerPage);
 
   // Get yearly total revenue for the selected year
-  const yearlyTotalRevenue = yearlyTotals[selectedYear] || 0;
+  const yearlyTotalRevenue = Number(yearlyTotals[selectedYear] || 0);
+  
+  console.log(`Total revenue for ${selectedYear}:`, yearlyTotalRevenue);
 
   return (
     <div className="bg-white shadow-md rounded-lg p-6 mt-6">
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4">
-        <h2 className="text-xl font-semibold text-gray-800">Financial Performance Dashboard</h2>
-        <div className="flex flex-wrap gap-3">
-          {/* Year filter dropdown */}
-          <div className="relative">
-            <select
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(Number(e.target.value))}
-              className="appearance-none bg-white border border-gray-300 rounded-lg py-2 pl-4 pr-10 text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-            >
-              {availableYears.map(year => (
-                <option key={year} value={year}>{year}</option>
-              ))}
-            </select>
-            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
-              <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd"></path>
-              </svg>
-            </div>
-          </div>
-          
-          {/* View mode toggle */}
-          <div className="inline-flex p-1 bg-gray-100 rounded-lg">
-            <button 
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors duration-150 ${
-                viewMode === 'monthly' 
-                  ? 'bg-white text-indigo-700 shadow-sm' 
-                  : 'text-gray-600 hover:bg-gray-50'
-              }`}
-              onClick={() => setViewMode('monthly')}
-            >
-              Monthly View
-            </button>
-            <button 
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors duration-150 ${
-                viewMode === 'yearly' 
-                  ? 'bg-white text-indigo-700 shadow-sm' 
-                  : 'text-gray-600 hover:bg-gray-50'
-              }`}
-              onClick={() => setViewMode('yearly')}
-            >
-              Annual Summary
-            </button>
-          </div>
-          
-          {/* Visualization type selector */}
-          <div className="inline-flex p-1 bg-gray-100 rounded-lg">
-            <button 
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors duration-150 ${
-                visualizationType === 'bar' 
-                  ? 'bg-white text-indigo-700 shadow-sm' 
-                  : 'text-gray-600 hover:bg-gray-50'
-              }`}
-              onClick={() => setVisualizationType('bar')}
-            >
-              Bar Chart
-            </button>
-            <button 
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors duration-150 ${
-                visualizationType === 'line' 
-                  ? 'bg-white text-indigo-700 shadow-sm' 
-                  : 'text-gray-600 hover:bg-gray-50'
-              }`}
-              onClick={() => setVisualizationType('line')}
-            >
-              Line Chart
-            </button>
-          </div>
-          
-          {/* Year-over-year comparison toggle */}
-          <div className="ml-0 lg:ml-2">
-            <button
-              onClick={() => setShowTrend(!showTrend)}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors duration-150 border ${
-                showTrend
-                  ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-              }`}
-            >
-              {showTrend ? 'Hide YoY Comparison' : 'Show YoY Comparison'}
-            </button>
-          </div>
-        </div>
-      </div>
-      
       <FinancialSummaryCards 
         totalRevenue={totalRevenue}
         totalExpenses={totalExpenses}
@@ -336,7 +256,7 @@ const AdminEarningsSection = ({ adminEarnings }) => {
                 >
                   <span className="sr-only">Previous</span>
                   <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                    <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clipRule="evenodd" />
+                    <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.414z" clipRule="evenodd" />
                   </svg>
                 </button>
                 
@@ -531,26 +451,6 @@ const AdminEarningsSection = ({ adminEarnings }) => {
           </div>
         </div>
       )}
-      
-      {/* Yearly Total Revenue Summary */}
-      <div className="mt-8 mb-4 bg-gradient-to-br from-purple-50 to-indigo-50 rounded-xl p-5 shadow-sm border border-purple-100">
-        <div className="flex items-center mb-3">
-          <div className="rounded-full bg-purple-100 p-2 mr-3">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <h3 className="text-lg font-medium text-purple-800">Total Revenue for {selectedYear}</h3>
-        </div>
-        <div className="flex items-baseline">
-          <p className="text-3xl font-bold text-purple-900 mb-1">
-            {formatCurrency(yearlyTotalRevenue)}
-          </p>
-        </div>
-        <p className="text-sm text-purple-700 mt-2">
-          Total revenue from all invoices for the year {selectedYear}
-        </p>
-      </div>
     </div>
   );
 };

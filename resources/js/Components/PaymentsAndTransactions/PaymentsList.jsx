@@ -104,9 +104,7 @@ const PaymentsList = ({
               <Tab className={({ selected }) => `py-2 px-4 text-sm font-medium border-b-2 ${selected ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}>
                 All Transactions
               </Tab>
-              <Tab className={({ selected }) => `py-2 px-4 text-sm font-medium border-b-2 ${selected ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}>
-                Revenue Dashboard
-              </Tab>
+              
             </Tab.List>
             <div className="flex items-center space-x-2">
               {selectedTab !== 2 && (

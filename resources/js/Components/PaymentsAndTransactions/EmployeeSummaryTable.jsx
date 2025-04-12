@@ -22,8 +22,8 @@ const EmployeeSummaryTable = ({ employeePayments = [], adminEarnings = [], onEdi
   // Ensure employeePayments is always an array
   const safeEmployeePayments = Array.isArray(employeePayments) ? employeePayments : [];
   
-  console.log(safeEmployeePayments);
-  console.log('adminEarnings', adminEarnings);
+  console.log('Employee Payments:', safeEmployeePayments);
+  console.log('Admin Earnings Data:', adminEarnings);
   
   // Generate months for dropdown
   const months = [
@@ -99,15 +99,53 @@ const EmployeeSummaryTable = ({ employeePayments = [], adminEarnings = [], onEdi
   const totalMonthlyExpenses = filteredData.reduce((total, emp) => total + (Number(emp.monthlyExpenses) || 0), 0);
   
   // Find the matching adminEarnings entry for the selected month and year
-  const currentMonthEarnings = adminEarnings.earnings.find(
-    earnings => earnings.month === selectedMonth + 1 && earnings.year === selectedYear
+  // Since backend API returns month as 1-12 but our dropdown is 0-11, we add 1 to selectedMonth
+  const currentMonthEarnings = adminEarnings?.earnings?.find(
+    earnings => earnings.month === selectedMonth + 1 && earnings.year === parseInt(selectedYear)
   );
-  console.log('currentMonthEarnings', currentMonthEarnings);
+  
+  console.log('Current Month Earnings:', currentMonthEarnings);
+  console.log('Selected Month/Year:', selectedMonth + 1, selectedYear);
+  
+  // Check if current month data is available for the selected month and year
+  const isCurrentMonthSelected = selectedMonth + 1 === adminEarnings?.currentMonthData?.month && 
+    parseInt(selectedYear) === adminEarnings?.currentMonthData?.year;
+  
+  // Get the total revenue for the selected month
+  // First check if this is the current month and use currentMonthData,
+  // then try to get from current month earnings object, 
+  // then fallback to yearlyMonthlyTotals
+  const totalMonthlyRevenue = isCurrentMonthSelected 
+    ? adminEarnings?.currentMonthData?.revenue
+    : currentMonthEarnings?.totalRevenue || 
+      adminEarnings?.yearlyMonthlyTotals?.[selectedYear]?.monthlyBreakdown?.[selectedMonth + 1] || 0;
+  
+  console.log('Monthly Revenue from API:', totalMonthlyRevenue);
+  console.log('Current Month Data:', adminEarnings?.currentMonthData);
+  console.log('Is Current Month Selected:', isCurrentMonthSelected);
+  
+  // If we're still getting 0, try iterating through adminEarnings.earnings to find the current month
+  let debugRevenue = 0;
+  if (totalMonthlyRevenue === 0 && Array.isArray(adminEarnings?.earnings)) {
+    console.log('Trying to find revenue by iterating through all earnings data');
+    // Iterate through all earnings data to find the current month
+    adminEarnings.earnings.forEach(earning => {
+      console.log(`Checking earning: month=${earning.month}, year=${earning.year}, revenue=${earning.totalRevenue}`);
+      if (earning.month === selectedMonth + 1 && earning.year === parseInt(selectedYear)) {
+        debugRevenue = earning.totalRevenue;
+        console.log('Found matching earnings data!', debugRevenue);
+      }
+    });
+  }
+  
+  // Use debugRevenue if we found it, otherwise use totalMonthlyRevenue
+  const finalTotalMonthlyRevenue = debugRevenue || totalMonthlyRevenue;
+  
   // Calculate totalMonthlyBalance based on adminEarnings data
   // If we have matching data, use the profit from adminEarnings, otherwise calculate from filtered data
   const totalMonthlyBalance = currentMonthEarnings 
     ? Number(currentMonthEarnings.profit) 
-    : Number(currentMonthEarnings?.totalRevenue || 0) - totalMonthlyPayments - totalMonthlyExpenses;
+    : Number(finalTotalMonthlyRevenue) - totalMonthlyPayments - totalMonthlyExpenses;
 
   return (
     <div className="space-y-4">
@@ -278,7 +316,7 @@ const EmployeeSummaryTable = ({ employeePayments = [], adminEarnings = [], onEdi
           <div className="bg-purple-50 rounded-lg p-4">
             <p className="text-sm text-purple-700">Total Monthly Revenue</p>
             <p className="text-2xl font-bold text-purple-900">
-              {formatCurrency(adminEarnings?.yearlyMonthlyTotals?.[selectedYear]?.monthlyBreakdown?.[selectedMonth] || 0)}
+              {formatCurrency(finalTotalMonthlyRevenue)}
             </p>
           </div>
           

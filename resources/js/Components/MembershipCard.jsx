@@ -1,3 +1,4 @@
+import React from 'react';
 import { Clock, Edit, GraduationCap, Users, DollarSign, Calendar, UserCheck, Check, X, AlertCircle } from "lucide-react";
 import FormModal from "./FormModal";
 import { usePage } from "@inertiajs/react";
@@ -64,7 +65,7 @@ export default function MembershipCard({ Student_memberships =[], teachers =[] ,
                 </div>
               </div>
             </div>
-            <For  mModal table="membership" type="update" teachers={teachers} data={membership} id={membership.id} studentId={studentId} offers={offers} />
+            <FormModal table="membership" type="update" teachers={teachers} data={membership} id={membership.id} studentId={studentId} offers={offers} />
             
           </div>
 

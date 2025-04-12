@@ -288,4 +288,8 @@ Route::get('/debug-assistant/{id}', function($id) {
         })
     ]);
 });
+
+// Debug invoice data
+Route::get('/debug-invoice-data', [App\Http\Controllers\TransactionController::class, 'debugInvoiceData'])
+    ->name('debug.invoice.data');
 }

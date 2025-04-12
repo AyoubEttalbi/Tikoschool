@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import InputError from '@/Components/InputError';
 import DatePicker from 'react-datepicker';
 import UserSelect from '../PaymentsAndTransactions/UserSelect';
@@ -14,11 +14,10 @@ const TransactionDetails = ({
   filteredUsers,
   selectedUser
 }) => {
-  // Simplified transaction types - only salary and expenses
-  const transactionTypes = [
-    { value: 'salary', label: 'Staff Salary' },
-    { value: 'expense', label: 'Expenses' },
-  ];
+  // Debug log values
+  useEffect(() => {
+    console.log('TransactionDetails values updated:', values);
+  }, [values]);
 
   // School-specific expense categories
   const expenseCategories = [
@@ -36,31 +35,12 @@ const TransactionDetails = ({
     { value: 'other', label: 'Other' },
   ];
 
-  // Check if user selection is required
-  const isUserSelectionRequired = values.type === 'salary';
+  // Check if we should show the user selector
+  const showUserSelection = values.type === 'salary' || values.type === 'payment';
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-      {/* Transaction Type Selection */}
-      <div>
-        <label htmlFor="type" className="block text-sm font-medium text-gray-700 mb-1">
-          Transaction Type
-        </label>
-        <select
-          id="type"
-          name="type"
-          value={values.type}
-          onChange={handleTypeChange}
-          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-        >
-          {transactionTypes.map((type) => (
-            <option key={type.value} value={type.value}>
-              {type.label}
-            </option>
-          ))}
-        </select>
-        {errors.type && <InputError message={errors.type} className="mt-2" />}
-      </div>
+      {/* Transaction Type selection has been removed - it's now determined automatically based on user role */}
       
       {/* Category Selection - Show for expenses */}
       {values.type === 'expense' && (
@@ -103,9 +83,9 @@ const TransactionDetails = ({
         </div>
       )}
       
-      {/* User Selection with Combobox - Show for salary payments */}
-      {isUserSelectionRequired && (
-        <div className={isUserSelectionRequired && !values.user_id ? "md:col-span-2" : ""}>
+      {/* User Selection - Only show for staff payments */}
+      {showUserSelection && (
+        <div className={!values.user_id ? "md:col-span-2" : ""}>
           <label htmlFor="user_id" className="block text-sm font-medium text-gray-700 mb-1">
             Staff Member
           </label>
@@ -117,12 +97,21 @@ const TransactionDetails = ({
           />
           {selectedUser && (
             <div className="mt-2 text-sm bg-blue-50 p-2 rounded">
-              <span className="font-medium">Selected: </span>
-              {selectedUser.name} ({selectedUser.role})
-              {selectedUser.email && ` - ${selectedUser.email}`}
+              <div className="flex justify-between">
+                <div>
+                  <span className="font-medium">Selected: </span>
+                  {selectedUser.name} ({selectedUser.role})
+                  {selectedUser.email && ` - ${selectedUser.email}`}
+                </div>
+                <div className="font-medium text-blue-600">
+                  {selectedUser.role === 'teacher' ? 'Payment from Wallet' : 'Salary Payment'}
+                </div>
+              </div>
               {values.full_salary > 0 && (
                 <div className="mt-1">
-                  <span className="font-medium">Full Salary: </span>
+                  <span className="font-medium">
+                    {selectedUser.role === 'teacher' ? 'Available in Wallet:' : 'Full Salary:'}
+                  </span>
                   DH {parseFloat(values.full_salary).toFixed(2)}
                 </div>
               )}

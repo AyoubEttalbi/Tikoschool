@@ -40,7 +40,8 @@ const PaymentForm = ({ transaction = null, errors = {}, formType, onCancel, user
 
   // Check if a payment already exists for the current month
   const checkExistingPayment = () => {
-    if (!transactions || transactions.length === 0) return null;
+    // Ensure transactions is an array before filtering
+    if (!Array.isArray(transactions) || transactions.length === 0) return null;
     
     const currentDate = new Date(values.payment_date);
     const currentMonth = currentDate.getMonth();
@@ -254,34 +255,59 @@ const PaymentForm = ({ transaction = null, errors = {}, formType, onCancel, user
     if (user) {
       setSelectedUser(user);
       
+      // Automatically determine payment type based on user role
+      let transactionType;
+      if (user.role === 'teacher') {
+        // FORCE payment type for teachers
+        transactionType = 'payment'; 
+        console.log('🔴 Teacher selected - setting to PAYMENT type');
+      } else if (['assistant', 'admin', 'staff'].includes(user.role)) {
+        transactionType = 'salary';
+        console.log('🔵 Staff selected - setting to SALARY type');
+      } else {
+        // Default case if role doesn't match expected values
+        transactionType = 'salary';
+        console.log('⚪ Unknown role - defaulting to SALARY type');
+      }
+      
       // Determine full salary based on user role and transaction type
       let fullSalary = 0;
       let defaultAmount = '';
       
       if (user.role === 'teacher') {
-        if (user.wallet || user.teacher?.wallet) {
-          const walletBalance = parseFloat(user.wallet || user.teacher?.wallet) || 0;
+        // For teachers, calculate wallet balance
+        if (user.teacher && typeof user.teacher.wallet !== 'undefined') {
+          const walletBalance = parseFloat(user.teacher.wallet) || 0;
           fullSalary = walletBalance;
-          
-          // For payment type, set the default amount to the wallet balance
-          if (values.type === 'payment') {
-            defaultAmount = walletBalance.toString();
-          }
+          console.log('Teacher wallet balance:', walletBalance);
+        } else if (user.wallet) {
+          const walletBalance = parseFloat(user.wallet) || 0;
+          fullSalary = walletBalance;
+          console.log('Teacher wallet balance (alternate):', walletBalance);
+        } else {
+          console.log('⚠️ WARNING: Teacher has no wallet property!', user);
         }
       } else if ((user.role === 'assistant' || user.role === 'admin' || user.role === 'staff') && user.salary) {
         fullSalary = parseFloat(user.salary) || 0;
+        console.log('Staff salary:', fullSalary);
       }
       
-      setValues(values => ({
-        ...values,
-        user_id: parseInt(userId),
-        user_name: user.name || '',
-        description: getDefaultDescription(values.type, user.name || ''),
-        // Use default amount if set, otherwise leave empty
-        amount: defaultAmount,
-        full_salary: fullSalary,
-        rest: fullSalary.toFixed(2) // Initially rest equals full salary
-      }));
+      // Update the form values - make sure to set the correct transaction type
+      setValues(prevValues => {
+        const newValues = {
+          ...prevValues,
+          type: transactionType, // CRITICAL: Use the correct transaction type
+          user_id: parseInt(userId),
+          user_name: user.name || '',
+          description: getDefaultDescription(transactionType, user.name || ''),
+          amount: defaultAmount,
+          full_salary: fullSalary,
+          rest: fullSalary.toFixed(2)
+        };
+        
+        console.log('💾 UPDATED FORM VALUES:', newValues);
+        return newValues;
+      });
     }
   };
 
@@ -289,22 +315,79 @@ const PaymentForm = ({ transaction = null, errors = {}, formType, onCancel, user
   const handleSubmit = (e) => {
     e.preventDefault();
     
-    // Format dates for submission
+    // Make sure transaction type is correctly set based on selected user's role
+    let finalType = values.type;
+    
+    // CRITICAL: Ensure teacher payments use 'payment' type, not 'salary'
+    if (selectedUser && selectedUser.role === 'teacher') {
+      finalType = 'payment';
+      console.log('Teacher detected - setting transaction type to PAYMENT');
+    } else if (selectedUser && ['assistant', 'admin', 'staff'].includes(selectedUser.role)) {
+      finalType = 'salary';
+      console.log('Staff detected - setting transaction type to SALARY');
+    } else if (values.type === 'expense') {
+      finalType = 'expense';
+      console.log('Expense transaction - keeping type as EXPENSE');
+    }
+    
+    // For teachers, ensure the payment type is 'payment'
     const formattedValues = {
       ...values,
+      type: finalType, // Use the corrected type
       payment_date: values.payment_date ? values.payment_date.toISOString().split('T')[0] : null,
       next_payment_date: values.next_payment_date ? values.next_payment_date.toISOString().split('T')[0] : null,
       // Set the category to custom value if "other" is selected
       category: values.category === 'other' && values.custom_category ? values.custom_category : values.category,
     };
     
-    console.log('formattedValues', formattedValues);
-    if (formType === 'edit' && transaction) {
-      router.put(route('transactions.update', transaction.id), formattedValues);
-    } else {
-      router.post(route('transactions.store'), formattedValues);
+    // Add validation - ensure we have required fields
+    if (!formattedValues.type) {
+      alert('Transaction type is required');
+      return;
+    }
+    
+    if ((formattedValues.type === 'salary' || formattedValues.type === 'payment') && !formattedValues.user_id) {
+      alert('Please select a staff member');
+      return;
+    }
+    
+    if (!formattedValues.amount) {
+      alert('Amount is required');
+      return;
+    }
+    
+    console.log('FINAL FORM DATA:', formattedValues);
+    
+    try {
+      if (formType === 'edit' && transaction) {
+        router.put(route('transactions.update', transaction.id), formattedValues);
+      } else {
+        router.post(route('transactions.store'), formattedValues);
+      }
+    } catch (error) {
+      console.error('Error submitting form:', error);
+      alert('Error submitting transaction. Please check console for details.');
     }
   };
+
+  // Modify the transaction type dropdown to ensure it sets values correctly
+  
+  // When the form first renders, set the initial type based on the transaction or default
+  useEffect(() => {
+    if (transaction) {
+      // If editing existing transaction, set the form to that transaction's type
+      setValues(prev => ({
+        ...prev,
+        type: transaction.type
+      }));
+    } else {
+      // For new transactions, default to salary
+      setValues(prev => ({
+        ...prev,
+        type: 'salary'
+      }));
+    }
+  }, [transaction]);
 
   // Check if user selection is required
   const isUserSelectionRequired = values.type === 'salary';
@@ -375,7 +458,50 @@ const PaymentForm = ({ transaction = null, errors = {}, formType, onCancel, user
           </div>
         )}
         
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-6" id="transaction-form">
+          {/* Transaction Type selection at the top */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700">Transaction Type</label>
+            <select
+              id="transaction_type_selector"
+              name="transaction_type_selector"
+              value={values.type === 'expense' ? 'expense' : 'staff_payment'}
+              onChange={(e) => {
+                const selectedValue = e.target.value;
+                console.log(`Transaction type dropdown changed to: ${selectedValue}`);
+                
+                if (selectedValue === 'expense') {
+                  // Set to expense type and reset user
+                  setSelectedUser(null);
+                  handleTypeChange({ target: { value: 'expense' } });
+                } else {
+                  // Default to salary for staff payments initially
+                  // The actual specific type (payment vs salary) will be determined by user role
+                  handleTypeChange({ target: { value: 'salary' } });
+                }
+              }}
+              className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+            >
+              <option value="staff_payment">Staff Payment</option>
+              <option value="expense">Expense</option>
+            </select>
+            {errors.type && <div className="text-red-500 mt-1 text-sm">{errors.type}</div>}
+            
+            {/* Debug information */}
+            <div className="mt-2 text-xs text-gray-500">
+              Current transaction type: <span className="font-medium">{values.type}</span>
+            </div>
+          </div>
+          
+          {/* Hidden input for the type - MUST BE CORRECT */}
+          <input 
+            type="hidden" 
+            name="type" 
+            id="type" 
+            value={values.type} 
+          />
+          
+          {/* Transaction Details */}
           <TransactionDetails 
             values={values}
             errors={errors}
@@ -396,29 +522,33 @@ const PaymentForm = ({ transaction = null, errors = {}, formType, onCancel, user
             handleDateChange={handleDateChange}
           />
           
-          <div className="mt-4">
-            <label className="block text-sm font-medium text-gray-700">Payment Type</label>
-            <select
-              value={values.type}
-              onChange={handleTypeChange}
-              className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-            >
-              <option value="">Select type</option>
-              <option value="salary">Salary Payment</option>
-              <option value="wallet">Add to Wallet (Teachers)</option>
-              <option value="payment">Payment from Wallet (Teachers)</option>
-              <option value="expense">Expense</option>
-            </select>
-            {values.type === 'payment' && selectedUser?.role === 'teacher' && (
-              <p className="mt-1 text-sm text-amber-600">
-                Note: This will deduct the amount from the teacher's wallet balance.
-                {selectedUser?.teacher && (
-                  <span className="font-medium"> Current wallet balance: {formatCurrency(selectedUser.teacher.wallet || 0)}</span>
-                )}
+          {/* Display the automatically determined payment type as info */}
+          {selectedUser && (
+            <div className="mt-4 p-3 bg-blue-50 rounded-md">
+              <p className="text-sm font-medium text-gray-700">
+                <span className="font-semibold">Payment Type: </span>
+                <span className={`px-2 py-1 rounded border ${
+                  selectedUser.role === 'teacher' ? 'bg-amber-50 border-amber-200' : 'bg-blue-50 border-blue-200'
+                }`}>
+                  {selectedUser.role === 'teacher' 
+                    ? 'Payment from Wallet' 
+                    : (selectedUser.role === 'assistant' || selectedUser.role === 'admin' || selectedUser.role === 'staff') 
+                      ? 'Salary Payment'
+                      : 'Payment'}
+                  <span className="text-xs text-gray-500 ml-1">({values.type})</span>
+                </span>
               </p>
-            )}
-            {errors.type && <div className="text-red-500 mt-1 text-sm">{errors.type}</div>}
-          </div>
+              {selectedUser.role === 'teacher' && (
+                <p className="mt-1 text-sm text-amber-600">
+                  Note: This will deduct the amount from the teacher's wallet balance.
+                  {selectedUser?.teacher && (
+                    <span className="font-medium"> Current wallet balance: {formatCurrency(selectedUser.teacher.wallet || 0)}</span>
+                  )}
+                </p>
+              )}
+            </div>
+          )}
+          
           
           {/* Form Actions */}
           <div className="flex justify-end space-x-3 pt-5 border-t border-gray-200 mt-8">
