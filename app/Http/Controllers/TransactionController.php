@@ -825,6 +825,15 @@ public function index(Request $request)
                         return back()->with('error', 'Teacher profile not found');
                     }
                     
+                    // Check if teacher has 0 wallet
+                    if ($teacher->wallet <= 0) {
+                        \Log::warning('Transaction store failed: Teacher has zero wallet balance', [
+                            'teacher_id' => $teacher->id,
+                            'wallet_balance' => $teacher->wallet
+                        ]);
+                        return back()->with('error', 'Cannot process payment for teacher with zero wallet balance');
+                    }
+                    
                     // Check wallet balance
                     if ($teacher->wallet < $validated['amount']) {
                         \Log::warning('Transaction store failed: Insufficient wallet balance', [
@@ -841,8 +850,54 @@ public function index(Request $request)
                         'payment_amount' => $validated['amount']
                     ]);
                 }
+            } else if ($validated['type'] === 'salary') {
+                $user = User::find($validated['user_id']);
+                
+                if (!$user || $user->role !== 'assistant') {
+                    return back()->with('error', 'Salary payments are only for assistants');
+                }
+                
+                $assistant = $user->assistant;
+                if (!$assistant) {
+                    return back()->with('error', 'Assistant profile not found');
+                }
+                
+                // Get the month/year from payment date
+                $paymentDate = Carbon::parse($validated['payment_date']);
+                $month = $paymentDate->month;
+                $year = $paymentDate->year;
+                
+                // Calculate how much has already been paid this month
+                $alreadyPaid = Transaction::where('user_id', $user->id)
+                    ->where('type', 'salary')
+                    ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$month])
+                    ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$year])
+                    ->sum('amount');
+                
+                // Calculate remaining salary
+                $baseSalary = $assistant->salary;
+                $remainingSalary = $baseSalary - $alreadyPaid;
+                
+                \Log::info('Assistant salary check', [
+                    'assistant_id' => $assistant->id,
+                    'base_salary' => $baseSalary,
+                    'already_paid' => $alreadyPaid,
+                    'remaining_salary' => $remainingSalary,
+                    'payment_amount' => $validated['amount']
+                ]);
+                
+                // Check if assistant has already been paid their full salary
+                if ($alreadyPaid >= $baseSalary) {
+                    return back()->with('error', 'Assistant has already received their full salary for ' . $paymentDate->format('F Y'));
+                }
+                
+                // Check if payment exceeds remaining salary
+                if ($validated['amount'] > $remainingSalary) {
+                    return back()->with('error', 'Payment amount exceeds remaining salary for ' . $paymentDate->format('F Y') . 
+                        '. Remaining: ' . $remainingSalary . ', Requested: ' . $validated['amount']);
+                }
             }
-            
+
             // Create transaction
             $transaction = new Transaction($validated);
             $transaction->save();
@@ -1298,13 +1353,53 @@ public function index(Request $request)
                         ->where('email', $user->email)
                         ->first();
                     
-                    if ($assistant && $assistant->salary > 0) {
-                        $amount = $assistant->salary;
-                        $type = 'salary';
-                    } else {
+                    if (!$assistant || !$assistant->salary || $assistant->salary <= 0) {
                         $skipped++;
+                        \Log::warning('Batch payment skipped: Assistant has zero or missing salary', [
+                            'user_id' => $user->id,
+                            'user_name' => $user->name,
+                        ]);
                         continue;
                     }
+                    
+                    // Calculate how much has already been paid this month
+                    $alreadyPaid = Transaction::where('user_id', $user->id)
+                        ->where('type', 'salary')
+                        ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$month])
+                        ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$year])
+                        ->sum('amount');
+                    
+                    // If they've already received full or partial payment
+                    if ($alreadyPaid > 0) {
+                        $baseSalary = $assistant->salary;
+                        $remainingSalary = $baseSalary - $alreadyPaid;
+                        
+                        // If they've received their full salary already
+                        if ($alreadyPaid >= $baseSalary) {
+                            \Log::warning('Batch payment skipped: Assistant already received full salary', [
+                                'user_id' => $user->id,
+                                'user_name' => $user->name,
+                                'base_salary' => $baseSalary,
+                                'already_paid' => $alreadyPaid
+                            ]);
+                            $skipped++;
+                            continue;
+                        }
+                        
+                        // Pay only the remaining amount
+                        $amount = $remainingSalary;
+                        \Log::info('Batch payment adjusted for partial payment: Paying remaining salary', [
+                            'user_id' => $user->id,
+                            'user_name' => $user->name,
+                            'base_salary' => $baseSalary,
+                            'already_paid' => $alreadyPaid,
+                            'paying_now' => $amount
+                        ]);
+                    } else {
+                        $amount = $assistant->salary;
+                    }
+                    
+                    $type = 'salary';
                 }
 
                 if ($amount > 0) {
