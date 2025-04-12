@@ -69,37 +69,36 @@ private function getCommonData()
 
 
 /**
- * Get all available years from both invoices and transactions data
- *
+ * Get all available years from the database
+ * 
  * @return array
  */
 private function getAvailableYears()
 {
-    // Get years from invoices table
-    $invoiceYears = DB::table('invoices')
-        ->select(DB::raw('DISTINCT YEAR(billDate) as year'))
-        ->whereNull('deleted_at')
-        ->pluck('year')
-        ->toArray();
-    
-    // Get years from transactions table
-    $transactionYears = DB::table('transactions')
-        ->select(DB::raw('DISTINCT YEAR(payment_date) as year'))
-        ->pluck('year')
-        ->toArray();
-    
-    // Merge all unique years
-    $years = array_unique(array_merge($invoiceYears, $transactionYears));
-    
-    // Sort in descending order
-    rsort($years);
-    
-    // If no years found, include at least the current year
-    if (empty($years)) {
-        $years = [now()->year];
+    try {
+        $years = DB::table('invoices')
+            ->select(DB::raw('DISTINCT EXTRACT(YEAR FROM invoices."billDate") as year'))
+            ->whereNull('deleted_at')
+            ->orderBy('year', 'desc')
+            ->pluck('year')
+            ->toArray();
+            
+        // Convert to integers
+        $years = array_map('intval', $years);
+        
+        \Log::info('Available years from DB:', $years);
+        
+        // If no years found, use current year
+        if (empty($years)) {
+            $years = [now()->year];
+        }
+        
+        return $years;
+    } catch (\Exception $e) {
+        \Log::error('Error getting available years: ' . $e->getMessage());
+        // Return current year as fallback
+        return [now()->year];
     }
-    
-    return $years;
 }
 
 /**
@@ -136,8 +135,8 @@ private function calculateAdminEarningsPerMonth()
     // Get all paid amounts from invoices, grouped by month
     $monthlyEarnings = DB::table('invoices')
         ->select(
-            DB::raw('YEAR(billDate) as year'),
-            DB::raw('MONTH(billDate) as month'),
+            DB::raw('EXTRACT(YEAR FROM invoices."billDate") as year'),
+            DB::raw('EXTRACT(MONTH FROM invoices."billDate") as month'),
             DB::raw('SUM(CAST(amountPaid AS DECIMAL(10,2))) as totalPaid')
         )
         ->whereNull('deleted_at')
@@ -198,8 +197,8 @@ private function calculateAdminEarningsPerMonth()
                           ->orWhere('type', 'payment')
                           ->orWhere('type', 'expense');
                 })
-                ->whereRaw('YEAR(payment_date) = ?', [$data['year']])
-                ->whereRaw('MONTH(payment_date) = ?', [$data['month']])
+                ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$data['year']])
+                ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$data['month']])
                 ->sum(DB::raw('CAST(amount AS DECIMAL(10,2))'));
         } catch (\Exception $e) {
             \Log::error('Error calculating monthly expenses: ' . $e->getMessage());
@@ -271,10 +270,10 @@ public function getAdminEarningsDashboard()
     
     // Get yearly totals from invoices for each year
     try {
-        // Use MySQL syntax
+        // Use PostgreSQL syntax for date extraction
         $yearlyTotals = DB::table('invoices')
             ->select(
-                DB::raw('YEAR(billDate) as year'),
+                DB::raw('EXTRACT(YEAR FROM invoices."billDate") as year'),
                 DB::raw('SUM(CAST(amountPaid AS DECIMAL(10,2))) as yearTotal')
             )
             ->whereNull('deleted_at')
@@ -307,8 +306,8 @@ public function getAdminEarningsDashboard()
     try {
         // Get invoice revenue for current month
         $currentMonthInvoiceRevenue = DB::table('invoices')
-            ->whereMonth('billDate', $currentDate->month)
-            ->whereYear('billDate', $currentDate->year)
+            ->whereRaw('EXTRACT(MONTH FROM "billDate") = ?', [$currentDate->month])
+            ->whereRaw('EXTRACT(YEAR FROM "billDate") = ?', [$currentDate->year])
             ->whereNull('deleted_at')
             ->sum(DB::raw('CAST(amountPaid AS DECIMAL(10,2))'));
             
@@ -317,8 +316,8 @@ public function getAdminEarningsDashboard()
         if ($this->tableExists('enrollments')) {
             $currentMonthEnrollmentRevenue = DB::table('enrollments')
                 ->join('courses', 'enrollments.course_id', '=', 'courses.id')
-                ->whereMonth('enrollments.created_at', $currentDate->month)
-                ->whereYear('enrollments.created_at', $currentDate->year)
+                ->whereRaw('EXTRACT(MONTH FROM enrollments.created_at) = ?', [$currentDate->month])
+                ->whereRaw('EXTRACT(YEAR FROM enrollments.created_at) = ?', [$currentDate->year])
                 ->whereNull('enrollments.deleted_at')
                 ->sum(DB::raw('CAST(courses.price AS DECIMAL(10,2))'));
         }
@@ -340,8 +339,8 @@ public function getAdminEarningsDashboard()
     try {
         $monthlyEarnings = DB::table('invoices')
             ->select(
-                DB::raw('YEAR(billDate) as year'),
-                DB::raw('MONTH(billDate) as month'),
+                DB::raw('EXTRACT(YEAR FROM invoices."billDate") as year'),
+                DB::raw('EXTRACT(MONTH FROM invoices."billDate") as month'),
                 DB::raw('SUM(CAST(amountPaid AS DECIMAL(10,2))) as totalPaid')
             )
             ->whereNull('deleted_at')
@@ -420,8 +419,8 @@ public function getAdminEarningsDashboard()
                           ->orWhere('type', 'payment')
                           ->orWhere('type', 'expense');
                 })
-                ->whereRaw('YEAR(payment_date) = ?', [$data['year']])
-                ->whereRaw('MONTH(payment_date) = ?', [$data['month']])
+                ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$data['year']])
+                ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$data['month']])
                 ->sum(DB::raw('CAST(amount AS DECIMAL(10,2))'));
         } catch (\Exception $e) {
             \Log::error('Error calculating monthly expenses: ' . $e->getMessage());
@@ -571,8 +570,8 @@ private function calculateAdminEarningsForComparison()
     try {
         $monthlyEarnings = DB::table('invoices')
             ->select(
-                DB::raw('YEAR(billDate) as year'),
-                DB::raw('MONTH(billDate) as month'),
+                DB::raw('EXTRACT(YEAR FROM invoices."billDate") as year'),
+                DB::raw('EXTRACT(MONTH FROM invoices."billDate") as month'),
                 DB::raw('SUM(CAST(amountPaid AS DECIMAL(10,2))) as totalPaid')
             )
             ->whereNull('deleted_at')
@@ -649,8 +648,8 @@ private function calculateAdminEarningsForComparison()
                           ->orWhere('type', 'payment')
                           ->orWhere('type', 'expense');
                 })
-                ->whereRaw('YEAR(payment_date) = ?', [$data['year']])
-                ->whereRaw('MONTH(payment_date) = ?', [$data['month']])
+                ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$data['year']])
+                ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$data['month']])
                 ->sum(DB::raw('CAST(amount AS DECIMAL(10,2))'));
         } catch (\Exception $e) {
             \Log::error('Error querying monthly expenses: ' . $e->getMessage());
@@ -702,8 +701,28 @@ private function calculateAdminEarningsForComparison()
  *
  * @return \Illuminate\Http\Response
  */
-public function index()
+public function index(Request $request)
 {
+    // Get filter parameters
+    $year = $request->query('year', now()->year);
+    
+    // Get all transactions, with latest first
+    $transactions = Transaction::with('user')
+        ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$year])
+        ->orderBy('payment_date', 'desc')
+        ->paginate(10);
+
+    // Calculate total amount for the filtered transactions
+    $totalAmount = Transaction::whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$year])
+        ->sum('amount');
+
+    // Get all available years for the filter
+    $availableYears = DB::table('transactions')
+        ->select(DB::raw('DISTINCT EXTRACT(YEAR FROM payment_date) as year'))
+        ->orderBy('year', 'desc')
+        ->pluck('year')
+        ->toArray();
+
     $data = $this->getCommonData();
     $data['formType'] = null;
     $data['transaction'] = null;
@@ -766,8 +785,8 @@ public function index()
                 // Check for existing payments in the same month/year
                 $existingPayment = Transaction::where('user_id', $validated['user_id'])
                     ->whereIn('type', ['salary', 'payment'])
-                    ->whereMonth('payment_date', $month)
-                    ->whereYear('payment_date', $year)
+                    ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$month])
+                    ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$year])
                     ->exists();
                 
                 if ($existingPayment) {
@@ -1043,8 +1062,8 @@ public function index()
         $year = $paymentDate->year;
         
         // Find employees who have already been paid this month
-        $alreadyPaidUserIds = Transaction::whereMonth('payment_date', $month)
-            ->whereYear('payment_date', $year)
+        $alreadyPaidUserIds = Transaction::whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$month])
+            ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$year])
             ->where(function($query) {
                 $query->where('type', 'salary')
                       ->orWhere('type', 'payment');
@@ -1123,8 +1142,8 @@ public function index()
         $year = $selectedDate->year;
         
         // Find employees who have already been paid this month
-        $alreadyPaidUserIds = Transaction::whereMonth('payment_date', $month)
-            ->whereYear('payment_date', $year)
+        $alreadyPaidUserIds = Transaction::whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$month])
+            ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$year])
             ->where(function($query) {
                 $query->where('type', 'salary')
                       ->orWhere('type', 'payment');
@@ -1238,8 +1257,8 @@ public function index()
                 // Final check that user hasn't been paid this month/year
                 $existingPayment = Transaction::where('user_id', $user->id)
                     ->whereIn('type', ['salary', 'payment'])
-                    ->whereMonth('payment_date', $month)
-                    ->whereYear('payment_date', $year)
+                    ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$month])
+                    ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$year])
                     ->exists();
                     
                 if ($existingPayment) {
