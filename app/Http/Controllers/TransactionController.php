@@ -528,8 +528,8 @@ public function getAdminEarningsDashboard()
                       ->orWhere('type', 'payment')
                       ->orWhere('type', 'expense');
             })
-            ->whereYear('payment_date', $data['year'])
-            ->whereMonth('payment_date', $data['month'])
+            ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$data['year']])
+            ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$data['month']])
             ->sum('amount');
         
         $monthlyData[$key]['totalExpenses'] = (float)$expenses;
