@@ -77,7 +77,7 @@ private function getAvailableYears()
 {
     try {
         $years = DB::table('invoices')
-            ->select(DB::raw('DISTINCT EXTRACT(YEAR FROM billDate) as year'))
+            ->select(DB::raw('DISTINCT EXTRACT(YEAR FROM "billDate") as year'))
             ->whereNull('deleted_at')
             ->orderBy('year', 'desc')
             ->pluck('year')
@@ -625,11 +625,11 @@ public function debugInvoiceData()
         // Get yearly totals
         $yearlyTotals = DB::table('invoices')
             ->select(
-                DB::raw('EXTRACT(YEAR FROM billDate) as year'),
-                DB::raw('SUM(CAST(amountPaid AS DECIMAL(10,2))) as yearTotal')
+                DB::raw('EXTRACT(YEAR FROM "billDate") as year'),
+                DB::raw('SUM(CAST("amountPaid" AS DECIMAL(10,2))) as yearTotal')
             )
             ->whereNull('deleted_at')
-            ->groupBy('year')
+            ->groupBy(DB::raw('EXTRACT(YEAR FROM "billDate")'))
             ->orderBy('year', 'desc')
             ->get();
         
@@ -672,13 +672,13 @@ private function calculateAdminEarningsForComparison()
     try {
         $monthlyEarnings = DB::table('invoices')
             ->select(
-                DB::raw('EXTRACT(YEAR FROM billDate) as year'),
-                DB::raw('EXTRACT(MONTH FROM billDate) as month'),
-                DB::raw('SUM(CAST(amountPaid AS DECIMAL(10,2))) as totalPaid')
+                DB::raw('EXTRACT(YEAR FROM "billDate") as year'),
+                DB::raw('EXTRACT(MONTH FROM "billDate") as month'),
+                DB::raw('SUM(CAST("amountPaid" AS DECIMAL(10,2))) as totalPaid')
             )
             ->whereNull('deleted_at')
             ->where('billDate', '>=', $startDate)
-            ->groupBy(DB::raw('EXTRACT(YEAR FROM billDate)'), DB::raw('EXTRACT(MONTH FROM billDate)'))
+            ->groupBy(DB::raw('EXTRACT(YEAR FROM "billDate")'), DB::raw('EXTRACT(MONTH FROM "billDate")'))
             ->orderBy('year', 'desc')
             ->orderBy('month', 'desc')
             ->get();
