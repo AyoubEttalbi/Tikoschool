@@ -72,65 +72,57 @@ const PaymentsPage = ({
   };
 
   const handleViewDetails = (id) => {
-    router.get(route('transactions.show', id));
+    console.log('Viewing details for:', id);
+    if (typeof id === 'object' && id.transactions) {
+      // If we received an employee object with transactions, navigate to employee transactions
+      router.get(route('employees.transactions', { employee: id.userId }));
+    } else {
+      // If we received a transaction ID, show that specific transaction
+      router.get(route('transactions.show', { transaction: id }));
+    }
   };
 
   const handleEditTransaction = (id) => {
+    console.log('Editing transaction:', id);
     router.get(route('transactions.edit', id));
   };
 
   const handleDeleteTransaction = (id) => {
+    console.log('Attempting to delete transaction:', id);
     if (confirm('Are you sure you want to delete this transaction?')) {
       router.delete(route('transactions.destroy', id));
     }
   };
-  // New handlers for EmployeeSummaryTable
-  const handleMakePayment = (employeeId, balance) => {
-    // Set the employee ID and redirect to the transaction form
-    setPaymentForEmployee(employeeId);
 
+  // New handlers for EmployeeSummaryTable
+  const handleMakePayment = (employeeId, balance, employeeData) => {
+    console.log('Making payment for employee:', employeeId, 'with balance:', balance);
     // Prepare the form data for a new payment transaction
     const formData = {
       user_id: employeeId,
-      type: 'payment',
+      type: employeeData.role === 'teacher' ? 'payment' : 'salary',
       amount: balance > 0 ? balance : 0, // Pre-fill with the outstanding balance amount if positive
       payment_date: new Date().toISOString().split('T')[0], // Today's date
-      description: `Salary payment for employee ID: ${employeeId}`,
+      description: `${employeeData.role === 'teacher' ? 'Payment' : 'Salary payment'} for ${employeeData.userName}`,
       is_recurring: false
     };
 
+    console.log('Navigating to create transaction with form data:', formData);
     // Navigate to the create transaction form with pre-filled data
     router.get(route('transactions.create'), formData);
   };
 
-  const handleAddExpense = (employeeId) => {
-    // Set the employee ID and redirect to the transaction form
-    setExpenseForEmployee(employeeId);
-
-    // Prepare the form data for a new expense transaction
-    const formData = {
-      user_id: employeeId,
-      type: 'expense',
-      amount: 0, // Leave blank for user to fill
-      payment_date: new Date().toISOString().split('T')[0], // Today's date
-      description: `Expense for employee ID: ${employeeId}`,
-      is_recurring: false
-    };
-
-    // Navigate to the create transaction form with pre-filled data
-    router.get(route('transactions.create'), formData);
-  };
-
-  const handleEditEmployee = (employeeId) => {
-    // Navigate to employee edit page
-    router.get(route('employees.edit', employeeId));
-  };
-
-  const handleDeleteEmployee = (employeeId) => {
-    if (confirm('Are you sure you want to remove this employee?')) {
-      router.delete(route('employees.destroy', employeeId));
+  const handleEditEmployee = (transactionId) => {
+    console.log('Editing transaction:', transactionId);
+    if (!transactionId) {
+      console.error('No transaction ID provided');
+      return;
     }
+    
+    // Navigate to the transaction edit form
+    router.get(route('transactions.edit', transactionId));
   };
+
   const handleSubmit = (formData, id = null) => {
     if (formType === 'edit' && id) {
       router.put(route('transactions.update', id), formData);
@@ -197,9 +189,7 @@ const PaymentsPage = ({
                 onDelete={handleDeleteTransaction}
                 users={safeUsers}
                 onMakePayment={handleMakePayment}
-                onAddExpense={handleAddExpense}
                 onEditEmployee={handleEditEmployee}
-                onDeleteEmployee={handleDeleteEmployee}
                 adminEarnings={localAdminEarnings}
               />
             )}

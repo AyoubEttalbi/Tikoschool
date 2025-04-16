@@ -17,8 +17,8 @@ const PaymentsList = ({
   onEditEmployee,
   onDeleteEmployee
 }) => {
-  console.log('transactions 2', transactions);
-  console.log('users 2', users);
+  console.log('Raw transactions:', transactions);
+  console.log('Raw users:', users);
   const [filterType, setFilterType] = useState('all');
   const [selectedTab, setSelectedTab] = useState(0);
 
@@ -31,23 +31,29 @@ const PaymentsList = ({
     // First pass: Create user entries and collect all transactions
     const transactionsByUser = transactions.data.reduce((acc, transaction) => {
       const userId = transaction.user_id;
+      console.log('Processing transaction:', transaction);
+      console.log('User ID:', userId);
+      
       if (!acc[userId]) {
         // Find the user from the users array to get their role and salary
-        const userInfo = safeUsers.find(user => user.id === userId) || {};
+        const userInfo = safeUsers.find(user => user.id === userId || user.userId === userId) || {};
+        console.log('Found user info:', userInfo);
         
         acc[userId] = {
           userId: userId,
+          id: userId, // Add this for compatibility
           userName: transaction.user?.name || transaction.user_name || 'Unknown',
-          email: transaction.user?.email || '',
+          email: transaction.user?.email || userInfo.email || '',
           role: transaction.user?.role || userInfo.role || '',
           baseSalary: parseFloat(userInfo.salary || 0),
-          totalOwed: 0, // Will be set based on role (salary for assistant, wallet for teacher)
-          totalPaid: 0, // Will be calculated from salary transactions
+          totalOwed: 0,
+          totalPaid: 0,
           totalExpenses: 0,
           netBalance: 0,
           transactions: [],
           wallet: userInfo.wallet || 0
         };
+        console.log('Created new user entry:', acc[userId]);
       }
       
       // Add transaction to the user's transactions array
@@ -60,14 +66,15 @@ const PaymentsList = ({
       
       return acc;
     }, {});
-    console.log('user data', transactionsByUser);
+    
+    console.log('Grouped transactions by user:', transactionsByUser);
+    
     // Second pass: Calculate totalOwed and totalPaid based on collected transactions
     Object.values(transactionsByUser).forEach(userData => {
       // Set totalOwed based on role
       if (userData.role === 'assistant') {
-        userData.totalOwed = userData.baseSalary; // For assistants, totalOwed is their salary
+        userData.totalOwed = userData.baseSalary;
       } else if (userData.role === 'teacher') {
-        // For teachers, totalOwed is sum of wallet transactions
         userData.totalOwed = userData.wallet;
       }
       
@@ -78,6 +85,8 @@ const PaymentsList = ({
       
       // Calculate net balance
       userData.netBalance = userData.totalOwed - userData.totalPaid;
+      
+      console.log('Updated user data:', userData);
     });
     
     return transactionsByUser;
@@ -89,7 +98,9 @@ const PaymentsList = ({
   }, [transactions.data, filterType]);
 
   const employeePayments = useMemo(() => {
-    return Object.values(groupedTransactions);
+    const payments = Object.values(groupedTransactions);
+    console.log('Final employee payments:', payments);
+    return payments;
   }, [groupedTransactions]);
 
   return (
@@ -129,9 +140,7 @@ const PaymentsList = ({
               adminEarnings={adminEarnings}
               onView={onView} 
               onEdit={onEditEmployee}
-              onDelete={onDeleteEmployee}
-              onMakePayment={onMakePayment} 
-              onAddExpense={onAddExpense}
+              onMakePayment={onMakePayment}
               users={safeUsers} 
             />
           </Tab.Panel>

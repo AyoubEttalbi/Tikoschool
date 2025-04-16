@@ -169,8 +169,8 @@ class SchoolController extends Controller
         for ($i = 5; $i >= 0; $i--) {
             $date = Carbon::now()->subMonths($i);
             $count = Student::where(DB::raw('"schoolId"'), $school->id)
-                ->whereRaw('EXTRACT(MONTH FROM created_at) = ?', [$date->month])
-                ->whereRaw('EXTRACT(YEAR FROM created_at) = ?', [$date->year])
+                ->whereRaw('MONTH(created_at) = ?', [$date->month])
+                ->whereRaw('YEAR(created_at) = ?', [$date->year])
                 ->count();
             
             $enrollmentTrend[] = [

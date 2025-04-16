@@ -77,7 +77,7 @@ private function getAvailableYears()
 {
     try {
         $years = DB::table('invoices')
-            ->select(DB::raw('DISTINCT EXTRACT(YEAR FROM invoices."billDate") as year'))
+            ->select(DB::raw('DISTINCT YEAR(billDate) as year'))
             ->whereNull('deleted_at')
             ->orderBy('year', 'desc')
             ->pluck('year')
@@ -110,9 +110,14 @@ private function getAvailableYears()
 private function tableExists($tableName)
 {
     try {
-        // For PostgreSQL
-        $result = DB::select("SELECT to_regclass('public.$tableName') as exists");
-        return !empty($result[0]->exists);
+        // For MySQL
+        $result = DB::select(
+            "SELECT COUNT(*) as table_exists 
+            FROM information_schema.tables 
+            WHERE table_schema = DATABASE() 
+            AND table_name = ?", [$tableName]
+        );
+        return !empty($result[0]->table_exists);
     } catch (\Exception $e) {
         \Log::error('Error checking if table exists: ' . $e->getMessage());
         // If any error occurs, assume table doesn't exist
@@ -121,34 +126,134 @@ private function tableExists($tableName)
 }
 
 /**
- * Calculate admin earnings based on invoices, grouped by month
+ * Calculate admin earnings per month for the last 12 months
  *
  * @return array
  */
 private function calculateAdminEarningsPerMonth()
 {
-    // Get current year
-    $currentYear = now()->year;
+    // Enable query logging for debugging
+    DB::enableQueryLog();
     
     // Get invoices from last 12 months
     $startDate = now()->subMonths(11)->startOfMonth();
     
-    // Get all paid amounts from invoices, grouped by month
-    $monthlyEarnings = DB::table('invoices')
-        ->select(
-            DB::raw('EXTRACT(YEAR FROM invoices."billDate") as year'),
-            DB::raw('EXTRACT(MONTH FROM invoices."billDate") as month'),
-            DB::raw('SUM(CAST(invoices."amountPaid" AS DECIMAL(10,2))) as totalPaid')
-        )
-        ->whereNull('deleted_at')
-        ->where('billDate', '>=', $startDate)
-        ->groupBy('year', 'month')
-        ->orderBy('year', 'desc')
-        ->orderBy('month', 'desc')
-        ->get();
+    // Get monthly invoice earnings
+    $monthlyEarnings = $this->getMonthlyInvoiceEarnings($startDate);
     
     // Initialize array for all months (including months with zero earnings)
+    $allMonths = $this->initializeAllMonths();
+    
+    // Fill in actual earnings data
+    $allMonths = $this->fillMonthlyEarnings($allMonths, $monthlyEarnings);
+    
+    // Process earnings with additional metrics
+    $processedEarnings = $this->processMonthlyEarnings($allMonths, $monthlyEarnings);
+    
+    // Sort by year and month (descending)
+    return $this->sortProcessedEarnings($processedEarnings);
+}
+
+/**
+ * Get monthly invoice earnings
+ *
+ * @param \Carbon\Carbon $startDate
+ * @return \Illuminate\Support\Collection
+ */
+private function getMonthlyInvoiceEarnings($startDate)
+{
+    try {
+        // Log sample data for debugging
+        $this->logSampleInvoices($startDate);
+        
+        // Get all invoices
+        $allInvoices = DB::table('invoices')
+            ->select('id', 'billDate', 'amountPaid')
+            ->whereNull('deleted_at')
+            ->get();
+            
+        \Log::info('All invoices count:', ['count' => $allInvoices->count()]);
+        
+        // Group earnings by year and month
+        $groupedEarnings = $this->groupInvoicesByMonth($allInvoices);
+        
+        // Convert to collection and sort
+        $monthlyEarnings = collect(array_values($groupedEarnings));
+        $monthlyEarnings = $monthlyEarnings->sortByDesc(function ($item) {
+            return ($item['year'] * 100) + $item['month'];
+        })->values();
+        
+        \Log::info('Manually calculated monthly earnings:', [
+            'count' => $monthlyEarnings->count(),
+            'data' => $monthlyEarnings->toArray()
+        ]);
+        
+        return $monthlyEarnings;
+    } catch (\Exception $e) {
+        \Log::error('Error querying monthly earnings: ' . $e->getMessage());
+        \Log::error('Stack trace: ' . $e->getTraceAsString());
+        return collect([]);
+    }
+}
+
+/**
+ * Log sample invoices for debugging
+ *
+ * @param \Carbon\Carbon $startDate
+ * @return void
+ */
+private function logSampleInvoices($startDate)
+{
+    $sampleInvoices = DB::table('invoices')
+        ->select('id', 'billDate', 'amountPaid', 'created_at')
+        ->limit(5)
+        ->get();
+    
+    \Log::info('Sample invoices for debugging:', [
+        'sample_data' => $sampleInvoices->toArray(),
+        'start_date' => $startDate->format('Y-m-d')
+    ]);
+}
+
+/**
+ * Group invoices by month
+ *
+ * @param \Illuminate\Support\Collection $invoices
+ * @return array
+ */
+private function groupInvoicesByMonth($invoices)
+{
+    $groupedEarnings = [];
+    
+    foreach ($invoices as $invoice) {
+        $date = Carbon::parse($invoice->billDate);
+        $year = $date->year;
+        $month = $date->month;
+        $key = "$year-$month";
+        
+        if (!isset($groupedEarnings[$key])) {
+            $groupedEarnings[$key] = [
+                'year' => $year,
+                'month' => $month,
+                'totalPaid' => 0
+            ];
+        }
+        
+        $groupedEarnings[$key]['totalPaid'] += (float)$invoice->amountPaid;
+    }
+    
+    return $groupedEarnings;
+}
+
+/**
+ * Initialize array for all months in the last year
+ *
+ * @return array
+ */
+private function initializeAllMonths()
+{
     $allMonths = [];
+    
     for ($i = 0; $i < 12; $i++) {
         $date = now()->subMonths($i);
         $yearMonth = $date->format('Y-m');
@@ -160,301 +265,70 @@ private function calculateAdminEarningsPerMonth()
         ];
     }
     
-    // Fill in actual earnings data
-    foreach ($monthlyEarnings as $earning) {
-        $yearMonth = $earning->year . '-' . sprintf('%02d', $earning->month);
-        if (isset($allMonths[$yearMonth])) {
-            $allMonths[$yearMonth]['totalPaid'] = (float)($earning->totalPaid ?? 0);
-        }
-    }
-    
-    // Calculate additional metrics for each month
-    $processedEarnings = [];
-    foreach ($allMonths as $yearMonth => $data) {
-        // Get total expenses for this month (teacher wallets + assistant salaries)
-        $monthDate = Carbon::createFromDate($data['year'], $data['month'], 1);
-        
-        // Add revenue from course enrollments if the enrollments table exists
-        $monthlyEnrollmentRevenue = 0;
-        if ($this->tableExists('enrollments')) {
-            try {
-                $monthlyEnrollmentRevenue = DB::table('enrollments')
-                    ->join('courses', 'enrollments.course_id', '=', 'courses.id')
-                    ->whereRaw('YEAR(enrollments.created_at) = ?', [$data['year']])
-                    ->whereRaw('MONTH(enrollments.created_at) = ?', [$data['month']])
-                    ->whereNull('enrollments.deleted_at')
-                    ->sum(DB::raw('CAST(courses.price AS DECIMAL(10,2))'));
-            } catch (\Exception $e) {
-                \Log::error('Error calculating enrollment revenue: ' . $e->getMessage());
-            }
-        }
-        
-        // Get monthly expenses
-        $monthlyExpenses = 0;
-        try {
-            $monthlyExpenses = DB::table('transactions')
-                ->where(function ($query) {
-                    $query->where('type', 'salary')
-                          ->orWhere('type', 'payment')
-                          ->orWhere('type', 'expense');
-                })
-                ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$data['year']])
-                ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$data['month']])
-                ->sum(DB::raw('CAST(amount AS DECIMAL(10,2))'));
-        } catch (\Exception $e) {
-            \Log::error('Error calculating monthly expenses: ' . $e->getMessage());
-        }
-        
-        // Calculate total revenue (invoices + enrollments)
-        $invoiceRevenue = (float)($data['totalPaid'] ?? 0);
-        $totalRevenue = $invoiceRevenue + (float)$monthlyEnrollmentRevenue;
-        
-        // Calculate profit
-        $profit = $totalRevenue - (float)$monthlyExpenses;
-        
-        $processedEarnings[] = [
-            'year' => $data['year'],
-            'month' => $data['month'],
-            'monthName' => $data['monthName'],
-            'totalRevenue' => $totalRevenue, // Updated to include both invoice payments and course enrollments
-            'totalExpenses' => (float)$monthlyExpenses,
-            'profit' => $profit,
-            'yearMonth' => $yearMonth  // This is fine to keep but not required by the frontend
-        ];
-    }
-    
-    // Sort by year and month (descending)
-    usort($processedEarnings, function ($a, $b) {
-        if ($a['year'] != $b['year']) {
-            return $b['year'] <=> $a['year']; // Latest year first
-        }
-        return $b['month'] <=> $a['month']; // Latest month first
-    });
-    
-    return $processedEarnings;
+    return $allMonths;
 }
 
 /**
- * Get admin earnings data for the dashboard
+ * Fill monthly earnings data into all months array
  *
- * @return \Illuminate\Http\JsonResponse
+ * @param array $allMonths
+ * @param \Illuminate\Support\Collection $monthlyEarnings
+ * @return array
  */
-public function getAdminEarningsDashboard()
+private function fillMonthlyEarnings($allMonths, $monthlyEarnings)
 {
-    // Get all available years from the database
-    $availableYears = $this->getAvailableYears();
-    
-    // Get earliest year with data
-    $earliestYear = end($availableYears);
-    reset($availableYears);
-    
-    // If no earliest year found, default to current year - 1
-    if (!$earliestYear) {
-        $earliestYear = now()->year - 1;
-    }
-    
-    // Set start date to the beginning of the earliest year
-    $startDate = Carbon::createFromDate($earliestYear, 1, 1)->format('Y-m-d');
-    
-    // Attempt a direct query first to check if we can get any data from invoices
-    try {
-        // Check if any invoices exist
-        $invoiceCount = DB::table('invoices')->whereNull('deleted_at')->count();
-        \Log::info('Total invoices count:', ['count' => $invoiceCount]);
-        
-        // Check total sum - use PostgreSQL syntax
-        $totalAmountQuery = DB::select("SELECT SUM(\"amountPaid\") as total FROM invoices WHERE deleted_at IS NULL");
-        \Log::info('Raw total from invoices:', ['raw_total' => $totalAmountQuery[0]->total ?? 'null']);
-    } catch (\Exception $e) {
-        \Log::error('Error in direct invoice query: ' . $e->getMessage());
-    }
-    
-    // Get yearly totals from invoices for each year
-    try {
-        // Use PostgreSQL syntax for date extraction
-        $yearlyTotals = DB::table('invoices')
-            ->select(
-                DB::raw('EXTRACT(YEAR FROM invoices."billDate") as year'),
-                DB::raw('SUM(CAST(invoices."amountPaid" AS DECIMAL(10,2))) as yearTotal')
-            )
-            ->whereNull('deleted_at')
-            ->groupBy('year')
-            ->orderBy('year', 'desc')
-            ->get();
-        
-        \Log::info('Raw yearly totals query result:', [
-            'count' => $yearlyTotals->count(),
-            'data' => json_encode($yearlyTotals)
-        ]);
-        
-        // Convert to associative array with year as key
-        $yearlyTotalsArray = [];
-        foreach ($yearlyTotals as $item) {
-            $yearlyTotalsArray[(int)$item->year] = (float)($item->yearTotal ?? 0);
-        }
-        
-        \Log::info('Processed yearly totals:', $yearlyTotalsArray);
-        
-    } catch (\Exception $e) {
-        \Log::error('Error querying yearly totals: ' . $e->getMessage());
-        $yearlyTotalsArray = [];
-    }
-    
-    // Get current month revenue directly for easier access in frontend
-    $currentDate = now();
-    $currentMonthRevenue = 0;
-    
-    try {
-        // Get invoice revenue for current month
-        $currentMonthInvoiceRevenue = DB::table('invoices')
-            ->whereRaw('EXTRACT(MONTH FROM "billDate") = ?', [$currentDate->month])
-            ->whereRaw('EXTRACT(YEAR FROM "billDate") = ?', [$currentDate->year])
-            ->whereNull('deleted_at')
-            ->sum(DB::raw('CAST(invoices."amountPaid" AS DECIMAL(10,2))'));
-            
-        // Get enrollment revenue for current month if table exists
-        $currentMonthEnrollmentRevenue = 0;
-        if ($this->tableExists('enrollments')) {
-            $currentMonthEnrollmentRevenue = DB::table('enrollments')
-                ->join('courses', 'enrollments.course_id', '=', 'courses.id')
-                ->whereRaw('EXTRACT(MONTH FROM enrollments.created_at) = ?', [$currentDate->month])
-                ->whereRaw('EXTRACT(YEAR FROM enrollments.created_at) = ?', [$currentDate->year])
-                ->whereNull('enrollments.deleted_at')
-                ->sum(DB::raw('CAST(courses.price AS DECIMAL(10,2))'));
-        }
-        
-        $currentMonthRevenue = (float)$currentMonthInvoiceRevenue + (float)$currentMonthEnrollmentRevenue;
-        
-        \Log::info('Current month revenue calculation:', [
-            'month' => $currentDate->month,
-            'year' => $currentDate->year,
-            'invoice_revenue' => $currentMonthInvoiceRevenue,
-            'enrollment_revenue' => $currentMonthEnrollmentRevenue,
-            'total_revenue' => $currentMonthRevenue
-        ]);
-    } catch (\Exception $e) {
-        \Log::error('Error calculating current month revenue: ' . $e->getMessage());
-    }
-    
-    // Get all paid amounts from invoices, grouped by month
-    try {
-        $monthlyEarnings = DB::table('invoices')
-            ->select(
-                DB::raw('EXTRACT(YEAR FROM invoices."billDate") as year'),
-                DB::raw('EXTRACT(MONTH FROM invoices."billDate") as month'),
-                DB::raw('SUM(CAST(invoices."amountPaid" AS DECIMAL(10,2))) as totalPaid')
-            )
-            ->whereNull('deleted_at')
-            ->where('billDate', '>=', $startDate)
-            ->groupBy('year', 'month')
-            ->orderBy('year', 'desc')
-            ->orderBy('month', 'desc')
-            ->get();
-        
-        \Log::info('Monthly earnings raw data:', [
-            'count' => $monthlyEarnings->count(),
-            'first_records' => $monthlyEarnings->take(3)->toArray()
-        ]);
-    } catch (\Exception $e) {
-        \Log::error('Error querying monthly earnings: ' . $e->getMessage());
-        $monthlyEarnings = collect([]);
-    }
-    
-    // Initialize array for all months in the period
-    $allMonths = [];
-    
-    // Create entries for each month from earliest year to now
-    $endDate = now();
-    $date = Carbon::parse($startDate);
-    
-    while ($date->lte($endDate)) {
-        $yearMonth = $date->format('Y-m');
-        $allMonths[$yearMonth] = [
-            'year' => $date->year,
-            'month' => $date->month,
-            'monthName' => $date->format('F'),
-            'totalPaid' => 0.0
-        ];
-        $date->addMonth();
-    }
-    
-    // Fill in actual earnings data
     foreach ($monthlyEarnings as $earning) {
-        $yearMonth = $earning->year . '-' . sprintf('%02d', $earning->month);
+        $yearMonth = $earning['year'] . '-' . sprintf('%02d', $earning['month']);
         if (isset($allMonths[$yearMonth])) {
-            $amount = (float)($earning->totalPaid ?? 0);
-            \Log::info("Setting totalPaid for $yearMonth to: $amount");
-            $allMonths[$yearMonth]['totalPaid'] = $amount;
+            // Make sure to cast to float to avoid string issues
+            $allMonths[$yearMonth]['totalPaid'] = (float)($earning['totalPaid'] ?? 0);
+            \Log::info("Setting totalPaid for $yearMonth:", ['amount' => (float)($earning['totalPaid'] ?? 0)]);
         }
     }
     
-    // Calculate additional metrics for each month
+    return $allMonths;
+}
+
+/**
+ * Process monthly earnings with additional metrics
+ *
+ * @param array $allMonths
+ * @param \Illuminate\Support\Collection $monthlyEarnings
+ * @return array
+ */
+private function processMonthlyEarnings($allMonths, $monthlyEarnings)
+{
     $processedEarnings = [];
-    $yearlyMonthlyTotals = [];
+    
+    // Log the monthly earnings before processing
+    \Log::info('Monthly earnings before processing:', [
+        'monthlyEarnings' => $monthlyEarnings->toArray()
+    ]);
     
     foreach ($allMonths as $yearMonth => $data) {
-        // Get total expenses for this month (teacher wallets + assistant salaries + expenses)
-        $monthDate = Carbon::createFromDate($data['year'], $data['month'], 1);
+        // Find matching entry from manually calculated earnings
+        $matchingEarning = $this->findMatchingEarning($monthlyEarnings, $data);
         
-        // Add revenue from course enrollments
-        $monthlyEnrollmentRevenue = 0;
-        if ($this->tableExists('enrollments')) {
-            try {
-                $monthlyEnrollmentRevenue = DB::table('enrollments')
-                    ->join('courses', 'enrollments.course_id', '=', 'courses.id')
-                    ->whereRaw('YEAR(enrollments.created_at) = ?', [$data['year']])
-                    ->whereRaw('MONTH(enrollments.created_at) = ?', [$data['month']])
-                    ->whereNull('enrollments.deleted_at')
-                    ->sum(DB::raw('CAST(courses.price AS DECIMAL(10,2))'));
-            } catch (\Exception $e) {
-                \Log::error('Error calculating enrollment revenue: ' . $e->getMessage());
-                $monthlyEnrollmentRevenue = 0;
-            }
-        }
+        // Get invoice revenue
+        $invoiceRevenue = $matchingEarning ? (float)$matchingEarning['totalPaid'] : (float)$data['totalPaid'];
         
-        $monthlyExpenses = 0;
-        try {
-            $monthlyExpenses = DB::table('transactions')
-                ->where(function ($query) {
-                    $query->where('type', 'salary')
-                          ->orWhere('type', 'payment')
-                          ->orWhere('type', 'expense');
-                })
-                ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$data['year']])
-                ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$data['month']])
-                ->sum(DB::raw('CAST(amount AS DECIMAL(10,2))'));
-        } catch (\Exception $e) {
-            \Log::error('Error calculating monthly expenses: ' . $e->getMessage());
-        }
+        // Log what we found
+        $this->logMatchingEarning($yearMonth, $matchingEarning, $invoiceRevenue);
         
-        // Calculate total revenue (invoices + enrollments)
-        $invoiceRevenue = (float)($data['totalPaid'] ?? 0);
+        // Get monthly enrollment revenue
+        $monthlyEnrollmentRevenue = $this->getMonthlyEnrollmentRevenue($data['year'], $data['month']);
+        
+        // Get monthly expenses
+        $monthlyExpenses = $this->getMonthlyExpenses($data['year'], $data['month']);
+        
+        // Calculate totals
         $totalRevenue = $invoiceRevenue + (float)$monthlyEnrollmentRevenue;
-        
-        // Calculate profit
         $profit = $totalRevenue - (float)$monthlyExpenses;
-
-        // Store monthly totals by year
-        $year = $data['year'];
-        if (!isset($yearlyMonthlyTotals[$year])) {
-            $yearlyMonthlyTotals[$year] = [
-                'totalRevenue' => 0.0,
-                'monthlyBreakdown' => []
-            ];
-        }
         
-        $yearlyMonthlyTotals[$year]['totalRevenue'] += $totalRevenue;
-        $yearlyMonthlyTotals[$year]['monthlyBreakdown'][$data['month']] = $totalRevenue;
-
-        // Log the calculated values for this month
-        \Log::info("Month $yearMonth FINAL calculation:", [
-            'totalPaid' => $invoiceRevenue,
-            'enrollmentRevenue' => $monthlyEnrollmentRevenue,
-            'totalRevenue' => $totalRevenue,
-            'monthlyExpenses' => $monthlyExpenses,
-            'profit' => $profit
-        ]);
+        // Log calculation results
+        $this->logMonthCalculationResults($yearMonth, $invoiceRevenue, $monthlyEnrollmentRevenue, $totalRevenue, $monthlyExpenses, $profit);
         
+        // Add to processed earnings
         $processedEarnings[] = [
             'year' => $data['year'],
             'month' => $data['month'],
@@ -466,23 +340,250 @@ public function getAdminEarningsDashboard()
         ];
     }
     
+    return $processedEarnings;
+}
+
+/**
+ * Find matching earning from monthly earnings
+ *
+ * @param \Illuminate\Support\Collection $monthlyEarnings
+ * @param array $data
+ * @return array|null
+ */
+private function findMatchingEarning($monthlyEarnings, $data)
+{
+    return $monthlyEarnings->first(function ($item) use ($data) {
+        return $item['year'] == $data['year'] && $item['month'] == $data['month'];
+    });
+}
+
+/**
+ * Log matching earning information
+ *
+ * @param string $yearMonth
+ * @param array|null $matchingEarning
+ * @param float $invoiceRevenue
+ * @return void
+ */
+private function logMatchingEarning($yearMonth, $matchingEarning, $invoiceRevenue)
+{
+    \Log::info("Matching earning for $yearMonth:", [
+        'found' => $matchingEarning ? 'yes' : 'no',
+        'invoiceRevenue' => $invoiceRevenue,
+        'originalData' => $matchingEarning ?? 'not found'
+    ]);
+}
+
+/**
+ * Get monthly enrollment revenue
+ *
+ * @param int $year
+ * @param int $month
+ * @return float
+ */
+private function getMonthlyEnrollmentRevenue($year, $month)
+{
+    $monthlyEnrollmentRevenue = 0;
+    
+    if ($this->tableExists('enrollments')) {
+        try {
+            $monthlyEnrollmentRevenue = DB::table('enrollments')
+                ->join('courses', 'enrollments.course_id', '=', 'courses.id')
+                ->whereRaw('YEAR(enrollments.created_at) = ?', [$year])
+                ->whereRaw('MONTH(enrollments.created_at) = ?', [$month])
+                ->whereNull('enrollments.deleted_at')
+                ->sum(DB::raw('CAST(courses.price AS DECIMAL(10,2))'));
+        } catch (\Exception $e) {
+            \Log::error('Error querying enrollment revenue: ' . $e->getMessage());
+            $monthlyEnrollmentRevenue = 0;
+        }
+    }
+    
+    return $monthlyEnrollmentRevenue;
+}
+
+/**
+ * Get monthly expenses
+ *
+ * @param int $year
+ * @param int $month
+ * @return float
+ */
+private function getMonthlyExpenses($year, $month)
+{
+    $monthlyExpenses = 0;
+    
+    try {
+        $monthlyExpenses = DB::table('transactions')
+            ->where(function ($query) {
+                $query->where('type', 'salary')
+                      ->orWhere('type', 'payment')
+                      ->orWhere('type', 'expense');
+            })
+            ->whereRaw('YEAR(payment_date) = ?', [$year])
+            ->whereRaw('MONTH(payment_date) = ?', [$month])
+            ->sum(DB::raw('CAST(amount AS DECIMAL(10,2))'));
+    } catch (\Exception $e) {
+        \Log::error('Error querying monthly expenses: ' . $e->getMessage());
+        $monthlyExpenses = 0;
+    }
+    
+    return $monthlyExpenses;
+}
+
+/**
+ * Log month calculation results
+ *
+ * @param string $yearMonth
+ * @param float $invoiceRevenue
+ * @param float $monthlyEnrollmentRevenue
+ * @param float $totalRevenue
+ * @param float $monthlyExpenses
+ * @param float $profit
+ * @return void
+ */
+private function logMonthCalculationResults($yearMonth, $invoiceRevenue, $monthlyEnrollmentRevenue, $totalRevenue, $monthlyExpenses, $profit)
+{
+    \Log::info("Month $yearMonth calculation results:", [
+        'invoiceRevenue' => $invoiceRevenue,
+        'monthlyEnrollmentRevenue' => (float)$monthlyEnrollmentRevenue,
+        'totalRevenue' => $totalRevenue,
+        'monthlyExpenses' => (float)$monthlyExpenses,
+        'profit' => $profit
+    ]);
+}
+
+/**
+ * Sort processed earnings by year and month (descending)
+ *
+ * @param array $processedEarnings
+ * @return array
+ */
+private function sortProcessedEarnings($processedEarnings)
+{
+    usort($processedEarnings, function ($a, $b) {
+        if ($a['year'] != $b['year']) {
+            return $b['year'] <=> $a['year']; // Latest year first
+        }
+        return $b['month'] <=> $a['month']; // Latest month first
+    });
+    
+    return $processedEarnings;
+}
+
+
+/**
+ * Get admin earnings data for the dashboard
+ *
+ * @return \Illuminate\Http\JsonResponse
+ */
+public function getAdminEarningsDashboard()
+{
+    // Get all available years from the database
+    $availableYears = $this->getAvailableYears();
+    
+    // Create a simple array with hardcoded data based on our database check
+    $processedEarnings = [];
+    
+    // Current month and year
+    $currentMonth = now()->month;
+    $currentYear = now()->year;
+    
+    // Get the actual invoice data directly from the database
+    $invoiceData = DB::table('invoices')
+        ->select('id', 'billDate', 'totalAmount', 'amountPaid')
+        ->whereNull('deleted_at')
+        ->get();
+    
+    \Log::info('Raw invoice data:', [
+        'count' => $invoiceData->count(),
+        'data' => $invoiceData->toArray()
+    ]);
+    
+    // Group invoices by month
+    $monthlyData = [];
+    foreach ($invoiceData as $invoice) {
+        $date = Carbon::parse($invoice->billDate);
+        $year = $date->year;
+        $month = $date->month;
+        
+        $key = "$year-$month";
+        if (!isset($monthlyData[$key])) {
+            $monthlyData[$key] = [
+                'year' => $year,
+                'month' => $month,
+                'totalRevenue' => 0,
+                'totalExpenses' => 0
+            ];
+        }
+        
+        $monthlyData[$key]['totalRevenue'] += (float)$invoice->totalAmount;
+    }
+    
+    // Get monthly expenses
+    foreach ($monthlyData as $key => $data) {
+        $expenses = DB::table('transactions')
+            ->where(function ($query) {
+                $query->where('type', 'salary')
+                      ->orWhere('type', 'payment')
+                      ->orWhere('type', 'expense');
+            })
+            ->whereYear('payment_date', $data['year'])
+            ->whereMonth('payment_date', $data['month'])
+            ->sum('amount');
+        
+        $monthlyData[$key]['totalExpenses'] = (float)$expenses;
+        $monthlyData[$key]['profit'] = $monthlyData[$key]['totalRevenue'] - $monthlyData[$key]['totalExpenses'];
+        $monthlyData[$key]['monthName'] = Carbon::createFromDate($data['year'], $data['month'], 1)->format('F');
+    }
+    
+    // Make sure we have entries for the last 12 months
+    for ($i = 0; $i < 12; $i++) {
+        $date = now()->subMonths($i);
+        $year = $date->year;
+        $month = $date->month;
+        $key = "$year-$month";
+        
+        if (!isset($monthlyData[$key])) {
+            $monthlyData[$key] = [
+                'year' => $year,
+                'month' => $month,
+                'monthName' => $date->format('F'),
+                'totalRevenue' => 0,
+                'totalExpenses' => 0,
+                'profit' => 0
+            ];
+        }
+        
+        // Add yearMonth key needed by frontend
+        $monthlyData[$key]['yearMonth'] = $key;
+        
+        // Add to processed earnings
+        $processedEarnings[] = $monthlyData[$key];
+    }
+    
+    // Sort by year and month (descending)
+    usort($processedEarnings, function ($a, $b) {
+        if ($a['year'] != $b['year']) {
+            return $b['year'] <=> $a['year']; // Latest year first
+        }
+        return $b['month'] <=> $a['month']; // Latest month first
+    });
+    
+    // Log the final data
+    \Log::info('Final earnings data:', [
+        'count' => count($processedEarnings),
+        'data' => $processedEarnings
+    ]);
+    
     // Include available years in the response
     return response()->json([
         'earnings' => $processedEarnings,
-        'availableYears' => $availableYears,
-        'yearlyTotals' => $yearlyTotalsArray,
-        'yearlyMonthlyTotals' => $yearlyMonthlyTotals,
-        'currentMonthData' => [
-            'month' => $currentDate->month,
-            'year' => $currentDate->year,
-            'revenue' => $currentMonthRevenue
-        ],
-        'debug' => [
-            'invoiceCount' => $invoiceCount ?? 0,
-            'rawTotal' => $totalAmountQuery[0]->total ?? 0
-        ]
+        'availableYears' => $availableYears
     ]);
 }
+
+
 
 /**
  * Direct debug method to check raw invoice data
@@ -524,8 +625,8 @@ public function debugInvoiceData()
         // Get yearly totals
         $yearlyTotals = DB::table('invoices')
             ->select(
-                DB::raw('EXTRACT(YEAR FROM invoices."billDate") as year'),
-                DB::raw('SUM(CAST(invoices."amountPaid" AS DECIMAL(10,2))) as yearTotal')
+                DB::raw('YEAR(billDate) as year'),
+                DB::raw('SUM(CAST(amountPaid AS DECIMAL(10,2))) as yearTotal')
             )
             ->whereNull('deleted_at')
             ->groupBy('year')
@@ -571,9 +672,9 @@ private function calculateAdminEarningsForComparison()
     try {
         $monthlyEarnings = DB::table('invoices')
             ->select(
-                DB::raw('EXTRACT(YEAR FROM invoices."billDate") as year'),
-                DB::raw('EXTRACT(MONTH FROM invoices."billDate") as month'),
-                DB::raw('SUM(CAST(invoices."amountPaid" AS DECIMAL(10,2))) as totalPaid')
+                DB::raw('YEAR(billDate) as year'),
+                DB::raw('MONTH(billDate) as month'),
+                DB::raw('SUM(CAST(amountPaid AS DECIMAL(10,2))) as totalPaid')
             )
             ->whereNull('deleted_at')
             ->where('billDate', '>=', $startDate)
@@ -649,8 +750,8 @@ private function calculateAdminEarningsForComparison()
                           ->orWhere('type', 'payment')
                           ->orWhere('type', 'expense');
                 })
-                ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$data['year']])
-                ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$data['month']])
+                ->whereRaw('YEAR(payment_date) = ?', [$data['year']])
+                ->whereRaw('MONTH(payment_date) = ?', [$data['month']])
                 ->sum(DB::raw('CAST(amount AS DECIMAL(10,2))'));
         } catch (\Exception $e) {
             \Log::error('Error querying monthly expenses: ' . $e->getMessage());
@@ -709,17 +810,17 @@ public function index(Request $request)
     
     // Get all transactions, with latest first
     $transactions = Transaction::with('user')
-        ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$year])
+        ->whereRaw('YEAR(payment_date) = ?', [$year])
         ->orderBy('payment_date', 'desc')
         ->paginate(10);
 
     // Calculate total amount for the filtered transactions
-    $totalAmount = Transaction::whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$year])
+    $totalAmount = Transaction::whereRaw('YEAR(payment_date) = ?', [$year])
         ->sum('amount');
 
     // Get all available years for the filter
     $availableYears = DB::table('transactions')
-        ->select(DB::raw('DISTINCT EXTRACT(YEAR FROM payment_date) as year'))
+        ->select(DB::raw('DISTINCT YEAR(payment_date) as year'))
         ->orderBy('year', 'desc')
         ->pluck('year')
         ->toArray();
@@ -786,8 +887,8 @@ public function index(Request $request)
                 // Check for existing payments in the same month/year
                 $existingPayment = Transaction::where('user_id', $validated['user_id'])
                     ->whereIn('type', ['salary', 'payment'])
-                    ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$month])
-                    ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$year])
+                    ->whereRaw('MONTH(payment_date) = ?', [$month])
+                    ->whereRaw('YEAR(payment_date) = ?', [$year])
                     ->exists();
                 
                 if ($existingPayment) {
@@ -870,8 +971,8 @@ public function index(Request $request)
                 // Calculate how much has already been paid this month
                 $alreadyPaid = Transaction::where('user_id', $user->id)
                     ->where('type', 'salary')
-                    ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$month])
-                    ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$year])
+                    ->whereRaw('MONTH(payment_date) = ?', [$month])
+                    ->whereRaw('YEAR(payment_date) = ?', [$year])
                     ->sum('amount');
                 
                 // Calculate remaining salary
@@ -1118,8 +1219,8 @@ public function index(Request $request)
         $year = $paymentDate->year;
         
         // Find employees who have already been paid this month
-        $alreadyPaidUserIds = Transaction::whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$month])
-            ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$year])
+        $alreadyPaidUserIds = Transaction::whereRaw('MONTH(payment_date) = ?', [$month])
+            ->whereRaw('YEAR(payment_date) = ?', [$year])
             ->where(function($query) {
                 $query->where('type', 'salary')
                       ->orWhere('type', 'payment');
@@ -1198,8 +1299,8 @@ public function index(Request $request)
         $year = $selectedDate->year;
         
         // Find employees who have already been paid this month
-        $alreadyPaidUserIds = Transaction::whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$month])
-            ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$year])
+        $alreadyPaidUserIds = Transaction::whereRaw('MONTH(payment_date) = ?', [$month])
+            ->whereRaw('YEAR(payment_date) = ?', [$year])
             ->where(function($query) {
                 $query->where('type', 'salary')
                       ->orWhere('type', 'payment');
@@ -1313,8 +1414,8 @@ public function index(Request $request)
                 // Final check that user hasn't been paid this month/year
                 $existingPayment = Transaction::where('user_id', $user->id)
                     ->whereIn('type', ['salary', 'payment'])
-                    ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$month])
-                    ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$year])
+                    ->whereRaw('MONTH(payment_date) = ?', [$month])
+                    ->whereRaw('YEAR(payment_date) = ?', [$year])
                     ->exists();
                     
                 if ($existingPayment) {
@@ -1365,8 +1466,8 @@ public function index(Request $request)
                     // Calculate how much has already been paid this month
                     $alreadyPaid = Transaction::where('user_id', $user->id)
                         ->where('type', 'salary')
-                        ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$month])
-                        ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$year])
+                        ->whereRaw('MONTH(payment_date) = ?', [$month])
+                        ->whereRaw('YEAR(payment_date) = ?', [$year])
                         ->sum('amount');
                     
                     // If they've already received full or partial payment
