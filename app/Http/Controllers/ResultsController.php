@@ -12,6 +12,7 @@ use App\Models\Teacher;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class ResultsController extends Controller
 {
@@ -301,45 +302,15 @@ class ResultsController extends Controller
      */
     public function getStudentsByClass($class_id)
     {
-        \Log::info('Fetching students for class_id: ' . $class_id);
-        
-        if (!$class_id) {
-            \Log::error('No class_id provided');
-            return response()->json([]);
-        }
-        
-        // Enable query logging
-        \DB::enableQueryLog();
-        
-        $class = Classes::with('students')->find($class_id);
-        
-        // Log the executed queries
-        $queries = \DB::getQueryLog();
-        \Log::info('SQL Queries:', $queries);
-        
-        if (!$class) {
-            \Log::error('Class not found for id: ' . $class_id);
-            return response()->json([]);
-        }
-        
-        \Log::info('Found class: ' . $class->name . ' with ' . $class->students->count() . ' students');
-        
-        // Debugging: Fetch students directly and log
-        $directStudents = \DB::table('students')
-            ->where('classId', $class_id)
+        $students = Student::where('classId', $class_id)
+            ->select(
+                'id',
+                'firstName',
+                'lastName',
+                DB::raw('CONCAT("firstName", \' \', "lastName") as full_name')
+            )
+            ->orderBy('firstName')
             ->get();
-        \Log::info('Direct query found ' . count($directStudents) . ' students');
-        
-        // Note: Student model uses firstName and lastName (camelCase) instead of first_name and last_name
-        $students = $class->students->map(function($student) {
-            return [
-                'id' => $student->id,
-                'first_name' => $student->firstName, // Map from camelCase to snake_case for frontend
-                'last_name' => $student->lastName     // Map from camelCase to snake_case for frontend
-            ];
-        });
-        
-        \Log::info('Returning ' . count($students) . ' students');
             
         return response()->json($students);
     }

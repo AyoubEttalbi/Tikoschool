@@ -33,8 +33,8 @@ class StatsController extends Controller
         ->first()
         ->count;
 
-    $studentCounts = Student::select(DB::raw('`schoolId`'), DB::raw('COUNT(*) as count'))
-        ->groupBy(DB::raw('`schoolId`'))
+    $studentCounts = Student::select(DB::raw('"schoolId"'), DB::raw('COUNT(*) as count'))
+        ->groupBy(DB::raw('"schoolId"'))
         ->get()
         ->keyBy('schoolid');
 
@@ -57,10 +57,10 @@ class StatsController extends Controller
     // Fetch monthly incomes (existing logic)
     $monthlyIncomes = Invoice::join('students', 'invoices.student_id', '=', 'students.id')
         ->select(
-            DB::raw('SUM(invoices.`totalAmount`) as income'),
-            DB::raw('SUM(invoices.`amountPaid`) as expense'),
+            DB::raw('SUM("totalAmount") as income'),
+            DB::raw('SUM("amountPaid") as expense'),
             DB::raw('MONTH(invoices.created_at) as month'),
-            DB::raw('students.`schoolId`')
+            DB::raw('"schoolId"')
         )
         ->whereNotNull('students.schoolId')
         ->whereNull('invoices.deleted_at')
