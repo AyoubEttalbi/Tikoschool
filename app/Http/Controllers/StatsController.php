@@ -59,7 +59,7 @@ class StatsController extends Controller
         ->select(
             DB::raw('SUM("totalAmount") as income'),
             DB::raw('SUM("amountPaid") as expense'),
-            DB::raw('MONTH(invoices.created_at) as month'),
+            DB::raw('EXTRACT(MONTH FROM invoices.created_at) as month'),
             DB::raw('"schoolId"')
         )
         ->whereNotNull('students.schoolId')
@@ -71,7 +71,7 @@ class StatsController extends Controller
                 'name' => date('M', mktime(0, 0, 0, $item->month, 10)),
                 'income' => $item->income,
                 'expense' => $item->expense,
-                'school_id' => $item->schoolId, // Changed from lowercase schoolid to match the correct column name
+                'school_id' => $item->schoolId,
             ];
         });
 
