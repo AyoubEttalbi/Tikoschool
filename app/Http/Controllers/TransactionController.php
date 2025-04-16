@@ -86,7 +86,7 @@ private function getAvailableYears()
         // Convert to integers
         $years = array_map('intval', $years);
         
-        \Log::info('Available years from DB:', $years);
+        Log::info('Available years from DB:', $years);
         
         // If no years found, use current year
         if (empty($years)) {
@@ -95,7 +95,7 @@ private function getAvailableYears()
         
         return $years;
     } catch (\Exception $e) {
-        \Log::error('Error getting available years: ' . $e->getMessage());
+        Log::error('Error getting available years: ' . $e->getMessage());
         // Return current year as fallback
         return [now()->year];
     }
@@ -119,7 +119,7 @@ private function tableExists($tableName)
         );
         return !empty($result[0]->table_exists);
     } catch (\Exception $e) {
-        \Log::error('Error checking if table exists: ' . $e->getMessage());
+        Log::error('Error checking if table exists: ' . $e->getMessage());
         // If any error occurs, assume table doesn't exist
         return false;
     }
@@ -172,7 +172,7 @@ private function getMonthlyInvoiceEarnings($startDate)
             ->whereNull('deleted_at')
             ->get();
             
-        \Log::info('All invoices count:', ['count' => $allInvoices->count()]);
+        Log::info('All invoices count:', ['count' => $allInvoices->count()]);
         
         // Group earnings by year and month
         $groupedEarnings = $this->groupInvoicesByMonth($allInvoices);
@@ -183,15 +183,15 @@ private function getMonthlyInvoiceEarnings($startDate)
             return ($item['year'] * 100) + $item['month'];
         })->values();
         
-        \Log::info('Manually calculated monthly earnings:', [
+        Log::info('Manually calculated monthly earnings:', [
             'count' => $monthlyEarnings->count(),
             'data' => $monthlyEarnings->toArray()
         ]);
         
         return $monthlyEarnings;
     } catch (\Exception $e) {
-        \Log::error('Error querying monthly earnings: ' . $e->getMessage());
-        \Log::error('Stack trace: ' . $e->getTraceAsString());
+        Log::error('Error querying monthly earnings: ' . $e->getMessage());
+        Log::error('Stack trace: ' . $e->getTraceAsString());
         return collect([]);
     }
 }
@@ -209,7 +209,7 @@ private function logSampleInvoices($startDate)
         ->limit(5)
         ->get();
     
-    \Log::info('Sample invoices for debugging:', [
+    Log::info('Sample invoices for debugging:', [
         'sample_data' => $sampleInvoices->toArray(),
         'start_date' => $startDate->format('Y-m-d')
     ]);
@@ -282,7 +282,7 @@ private function fillMonthlyEarnings($allMonths, $monthlyEarnings)
         if (isset($allMonths[$yearMonth])) {
             // Make sure to cast to float to avoid string issues
             $allMonths[$yearMonth]['totalPaid'] = (float)($earning['totalPaid'] ?? 0);
-            \Log::info("Setting totalPaid for $yearMonth:", ['amount' => (float)($earning['totalPaid'] ?? 0)]);
+            Log::info("Setting totalPaid for $yearMonth:", ['amount' => (float)($earning['totalPaid'] ?? 0)]);
         }
     }
     
@@ -301,7 +301,7 @@ private function processMonthlyEarnings($allMonths, $monthlyEarnings)
     $processedEarnings = [];
     
     // Log the monthly earnings before processing
-    \Log::info('Monthly earnings before processing:', [
+    Log::info('Monthly earnings before processing:', [
         'monthlyEarnings' => $monthlyEarnings->toArray()
     ]);
     
@@ -367,7 +367,7 @@ private function findMatchingEarning($monthlyEarnings, $data)
  */
 private function logMatchingEarning($yearMonth, $matchingEarning, $invoiceRevenue)
 {
-    \Log::info("Matching earning for $yearMonth:", [
+    Log::info("Matching earning for $yearMonth:", [
         'found' => $matchingEarning ? 'yes' : 'no',
         'invoiceRevenue' => $invoiceRevenue,
         'originalData' => $matchingEarning ?? 'not found'
@@ -389,12 +389,12 @@ private function getMonthlyEnrollmentRevenue($year, $month)
         try {
             $monthlyEnrollmentRevenue = DB::table('enrollments')
                 ->join('courses', 'enrollments.course_id', '=', 'courses.id')
-                ->whereRaw('YEAR(enrollments.created_at) = ?', [$year])
-                ->whereRaw('MONTH(enrollments.created_at) = ?', [$month])
+                ->whereRaw('EXTRACT(YEAR FROM enrollments.created_at) = ?', [$year])
+                ->whereRaw('EXTRACT(MONTH FROM enrollments.created_at) = ?', [$month])
                 ->whereNull('enrollments.deleted_at')
                 ->sum(DB::raw('CAST(courses.price AS DECIMAL(10,2))'));
         } catch (\Exception $e) {
-            \Log::error('Error querying enrollment revenue: ' . $e->getMessage());
+            Log::error('Error querying enrollment revenue: ' . $e->getMessage());
             $monthlyEnrollmentRevenue = 0;
         }
     }
@@ -420,11 +420,11 @@ private function getMonthlyExpenses($year, $month)
                       ->orWhere('type', 'payment')
                       ->orWhere('type', 'expense');
             })
-            ->whereRaw('YEAR(payment_date) = ?', [$year])
-            ->whereRaw('MONTH(payment_date) = ?', [$month])
+            ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$year])
+            ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$month])
             ->sum(DB::raw('CAST(amount AS DECIMAL(10,2))'));
     } catch (\Exception $e) {
-        \Log::error('Error querying monthly expenses: ' . $e->getMessage());
+        Log::error('Error querying monthly expenses: ' . $e->getMessage());
         $monthlyExpenses = 0;
     }
     
@@ -444,7 +444,7 @@ private function getMonthlyExpenses($year, $month)
  */
 private function logMonthCalculationResults($yearMonth, $invoiceRevenue, $monthlyEnrollmentRevenue, $totalRevenue, $monthlyExpenses, $profit)
 {
-    \Log::info("Month $yearMonth calculation results:", [
+    Log::info("Month $yearMonth calculation results:", [
         'invoiceRevenue' => $invoiceRevenue,
         'monthlyEnrollmentRevenue' => (float)$monthlyEnrollmentRevenue,
         'totalRevenue' => $totalRevenue,
@@ -495,7 +495,7 @@ public function getAdminEarningsDashboard()
         ->whereNull('deleted_at')
         ->get();
     
-    \Log::info('Raw invoice data:', [
+    Log::info('Raw invoice data:', [
         'count' => $invoiceData->count(),
         'data' => $invoiceData->toArray()
     ]);
@@ -571,7 +571,7 @@ public function getAdminEarningsDashboard()
     });
     
     // Log the final data
-    \Log::info('Final earnings data:', [
+    Log::info('Final earnings data:', [
         'count' => count($processedEarnings),
         'data' => $processedEarnings
     ]);
@@ -666,7 +666,7 @@ private function calculateAdminEarningsForComparison()
     $startDate = Carbon::createFromDate($earliestYear, 1, 1);
     
     // Log for debugging
-    \Log::info('Admin earnings calculation start date:', ['startDate' => $startDate->format('Y-m-d')]);
+    Log::info('Admin earnings calculation start date:', ['startDate' => $startDate->format('Y-m-d')]);
     
     // Get all paid amounts from invoices, grouped by month and year
     try {
@@ -683,12 +683,12 @@ private function calculateAdminEarningsForComparison()
             ->orderBy('month', 'desc')
             ->get();
         
-        \Log::info('Monthly earnings raw data:', [
+        Log::info('Monthly earnings raw data:', [
             'count' => $monthlyEarnings->count(),
             'first_records' => $monthlyEarnings->take(3)->toArray()
         ]);
     } catch (\Exception $e) {
-        \Log::error('Error querying monthly earnings: ' . $e->getMessage());
+        Log::error('Error querying monthly earnings: ' . $e->getMessage());
         $monthlyEarnings = collect([]);
     }
     
@@ -715,7 +715,7 @@ private function calculateAdminEarningsForComparison()
         if (isset($allMonths[$yearMonth])) {
             // Make sure to cast to float to avoid string issues
             $allMonths[$yearMonth]['totalPaid'] = (float)($earning->totalPaid ?? 0);
-            \Log::info("Setting totalPaid for $yearMonth:", ['amount' => (float)($earning->totalPaid ?? 0)]);
+            Log::info("Setting totalPaid for $yearMonth:", ['amount' => (float)($earning->totalPaid ?? 0)]);
         }
     }
     
@@ -731,12 +731,12 @@ private function calculateAdminEarningsForComparison()
             try {
                 $monthlyEnrollmentRevenue = DB::table('enrollments')
                     ->join('courses', 'enrollments.course_id', '=', 'courses.id')
-                    ->whereRaw('YEAR(enrollments.created_at) = ?', [$data['year']])
-                    ->whereRaw('MONTH(enrollments.created_at) = ?', [$data['month']])
+                    ->whereRaw('EXTRACT(YEAR FROM enrollments.created_at) = ?', [$data['year']])
+                    ->whereRaw('EXTRACT(MONTH FROM enrollments.created_at) = ?', [$data['month']])
                     ->whereNull('enrollments.deleted_at')
                     ->sum(DB::raw('CAST(courses.price AS DECIMAL(10,2))'));
             } catch (\Exception $e) {
-                \Log::error('Error querying enrollment revenue: ' . $e->getMessage());
+                Log::error('Error querying enrollment revenue: ' . $e->getMessage());
                 $monthlyEnrollmentRevenue = 0;
             }
         }
@@ -750,11 +750,11 @@ private function calculateAdminEarningsForComparison()
                           ->orWhere('type', 'payment')
                           ->orWhere('type', 'expense');
                 })
-                ->whereRaw('YEAR(payment_date) = ?', [$data['year']])
-                ->whereRaw('MONTH(payment_date) = ?', [$data['month']])
+                ->whereRaw('EXTRACT(YEAR FROM payment_date) = ?', [$data['year']])
+                ->whereRaw('EXTRACT(MONTH FROM payment_date) = ?', [$data['month']])
                 ->sum(DB::raw('CAST(amount AS DECIMAL(10,2))'));
         } catch (\Exception $e) {
-            \Log::error('Error querying monthly expenses: ' . $e->getMessage());
+            Log::error('Error querying monthly expenses: ' . $e->getMessage());
             $monthlyExpenses = 0;
         }
         
@@ -765,7 +765,7 @@ private function calculateAdminEarningsForComparison()
         // Calculate profit
         $profit = $totalRevenue - (float)$monthlyExpenses;
         
-        \Log::info("Month $yearMonth calculation results:", [
+        Log::info("Month $yearMonth calculation results:", [
             'invoiceRevenue' => $invoiceRevenue,
             'monthlyEnrollmentRevenue' => (float)$monthlyEnrollmentRevenue,
             'totalRevenue' => $totalRevenue,
@@ -856,7 +856,7 @@ public function index(Request $request)
     {
         try {
             // Log the incoming request data
-            \Log::info('Transaction store request', [
+            Log::info('Transaction store request', [
                 'data' => $request->all(),
                 'client_ip' => $request->ip()
             ]);
@@ -892,7 +892,7 @@ public function index(Request $request)
                     ->exists();
                 
                 if ($existingPayment) {
-                    \Log::warning('Transaction store prevented: Duplicate payment', [
+                    Log::warning('Transaction store prevented: Duplicate payment', [
                         'user_id' => $validated['user_id'],
                         'month' => $month,
                         'year' => $year,
@@ -908,7 +908,7 @@ public function index(Request $request)
                 $user = User::find($validated['user_id']);
                 
                 if (!$user) {
-                    \Log::error('Transaction store failed: User not found', [
+                    Log::error('Transaction store failed: User not found', [
                         'user_id' => $validated['user_id']
                     ]);
                     return back()->with('error', 'User not found');
@@ -919,7 +919,7 @@ public function index(Request $request)
                     $teacher = $user->teacher;
                     
                     if (!$teacher) {
-                        \Log::error('Transaction store failed: Teacher model not found', [
+                        Log::error('Transaction store failed: Teacher model not found', [
                             'user_id' => $user->id,
                             'email' => $user->email
                         ]);
@@ -928,7 +928,7 @@ public function index(Request $request)
                     
                     // Check if teacher has 0 wallet
                     if ($teacher->wallet <= 0) {
-                        \Log::warning('Transaction store failed: Teacher has zero wallet balance', [
+                        Log::warning('Transaction store failed: Teacher has zero wallet balance', [
                             'teacher_id' => $teacher->id,
                             'wallet_balance' => $teacher->wallet
                         ]);
@@ -937,7 +937,7 @@ public function index(Request $request)
                     
                     // Check wallet balance
                     if ($teacher->wallet < $validated['amount']) {
-                        \Log::warning('Transaction store failed: Insufficient wallet balance', [
+                        Log::warning('Transaction store failed: Insufficient wallet balance', [
                             'teacher_id' => $teacher->id,
                             'wallet_balance' => $teacher->wallet,
                             'payment_amount' => $validated['amount']
@@ -945,7 +945,7 @@ public function index(Request $request)
                         return back()->with('error', 'Insufficient wallet balance');
                     }
                     
-                    \Log::info('Teacher payment validation passed', [
+                    Log::info('Teacher payment validation passed', [
                         'teacher_id' => $teacher->id,
                         'wallet_balance' => $teacher->wallet,
                         'payment_amount' => $validated['amount']
@@ -979,7 +979,7 @@ public function index(Request $request)
                 $baseSalary = $assistant->salary;
                 $remainingSalary = $baseSalary - $alreadyPaid;
                 
-                \Log::info('Assistant salary check', [
+                Log::info('Assistant salary check', [
                     'assistant_id' => $assistant->id,
                     'base_salary' => $baseSalary,
                     'already_paid' => $alreadyPaid,
@@ -1003,7 +1003,7 @@ public function index(Request $request)
             $transaction = new Transaction($validated);
             $transaction->save();
             
-            \Log::info('Transaction created successfully', [
+            Log::info('Transaction created successfully', [
                 'transaction_id' => $transaction->id,
                 'type' => $transaction->type,
                 'amount' => $transaction->amount
@@ -1014,7 +1014,7 @@ public function index(Request $request)
                 $this->updateEmployeeBalance($transaction);
             } catch (\Exception $e) {
                 // If balance update fails, delete the transaction and return error
-                \Log::error('Transaction store failed during balance update', [
+                Log::error('Transaction store failed during balance update', [
                     'transaction_id' => $transaction->id,
                     'error' => $e->getMessage()
                 ]);
@@ -1028,7 +1028,7 @@ public function index(Request $request)
             return redirect()->route('transactions.index')->with('success', 'Transaction created successfully');
             
         } catch (ValidationException $e) {
-            \Log::warning('Transaction store validation failed', [
+            Log::warning('Transaction store validation failed', [
                 'errors' => $e->errors(),
                 'request_data' => $request->all()
             ]);
@@ -1036,7 +1036,7 @@ public function index(Request $request)
             return back()->withErrors($e->errors())->withInput();
             
         } catch (\Exception $e) {
-            \Log::error('Transaction store exception', [
+            Log::error('Transaction store exception', [
                 'message' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
                 'request_data' => $request->all()
@@ -1420,7 +1420,7 @@ public function index(Request $request)
                     
                 if ($existingPayment) {
                     $alreadyPaid++;
-                    \Log::warning('Batch payment skipped: Already paid this month', [
+                    Log::warning('Batch payment skipped: Already paid this month', [
                         'user_id' => $user->id,
                         'user_name' => $user->name,
                         'month' => $month,
@@ -1442,7 +1442,7 @@ public function index(Request $request)
                         $type = 'payment'; // Changed from 'wallet' to 'payment' for teacher payments
                     } else {
                         $zeroWallet++;
-                        \Log::warning('Batch payment skipped: Teacher has zero wallet balance', [
+                        Log::warning('Batch payment skipped: Teacher has zero wallet balance', [
                             'user_id' => $user->id,
                             'user_name' => $user->name,
                             'wallet' => $teacher->wallet ?? 0
@@ -1456,7 +1456,7 @@ public function index(Request $request)
                     
                     if (!$assistant || !$assistant->salary || $assistant->salary <= 0) {
                         $skipped++;
-                        \Log::warning('Batch payment skipped: Assistant has zero or missing salary', [
+                        Log::warning('Batch payment skipped: Assistant has zero or missing salary', [
                             'user_id' => $user->id,
                             'user_name' => $user->name,
                         ]);
@@ -1477,7 +1477,7 @@ public function index(Request $request)
                         
                         // If they've received their full salary already
                         if ($alreadyPaid >= $baseSalary) {
-                            \Log::warning('Batch payment skipped: Assistant already received full salary', [
+                            Log::warning('Batch payment skipped: Assistant already received full salary', [
                                 'user_id' => $user->id,
                                 'user_name' => $user->name,
                                 'base_salary' => $baseSalary,
@@ -1489,7 +1489,7 @@ public function index(Request $request)
                         
                         // Pay only the remaining amount
                         $amount = $remainingSalary;
-                        \Log::info('Batch payment adjusted for partial payment: Paying remaining salary', [
+                        Log::info('Batch payment adjusted for partial payment: Paying remaining salary', [
                             'user_id' => $user->id,
                             'user_name' => $user->name,
                             'base_salary' => $baseSalary,
@@ -1660,7 +1660,7 @@ public function processRecurring()
     {
         try {
             if (empty($transaction->user_id)) {
-                \Log::warning('updateEmployeeBalance: Transaction has no user_id', [
+                Log::warning('updateEmployeeBalance: Transaction has no user_id', [
                     'transaction_id' => $transaction->id,
                     'type' => $transaction->type
                 ]);
@@ -1669,14 +1669,14 @@ public function processRecurring()
 
             $user = User::find($transaction->user_id);
             if (!$user) {
-                \Log::warning('updateEmployeeBalance: User not found', [
+                Log::warning('updateEmployeeBalance: User not found', [
                     'user_id' => $transaction->user_id,
                     'transaction_id' => $transaction->id
                 ]);
                 return;
             }
 
-            \Log::info('updateEmployeeBalance: Processing', [
+            Log::info('updateEmployeeBalance: Processing', [
                 'user_id' => $user->id, 
                 'user_role' => $user->role, 
                 'transaction_type' => $transaction->type,
@@ -1690,14 +1690,14 @@ public function processRecurring()
                     $teacher->wallet += $transaction->amount;
                     $teacher->save();
                     
-                    \Log::info('updateEmployeeBalance: Teacher wallet updated', [
+                    Log::info('updateEmployeeBalance: Teacher wallet updated', [
                         'teacher_id' => $teacher->id,
                         'old_balance' => $oldBalance,
                         'new_balance' => $teacher->wallet,
                         'transaction_id' => $transaction->id
                     ]);
                 } else {
-                    \Log::error('updateEmployeeBalance: Teacher model not found for user', [
+                    Log::error('updateEmployeeBalance: Teacher model not found for user', [
                         'user_id' => $user->id, 
                         'email' => $user->email
                     ]);
@@ -1705,7 +1705,7 @@ public function processRecurring()
             } elseif ($transaction->type === 'payment' && $user->role === 'teacher') {
                 $teacher = $user->teacher;
                 if (!$teacher) {
-                    \Log::error('updateEmployeeBalance: Teacher model not found for payment', [
+                    Log::error('updateEmployeeBalance: Teacher model not found for payment', [
                         'user_id' => $user->id, 
                         'email' => $user->email
                     ]);
@@ -1713,7 +1713,7 @@ public function processRecurring()
                 }
                 
                 if ($teacher->wallet < $transaction->amount) {
-                    \Log::warning('updateEmployeeBalance: Insufficient wallet balance', [
+                    Log::warning('updateEmployeeBalance: Insufficient wallet balance', [
                         'teacher_id' => $teacher->id,
                         'current_balance' => $teacher->wallet,
                         'payment_amount' => $transaction->amount
@@ -1725,7 +1725,7 @@ public function processRecurring()
                 $teacher->wallet -= $transaction->amount;
                 $teacher->save();
                 
-                \Log::info('updateEmployeeBalance: Teacher wallet debited for payment', [
+                Log::info('updateEmployeeBalance: Teacher wallet debited for payment', [
                     'teacher_id' => $teacher->id,
                     'old_balance' => $oldBalance,
                     'new_balance' => $teacher->wallet,
@@ -1735,7 +1735,7 @@ public function processRecurring()
             
             // Handle other transaction types (salary, etc.) if needed
         } catch (\Exception $e) {
-            \Log::error('updateEmployeeBalance: Exception occurred', [
+            Log::error('updateEmployeeBalance: Exception occurred', [
                 'message' => $e->getMessage(),
                 'transaction_id' => $transaction->id ?? null,
                 'user_id' => $transaction->user_id ?? null
