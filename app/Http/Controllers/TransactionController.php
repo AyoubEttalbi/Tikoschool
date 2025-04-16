@@ -110,11 +110,11 @@ private function getAvailableYears()
 private function tableExists($tableName)
 {
     try {
-        // For MySQL
+        // For PostgreSQL
         $result = DB::select(
             "SELECT COUNT(*) as table_exists 
             FROM information_schema.tables 
-            WHERE table_schema = DATABASE() 
+            WHERE table_schema = current_schema()
             AND table_name = ?", [$tableName]
         );
         return !empty($result[0]->table_exists);
