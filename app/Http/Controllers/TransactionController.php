@@ -490,20 +490,55 @@ public function getAdminEarningsDashboard()
     $currentYear = now()->year;
     
     // Get the actual invoice data directly from the database
+    // For PostgreSQL, we need to be careful with column names
     $invoiceData = DB::table('invoices')
         ->select('id', 'billDate', 'totalAmount', 'amountPaid')
         ->whereNull('deleted_at')
         ->get();
     
+    // Log the first invoice with all properties to debug column names
+    if ($invoiceData->count() > 0) {
+        $firstInvoice = $invoiceData->first();
+        $properties = get_object_vars($firstInvoice);
+        Log::info('First invoice properties:', [
+            'properties' => $properties,
+            'json' => json_encode($firstInvoice)
+        ]);
+    }
+    
     Log::info('Raw invoice data:', [
         'count' => $invoiceData->count(),
-        'data' => $invoiceData->toArray()
+        'data' => $invoiceData->count() > 0 ? [$invoiceData->first()] : []
     ]);
     
     // Group invoices by month
     $monthlyData = [];
     foreach ($invoiceData as $invoice) {
-        $date = Carbon::parse($invoice->billDate);
+        // Log the invoice object to see its structure
+        Log::info('Processing invoice:', ['invoice_props' => get_object_vars($invoice)]);
+        
+        // Try to get billDate using various possible property names
+        $billDate = null;
+        if (isset($invoice->billDate)) {
+            $billDate = $invoice->billDate;
+            Log::info('Found billDate as invoice->billDate');
+        } elseif (isset($invoice->billdate)) {
+            $billDate = $invoice->billdate;
+            Log::info('Found billDate as invoice->billdate');
+        } elseif (isset($invoice->{"billDate"})) {
+            $billDate = $invoice->{"billDate"};
+            Log::info('Found billDate as invoice->{"billDate"}');
+        } elseif (property_exists($invoice, 'billdate')) {
+            $billDate = $invoice->billdate;
+            Log::info('Found billDate using property_exists as billdate');
+        }
+        
+        if (!$billDate) {
+            Log::error('Could not find billDate property', ['invoice' => json_encode($invoice)]);
+            continue;
+        }
+        
+        $date = Carbon::parse($billDate);
         $year = $date->year;
         $month = $date->month;
         
@@ -517,7 +552,23 @@ public function getAdminEarningsDashboard()
             ];
         }
         
-        $monthlyData[$key]['totalRevenue'] += (float)$invoice->totalAmount;
+        // Try to get totalAmount using various possible property names
+        $totalAmount = 0;
+        if (isset($invoice->totalAmount)) {
+            $totalAmount = $invoice->totalAmount;
+            Log::info('Found totalAmount as invoice->totalAmount: ' . $totalAmount);
+        } elseif (isset($invoice->totalamount)) {
+            $totalAmount = $invoice->totalamount;
+            Log::info('Found totalAmount as invoice->totalamount: ' . $totalAmount);
+        } elseif (isset($invoice->{"totalAmount"})) {
+            $totalAmount = $invoice->{"totalAmount"};
+            Log::info('Found totalAmount as invoice->{"totalAmount"}: ' . $totalAmount);
+        } elseif (property_exists($invoice, 'totalamount')) {
+            $totalAmount = $invoice->totalamount;
+            Log::info('Found totalAmount using property_exists as totalamount: ' . $totalAmount);
+        }
+        
+        $monthlyData[$key]['totalRevenue'] += (float)$totalAmount;
     }
     
     // Get monthly expenses
