@@ -81,7 +81,7 @@ class StatsController extends Controller
         ->select(
             'offers.offer_name as name',
             DB::raw('COUNT(DISTINCT invoices.student_id) as student_count'),
-            DB::raw('SUM(invoices.`totalAmount`) as total_price')
+            DB::raw('SUM("totalAmount") as total_price')
         )
         ->whereNull('invoices.deleted_at')
         ->groupBy('offers.id', 'offers.offer_name')
