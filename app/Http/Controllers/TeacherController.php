@@ -99,8 +99,8 @@ class TeacherController extends Controller
         // but keep it for explicit filtering capabilities.
         $this->applyFilters($query, $request->only(['subject', 'class', 'school', 'status']));
 
-        // Fetch paginated and filtered teachers
-        $teachers = $query->paginate(10)->withQueryString()->through(function ($teacher) {
+        // Fetch paginated and filtered teachers, newest first
+        $teachers = $query->orderBy('created_at', 'desc')->paginate(10)->withQueryString()->through(function ($teacher) {
             return $this->transformTeacherData($teacher);
         });
 

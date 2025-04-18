@@ -8,7 +8,7 @@ import FormModal from '@/Components/FormModal';
 import MembershipCard from '@/Components/MembershipCard';
 import StudentProfile from '@/Components/StudentProfile';
 import StudentPromotionStatus from '@/Components/StudentPromotionStatus';
-import { ChevronDown, ChevronUp, Users, AlertCircle } from 'lucide-react';
+import { ChevronDown, ChevronUp, Users, AlertCircle, Printer } from 'lucide-react';
 // import studentProfile from "./studentProfile.png";
 const SingleStudentPage = ({ student, Alllevels, Allclasses, Allschools, Alloffers, Allteachers,memberships }) => {
   const role = usePage().props.auth.user.role;
@@ -40,6 +40,19 @@ const SingleStudentPage = ({ student, Alllevels, Allclasses, Allschools, Alloffe
             </div>
 
             <div className="w-2/3 flex flex-col justify-between gap-4">
+              {/* Download PDF Button */}
+              <div className="flex justify-end">
+                <a
+                  href={route('students.downloadPdf', { student: student.id })}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-white border border-blue-200 text-blue-700 rounded-md shadow-sm hover:bg-blue-50 hover:text-blue-900 transition-colors duration-150 font-medium text-xs focus:outline-none focus:ring-2 focus:ring-blue-300"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  download
+                >
+                  <Printer className="w-4 h-4" />
+                  Print / PDF
+                </a>
+              </div>
               <div className="flex items-center gap-4">
                 <h1 className="text-xl font-semibold">{student.firstName} {student.lastName}</h1>
                 <span className={`px-3 py-1 rounded-full text-xs font-medium ${

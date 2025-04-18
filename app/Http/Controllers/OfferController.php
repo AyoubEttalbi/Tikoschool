@@ -37,8 +37,8 @@ class OfferController extends Controller
         });
     }
 
-    // Fetch paginated and filtered offers
-    $offers = $query->paginate(8)->withQueryString()->through(function ($offer) {
+    // Fetch paginated and filtered offers, newest first
+    $offers = $query->orderBy('created_at', 'desc')->paginate(8)->withQueryString()->through(function ($offer) {
         return [
             'id' => $offer->id,
             'offer_name' => $offer->offer_name,

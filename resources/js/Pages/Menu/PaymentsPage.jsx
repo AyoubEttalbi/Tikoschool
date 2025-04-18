@@ -112,15 +112,16 @@ const PaymentsPage = ({
     router.get(route('transactions.create'), formData);
   };
 
-  const handleEditEmployee = (transactionId) => {
+  const handleEditEmployee = (editInfo) => {
+    // editInfo is expected to be an object with transactionId
+    const transactionId = editInfo?.transactionId || editInfo;
     console.log('Editing transaction:', transactionId);
     if (!transactionId) {
-      console.error('No transaction ID provided');
+      alert('No transaction ID provided.');
       return;
     }
-    
     // Navigate to the transaction edit form
-    router.get(route('transactions.edit', transactionId));
+    router.get(route('transactions.edit', { transaction: transactionId }));
   };
 
   const handleSubmit = (formData, id = null) => {

@@ -29,6 +29,9 @@ const InvoicesTable = ({ invoices = [], Student_memberships = [], studentId = nu
     }, 2000);
   };
 
+  // Sort invoices by created_at descending (latest first)
+  const sortedInvoices = [...invoices].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
   return (
     <div className="mb-8 bg-white rounded-lg shadow-md overflow-hidden relative">
       {/* Full-Screen Loading Animation */}
@@ -83,7 +86,7 @@ const InvoicesTable = ({ invoices = [], Student_memberships = [], studentId = nu
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
-            {invoices.map((invoice, index) => {
+            {sortedInvoices.map((invoice, index) => {
               // Find associated membership
               const membership = Student_memberships.find((m) => m.id === invoice.membership_id);
               const isPaid = membership && membership.payment_status === "paid";
@@ -104,8 +107,10 @@ const InvoicesTable = ({ invoices = [], Student_memberships = [], studentId = nu
                   <td className="p-3 text-sm text-gray-900">
                     <div className="flex items-center">
                       {Student_memberships.find((membership) => membership.id === invoice.membership_id)?.offer_name || '---'}
-                      {!isPaid && (
+                      {invoice.rest > 0 ? (
                         <span className="ml-2 bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded-full">Unpaid</span>
+                      ) : (
+                        <span className="ml-2 bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full">Paid</span>
                       )}
                     </div>
                   </td>

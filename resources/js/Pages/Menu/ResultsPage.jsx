@@ -8,7 +8,6 @@ import { Filter, CheckCircle, XCircle, User } from 'lucide-react';
 
 export default function ResultsPage({ teachers = [], classes = [], students = [], results = {}, levels, subjects, schools, role, teacherSubjectIds = [], loggedInTeacherId = null }) {
   console.log('Initial component render - role:', role, 'teachers:', teachers, 'loggedInTeacherId:', loggedInTeacherId);
-  
   // When user is a teacher, immediately select their teacher ID
   const getInitialTeacher = () => {
     if (role === 'teacher') {
@@ -89,6 +88,11 @@ export default function ResultsPage({ teachers = [], classes = [], students = []
   
   // For teachers, set their subjects directly
   useEffect(() => {
+    // For admin/assistant: auto-select first subject when teacher & class are chosen
+    if ((role === 'admin' || role === 'assistant') && selectedTeacher && selectedClass && availableSubjects.length > 0 && (!selectedSubject || selectedSubject === '')) {
+      setSelectedSubject(String(availableSubjects[0].id));
+    }
+
     if (role === 'teacher') {
       console.log('Setting up teacher view with assigned subjects:', teacherSubjectIds);
       
@@ -505,7 +509,7 @@ export default function ResultsPage({ teachers = [], classes = [], students = []
       </div>
     );
   };
-
+  
   // Filter the subjects based on selection or role
   const getFilteredSubjects = () => {
     if (role === 'teacher') {

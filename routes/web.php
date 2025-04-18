@@ -76,6 +76,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/classes/{class}', [ClassesController::class, 'show'])->name('classes.show');
     Route::get('/students', [StudentsController::class, 'index'])->name('students.index');
     Route::get('/students/{student}', [StudentsController::class, 'show'])->name('students.show');
+    Route::get('/students/{student}/download-pdf', [StudentsController::class, 'downloadPdf'])->name('students.downloadPdf');
     Route::get('/teachers', [TeacherController::class, 'index'])->name('teachers.index');
     Route::get('/teachers/{teacher}', [TeacherController::class, 'show'])->name('teachers.show');
     Route::get('/schools/{school}', [SchoolController::class, 'show'])->name('schools.show');

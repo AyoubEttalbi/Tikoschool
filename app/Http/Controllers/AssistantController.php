@@ -140,8 +140,8 @@ class AssistantController extends Controller
             });
         }
 
-        // Fetch paginated and filtered assistants
-        $assistants = $query->paginate(10)->withQueryString()->through(function ($assistant) {
+        // Fetch paginated and filtered assistants, newest first
+        $assistants = $query->orderBy('created_at', 'desc')->paginate(10)->withQueryString()->through(function ($assistant) {
             return [
                 'id' => $assistant->id,
                 'name' => $assistant->first_name . ' ' . $assistant->last_name,

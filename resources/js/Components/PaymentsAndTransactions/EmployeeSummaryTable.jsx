@@ -36,11 +36,11 @@ const parseISODate = (dateString) => {
 // Add this function after the parseISODate function
 const getLastPaymentDate = (employee) => {
   if (!employee.transactions || employee.transactions.length === 0) return null;
-  
+
   const validTransactions = employee.transactions
-    .filter(t => 
-      (t.type === 'payment' || t.type === 'salary') && 
-      t.updated_at && 
+    .filter(t =>
+      (t.type === 'payment' || t.type === 'salary') &&
+      t.updated_at &&
       parseISODate(t.updated_at)
     );
 
@@ -240,25 +240,25 @@ const EmployeeSummaryTable = ({ employeePayments = [], adminEarnings = [], onEdi
       const filteredTransactions = employee.transactions ? employee.transactions.filter(transaction => {
         if (!transaction.updated_at) return false;
         const transactionDate = parseISODate(transaction.updated_at);
-        return transactionDate && 
-          transactionDate.getMonth() === selectedMonth && 
+        return transactionDate &&
+          transactionDate.getMonth() === selectedMonth &&
           transactionDate.getFullYear() === selectedYear;
       }) : [];
 
       const lastPaymentDate = getLastPaymentDate(employee);
-      
+
       const monthlySalary = Number(employee.baseSalary) || 0;
-      
+
       const monthlyPaid = filteredTransactions
         .filter(t => t.type === 'payment' || t.type === 'salary')
         .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-      
+
       const monthlyExpenses = filteredTransactions
         .filter(t => t.type === 'expense')
         .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-      
+
       const monthlyBalance = monthlySalary - monthlyPaid - monthlyExpenses;
-      
+
       return {
         ...employee,
         transactions: employee.transactions,
@@ -271,7 +271,7 @@ const EmployeeSummaryTable = ({ employeePayments = [], adminEarnings = [], onEdi
         hasValidTransactions: Boolean(lastPaymentDate)
       };
     });
-    
+
     setFilteredData(filtered);
   }, [selectedMonth, selectedYear, safeEmployeePayments]);
 
@@ -433,7 +433,7 @@ const EmployeeSummaryTable = ({ employeePayments = [], adminEarnings = [], onEdi
 
       {/* Calendar Filter Controls */}
       <div className="bg-white p-4 rounded-lg shadow">
-      
+
         {/* Month and Year Filter Section */}
         <div className="flex items-center flex-wrap space-x-4 mb-4">
           <div className="font-medium text-gray-700">Filter by Month:</div>
@@ -463,25 +463,25 @@ const EmployeeSummaryTable = ({ employeePayments = [], adminEarnings = [], onEdi
             </select>
           </div>
           <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center space-x-2 -mb-4">
-            <button
-              onClick={() => setShowFilters(!showFilters)}
-              className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-            >
-              <FunnelIcon className="w-4 h-4 mr-2" />
-              Filters
-            </button>
-            {Object.values(filters).some(v => v !== 'all') && (
+            <div className="flex items-center space-x-2 -mb-4">
               <button
-                onClick={() => setFilters({ role: 'all', paymentStatus: 'all', paymentPeriod: 'all' })}
-                className="text-sm text-red-600 hover:text-red-800"
+                onClick={() => setShowFilters(!showFilters)}
+                className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
               >
-                Clear Filters
+                <FunnelIcon className="w-4 h-4 mr-2" />
+                Filters
               </button>
-            )}
+              {Object.values(filters).some(v => v !== 'all') && (
+                <button
+                  onClick={() => setFilters({ role: 'all', paymentStatus: 'all', paymentPeriod: 'all' })}
+                  className="text-sm text-red-600 hover:text-red-800"
+                >
+                  Clear Filters
+                </button>
+              )}
+            </div>
+
           </div>
-          
-        </div>
           <div className="ml-auto">
             <div className="flex items-center space-x-2">
               <span className="text-sm font-medium text-gray-500">Monthly View</span>
@@ -490,11 +490,11 @@ const EmployeeSummaryTable = ({ employeePayments = [], adminEarnings = [], onEdi
               </div>
             </div>
           </div>
-          
+
         </div>
 
         {/* Filter Controls Section */}
-        
+
 
         {/* Expandable Filters Panel */}
         {showFilters && (
@@ -657,7 +657,26 @@ const EmployeeSummaryTable = ({ employeePayments = [], adminEarnings = [], onEdi
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <ActionsMenu
                           onView={() => handleViewHistory(employee.userId)}
-                          onEdit={() => onEdit(employee.transactions[0]?.id)}
+                          onEdit={() => {
+                            const transactionId = employee.transactions[0]?.id;
+                            if (!transactionId) {
+                              alert('No transaction available to edit for this employee.');
+                              return;
+                            }
+                            const monthlyPaid = employee.monthlyPaid || 0;
+                            const rest = (employee.role === 'teacher' ? Number(employee.wallet) : Number(employee.baseSalary)) - monthlyPaid;
+                            onEdit({
+                              transactionId,
+                              userId: employee.userId,
+                              userName: employee.userName,
+                              role: employee.role,
+                              monthlyPaid,
+                              rest,
+                              baseSalary: employee.baseSalary,
+                              wallet: employee.wallet,
+                              email: employee.email
+                            });
+                          }}
                           onMakePayment={() => onMakePayment(employee.userId, totalBalance, employee)}
                           showMakePayment={totalBalance > 0}
                         />
@@ -712,8 +731,8 @@ const EmployeeSummaryTable = ({ employeePayments = [], adminEarnings = [], onEdi
                     key={i + 1}
                     onClick={() => setCurrentPage(i + 1)}
                     className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${currentPage === i + 1
-                        ? 'z-10 bg-indigo-50 border-indigo-500 text-indigo-600'
-                        : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
+                      ? 'z-10 bg-indigo-50 border-indigo-500 text-indigo-600'
+                      : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
                       }`}
                   >
                     {i + 1}

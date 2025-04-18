@@ -146,17 +146,27 @@ const PaymentForm = ({ transaction = null, errors = {}, formType, onCancel, user
         } else if ((user.role === 'assistant' || user.role === 'admin' || user.role === 'staff') && user.salary) {
           fullSalary = user.salary;
         }
-        
-        // Set initial amount to empty string - admin will input this
-        setValues(prevValues => ({
-          ...prevValues,
-          amount: '',
-          full_salary: fullSalary,
-          rest: fullSalary // Initially rest is full salary (nothing paid yet)
-        }));
+        // If editing, auto-fill amount with total paid this month/year
+        if (formType === 'edit' && transaction) {
+          const existingPayment = checkExistingPayment();
+          setValues(prevValues => ({
+            ...prevValues,
+            amount: existingPayment && existingPayment.totalPaid ? existingPayment.totalPaid : '',
+            full_salary: fullSalary,
+            rest: fullSalary // Optionally update rest as well
+          }));
+        } else {
+          // Set initial amount to empty string - admin will input this
+          setValues(prevValues => ({
+            ...prevValues,
+            amount: '',
+            full_salary: fullSalary,
+            rest: fullSalary // Initially rest is full salary (nothing paid yet)
+          }));
+        }
       }
     }
-  }, [values.type, users, values.user_id]);
+  }, [values.type, users, values.user_id, formType, transaction]);
   
   // Check for existing payments when relevant values change
   useEffect(() => {
@@ -372,13 +382,14 @@ const PaymentForm = ({ transaction = null, errors = {}, formType, onCancel, user
 
   // Modify the transaction type dropdown to ensure it sets values correctly
   
-  // When the form first renders, set the initial type based on the transaction or default
+  // When the form first renders, set the initial type and user_id based on the transaction or default
   useEffect(() => {
     if (transaction) {
-      // If editing existing transaction, set the form to that transaction's type
+      // If editing existing transaction, set the form to that transaction's type and user_id
       setValues(prev => ({
         ...prev,
-        type: transaction.type
+        type: transaction.type,
+        user_id: transaction.user_id || prev.user_id
       }));
     } else {
       // For new transactions, default to salary

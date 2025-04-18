@@ -51,6 +51,10 @@ const columns = [
 ];
 
 const TeacherListPage = ({ teachers, subjects, classes, schools, filters: initialFilters }) => {
+  // Ensure teachers is always an array
+  const safeTeachers = Array.isArray(teachers?.data) ? teachers.data : [];
+  // Sort teachers by created_at descending (latest first)
+  const sortedTeachers = [...safeTeachers].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   const role = usePage().props.auth.user.role;
   
   // State for filters and search
@@ -297,10 +301,15 @@ const TeacherListPage = ({ teachers, subjects, classes, schools, filters: initia
       )}
 
       {/* LIST */}
-      <Table columns={columns} renderRow={renderRow} data={teachers.data} />
+      <Table
+        columns={columns}
+        data={sortedTeachers}
+        renderRow={renderRow}
+        filters={filters}
+        pagination={teachers.links}
+      />
       
       {/* PAGINATION */}
-      <Pagination links={teachers.links} filters={filters} />
     </div>
   );
 };

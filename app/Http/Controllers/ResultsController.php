@@ -606,20 +606,11 @@ class ResultsController extends Controller
     public function getSubjectsByTeacher($teacher_id, $class_id = null)
     {
         $teacher = Teacher::with('subjects')->find($teacher_id);
-        
         if (!$teacher) {
             return response()->json([]);
         }
-        
-        $subjects = $teacher->subjects;
-        
-        if ($class_id) {
-            // Filter results to only include subjects that have results for this class
-            $subjectIds = Result::where('class_id', $class_id)->pluck('subject_id')->unique();
-            $subjects = $subjects->whereIn('id', $subjectIds);
-        }
-            
-        return response()->json($subjects);
+        // Always return all subjects assigned to the teacher (from subject_teacher pivot)
+        return response()->json($teacher->subjects);
     }
 
     /**

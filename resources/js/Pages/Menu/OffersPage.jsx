@@ -16,9 +16,13 @@ export default function OffersPage({ offers = [], Alllevels = [], Allsubjects = 
   const [dropdownStates, setDropdownStates] = useState({})
 
   // Initialize edit data for each offer
+  // Sort offers by created_at descending (latest first)
+  const safeOffers = Array.isArray(offers?.data) ? offers.data : [];
+  const sortedOffers = [...safeOffers].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
   useEffect(() => {
     const initialEditData = {}
-    offers.data.forEach((offer) => {
+    sortedOffers.forEach((offer) => {
       initialEditData[offer.id] = {
         offer_name: offer.offer_name,
         price: offer.price,
@@ -178,33 +182,24 @@ export default function OffersPage({ offers = [], Alllevels = [], Allsubjects = 
               offer_name: offer.offer_name,
               price: offer.price,
               subjects: offer.subjects,
-              percentage: offer.percentage,
             }
-
-            const availableSubjects = Allsubjects.filter(
-              (s) =>
-                !currentEditData.subjects.some((subject) =>
-                  typeof subject === "object" && typeof s === "object" ? subject.id === s.id : subject === s,
-                ),
-            )
-
             return (
               <OfferCard
                 key={offer.id}
                 offer={offer}
-                isEditMode={isEditMode}
-                toggleEditMode={toggleEditMode}
-                currentEditData={currentEditData}
+                isEditMode={editMode[offer.id]}
+                toggleEditMode={() => toggleEditMode(offer.id)}
+                currentEditData={editData[offer.id] || { subjects: [] }}
                 handleInputChange={handleInputChange}
                 handleSaveChanges={handleSaveChanges}
-                toggleDropdown={toggleDropdown}
+                toggleDropdown={() => toggleDropdown(offer.id)}
                 dropdownStates={dropdownStates}
                 handleAddSubject={handleAddSubject}
                 handleRemoveSubject={handleRemoveSubject}
                 handlePercentageChange={handlePercentageChange}
                 incrementPercentage={incrementPercentage}
                 decrementPercentage={decrementPercentage}
-                availableSubjects={availableSubjects}
+                availableSubjects={Allsubjects}
                 getSubjectName={getSubjectName}
                 levels={Alllevels}
                 subjects={Allsubjects}

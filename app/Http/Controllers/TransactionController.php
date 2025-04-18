@@ -878,28 +878,57 @@ public function index(Request $request)
                 $validated['payment_date'] = now();
             }
             
-            // For salary or payment transactions, check if the user has already been paid this month
+            // For salary or payment transactions, apply custom logic for teacher and assistant
             if (in_array($validated['type'], ['salary', 'payment'])) {
                 $paymentDate = Carbon::parse($validated['payment_date']);
                 $month = $paymentDate->month;
                 $year = $paymentDate->year;
-                
-                // Check for existing payments in the same month/year
-                $existingPayment = Transaction::where('user_id', $validated['user_id'])
-                    ->whereIn('type', ['salary', 'payment'])
-                    ->whereRaw('MONTH(payment_date) = ?', [$month])
-                    ->whereRaw('YEAR(payment_date) = ?', [$year])
-                    ->exists();
-                
-                if ($existingPayment) {
-                    \Log::warning('Transaction store prevented: Duplicate payment', [
-                        'user_id' => $validated['user_id'],
-                        'month' => $month,
-                        'year' => $year,
-                        'type' => $validated['type']
-                    ]);
-                    
-                    return back()->with('error', 'This employee has already been paid for ' . $paymentDate->format('F Y'));
+                $user = User::find($validated['user_id']);
+
+                if ($user && $user->role === 'teacher') {
+                    $teacher = $user->teacher;
+                    if (!$teacher) {
+                        \Log::error('Transaction store failed: Teacher model not found', [
+                            'user_id' => $user->id,
+                            'email' => $user->email
+                        ]);
+                        return back()->with('error', 'Teacher profile not found');
+                    }
+                    // Only prevent payment if wallet is 0
+                    if ($teacher->wallet == 0) {
+                        \Log::warning('Transaction store prevented: Teacher wallet zero', [
+                            'user_id' => $user->id,
+                            'month' => $month,
+                            'year' => $year,
+                            'type' => $validated['type']
+                        ]);
+                        return back()->with('error', 'Cannot process payment for teacher with zero wallet balance');
+                    }
+                    // Save rest (wallet - amount) in transaction
+                    $validated['rest'] = $teacher->wallet - $validated['amount'];
+                } elseif ($user && $user->role === 'assistant') {
+                    $assistant = $user->assistant;
+                    if (!$assistant) {
+                        return back()->with('error', 'Assistant profile not found');
+                    }
+                    // Calculate how much has already been paid this month
+                    $alreadyPaid = Transaction::where('user_id', $user->id)
+                        ->where('type', 'salary')
+                        ->whereRaw('MONTH(payment_date) = ?', [$month])
+                        ->whereRaw('YEAR(payment_date) = ?', [$year])
+                        ->sum('amount');
+                    $baseSalary = $assistant->salary;
+                    $remainingSalary = $baseSalary - $alreadyPaid;
+                    // Only prevent payment if already paid >= salary
+                    if ($alreadyPaid >= $baseSalary) {
+                        return back()->with('error', 'Assistant has already received their full salary for ' . $paymentDate->format('F Y'));
+                    }
+                    // Prevent payment if amount exceeds remaining salary
+                    if ($validated['amount'] > $remainingSalary) {
+                        return back()->with('error', 'Payment amount exceeds remaining salary for ' . $paymentDate->format('F Y') . '. Remaining: ' . $remainingSalary . ', Requested: ' . $validated['amount']);
+                    }
+                    // Save rest (salary - alreadyPaid - amount) in transaction
+                    $validated['rest'] = $remainingSalary - $validated['amount'];
                 }
             }
 
@@ -999,7 +1028,7 @@ public function index(Request $request)
                 }
             }
 
-            // Create transaction
+            // Create transaction (rest will be saved if set above)
             $transaction = new Transaction($validated);
             $transaction->save();
             

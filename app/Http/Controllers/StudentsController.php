@@ -20,9 +20,24 @@ use Cloudinary\Cloudinary;
 use Cloudinary\Configuration\Configuration;
 use Cloudinary\Api\Upload\UploadApi;
 use Illuminate\Support\Facades\DB;
+use Barryvdh\DomPDF\Facade\Pdf;
 
 class StudentsController extends Controller
 {
+    /**
+     * Download a student's information as a PDF.
+     */
+    public function downloadPdf($id)
+    {
+        $student = \App\Models\Student::with(['level', 'class', 'school', 'memberships.offer'])
+            ->findOrFail($id);
+        
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('students_pdf', [
+            'student' => $student
+        ]);
+        $fileName = 'student_' . $student->id . '_' . now()->format('Ymd_His') . '.pdf';
+        return $pdf->download($fileName);
+    }
     // Helper function to get Cloudinary
     private function getCloudinary()
     {
@@ -126,10 +141,10 @@ class StudentsController extends Controller
          // Apply additional filters (e.g., school, class, level)
          $this->applyFilters($query, $request->only(['school', 'class', 'level']));
      
-         // Fetch paginated and filtered students
-         $students = $query->paginate(10)->withQueryString()->through(function ($student) {
-             return $this->transformStudentData($student);
-         });
+         // Fetch paginated and filtered students, newest first
+        $students = $query->orderBy('created_at', 'desc')->paginate(10)->withQueryString()->through(function ($student) {
+            return $this->transformStudentData($student);
+        });
          
          // Get all classes for filters, but filter them by selected school if applicable
          $classesQuery = Classes::query();

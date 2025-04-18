@@ -47,6 +47,10 @@ const columns = [
 ];
 
 const StudentListPage = ({ students, Allclasses, Alllevels, Allschools, filters: initialFilters, Allmemberships }) => {
+  // Ensure students is always an array
+  const safeStudents = Array.isArray(students?.data) ? students.data : [];
+  // Sort students by created_at descending (latest first)
+  const sortedStudents = [...safeStudents].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   const role = usePage().props.auth.user.role;
   console.log("Allmemberships", Allmemberships);
   console.log('students', students);
@@ -248,11 +252,18 @@ const StudentListPage = ({ students, Allclasses, Alllevels, Allschools, filters:
       )}
 
       {/* LIST */}
-      <Table columns={columns} renderRow={renderRow} data={students.data} />
-      <Pagination links={students.links} filters={filters} />
+      <Table
+        columns={columns}
+        data={sortedStudents}
+        renderRow={renderRow}
+        filters={filters}
+        pagination={students.links}
+        emptyText="No students found."
+      />
     </div>
   );
-};
+}
 
 StudentListPage.layout = (page) => <DashboardLayout>{page}</DashboardLayout>;
+
 export default StudentListPage;

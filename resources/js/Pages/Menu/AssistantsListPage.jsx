@@ -40,6 +40,10 @@ const columns = [
 ];
 
 const AssistantsListPage = ({assistants = [], schools}) => {
+  // Ensure assistants is always an array
+  const safeAssistants = Array.isArray(assistants?.data) ? assistants.data : [];
+  // Sort assistants by created_at descending (latest first)
+  const sortedAssistants = [...safeAssistants].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   const role = usePage().props.auth.user.role;
   console.log("assistants list",assistants);
   const renderRow = (assistant) => (
@@ -120,7 +124,7 @@ const AssistantsListPage = ({assistants = [], schools}) => {
       </div>
 
 
-      <Table columns={columns} renderRow={renderRow} data={assistants.data} />
+      <Table columns={columns} renderRow={renderRow} data={sortedAssistants} />
 
       {/* Pagination */}
       <Pagination links={assistants.links} />
