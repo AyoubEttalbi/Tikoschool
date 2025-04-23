@@ -13,7 +13,7 @@ import RecurringTransactionsPage from '../Payments/RecurringTransactionsPage';
 import Pagination from '@/Components/Pagination';
 import AdminEarningsSection from '@/Components/PaymentsAndTransactions/AdminEarningsSection';
 import axios from 'axios';
-
+import { Plus, CreditCard, RefreshCw } from "lucide-react";
 const PaymentsPage = ({
   transactions,
   transaction,
@@ -149,26 +149,31 @@ const PaymentsPage = ({
           description="View, create and manage all your financial transactions"
         >
           {activeView !== 'form' && activeView !== 'batch' && (
-            <div className="flex space-x-2">
-              <button
-                onClick={handleCreateNew}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                Add New Transaction
-              </button>
-              <button
-                onClick={handleBatchPayment}
-                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
-              >
-                Batch Payment
-              </button>
-              <button
-                onClick={handleProcessRecurring}
-                className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500"
-              >
-                Process Recurring
-              </button>
-            </div>
+            <div className="flex flex-wrap gap-3">
+            <button
+              onClick={handleCreateNew}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-medium rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors duration-200"
+            >
+              <Plus size={18} />
+              Add New Transaction
+            </button>
+            
+            <button
+              onClick={handleBatchPayment}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white font-medium rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors duration-200"
+            >
+              <CreditCard size={18} />
+              Batch Payment
+            </button>
+            
+            <button
+              onClick={handleProcessRecurring}
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white font-medium rounded-lg shadow-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 transition-colors duration-200"
+            >
+              <RefreshCw size={18} />
+              Process Recurring
+            </button>
+          </div>
           )}
           {(activeView === 'form' || activeView === 'batch') && (
             <button
