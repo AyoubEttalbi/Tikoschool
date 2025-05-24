@@ -31,19 +31,32 @@ export default function InboxPopup({ auth, users = [], onClose }) {
         const saved = localStorage.getItem('unreadMessages');
         return saved ? JSON.parse(saved) : {};
     });
+
+    // Add new effect for initial data fetch and periodic sync
     useEffect(() => {
+        // Initial fetch
+        fetchInitialData();
+
+        // Set up periodic sync
         const interval = setInterval(() => {
             axios.get('/unread-count')
                 .then(response => {
-                    setUnreadMessages(prev => ({
-                        ...prev,
-                        ...response.data.unread_count
-                    }));
+                    const newUnreadCounts = response.data.unread_count;
+                    setUnreadMessages(prev => {
+                        const updated = { ...prev, ...newUnreadCounts };
+                        // Save to localStorage whenever counts are updated
+                        localStorage.setItem('unreadMessages', JSON.stringify(updated));
+                        return updated;
+                    });
+                })
+                .catch(error => {
+                    console.error('Failed to fetch unread counts:', error);
                 });
         }, 10000); // Sync every 10 seconds
 
         return () => clearInterval(interval);
     }, []);
+
     // Handle window resize
     useEffect(() => {
         const handleResize = () => {
@@ -73,6 +86,8 @@ export default function InboxPopup({ auth, users = [], onClose }) {
             }, {});
 
             setUnreadMessages(initializedUnreadCounts);
+            // Save to localStorage after initialization
+            localStorage.setItem('unreadMessages', JSON.stringify(initializedUnreadCounts));
             setLastMessages(lastMessagesData);
         } catch (err) {
             console.error('Failed to fetch initial data', err);
@@ -161,19 +176,27 @@ export default function InboxPopup({ auth, users = [], onClose }) {
                     e.message.is_read = true;
 
                     // Decrement unread count if we're viewing
-                    setUnreadMessages(prev => ({
-                        ...prev,
-                        [e.message.sender_id]: Math.max(0, (prev[e.message.sender_id] || 0) - 1)
-                    }));
+                    setUnreadMessages(prev => {
+                        const updated = {
+                            ...prev,
+                            [e.message.sender_id]: Math.max(0, (prev[e.message.sender_id] || 0) - 1)
+                        };
+                        localStorage.setItem('unreadMessages', JSON.stringify(updated));
+                        return updated;
+                    });
                 } catch (error) {
                     console.error('Failed to mark message as read', error);
                 }
             } else if (!isViewingChat) {
                 // Increment unread count if not viewing
-                setUnreadMessages(prev => ({
-                    ...prev,
-                    [e.message.sender_id]: (prev[e.message.sender_id] || 0) + 1
-                }));
+                setUnreadMessages(prev => {
+                    const updated = {
+                        ...prev,
+                        [e.message.sender_id]: (prev[e.message.sender_id] || 0) + 1
+                    };
+                    localStorage.setItem('unreadMessages', JSON.stringify(updated));
+                    return updated;
+                });
             }
 
             if (isViewingChat) {
@@ -211,6 +234,7 @@ export default function InboxPopup({ auth, users = [], onClose }) {
                     setUnreadMessages(prev => {
                         const updated = { ...prev };
                         delete updated[e.sender_id];
+                        localStorage.setItem('unreadMessages', JSON.stringify(updated));
                         return updated;
                     });
                 }
@@ -289,18 +313,7 @@ export default function InboxPopup({ auth, users = [], onClose }) {
             setLoading(false);
         }
     };
-    useEffect(() => {
-        // Load from localStorage on mount
-        const savedUnread = localStorage.getItem('unreadMessages');
-        if (savedUnread) {
-            setUnreadMessages(JSON.parse(savedUnread));
-        }
 
-        // Save to localStorage when unreadMessages changes
-        return () => {
-            localStorage.setItem('unreadMessages', JSON.stringify(unreadMessages));
-        };
-    }, []);
     // Mark messages as read
     const markMessagesAsRead = async (forceAll = false) => {
         if (!selectedUserRef.current) return;

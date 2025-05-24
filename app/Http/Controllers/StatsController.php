@@ -14,6 +14,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Redirect;
 use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
+use App\Models\Membership;
+
 class StatsController extends Controller
 {
     /**
@@ -21,6 +24,12 @@ class StatsController extends Controller
      */
     public function index(Request $request)
 {
+    // Get the selected month for membership stats
+    $month = $request->get('month');
+    
+    // Get membership stats
+    $membershipStats = $this->getMembershipStats($month);
+
     // Fetch counts of teachers using the pivot table
     $teacherCounts = DB::table('school_teacher')
         ->select('school_id', DB::raw('COUNT(DISTINCT teacher_id) as count'))
@@ -150,6 +159,149 @@ class StatsController extends Controller
             'status' => $status,
         ],
         'userRole' => $userRole,
+        // Add membership stats
+        'membershipStats' => $membershipStats
     ]);
 }
+
+private function getMembershipStats($month = null)
+{
+    try {
+        $date = $month ? Carbon::parse($month) : Carbon::now();
+        $startOfMonth = $date->copy()->startOfMonth();
+        $endOfMonth = $date->copy()->endOfMonth();
+
+        \Log::info('Querying memberships for:', ['month' => $date->format('Y-m')]);
+
+        // Get base query for memberships within the date range and not deleted
+        $query = Membership::where(function($q) use ($startOfMonth, $endOfMonth) {
+            $q->where(function($inner) use ($startOfMonth, $endOfMonth) {
+                $inner->where('start_date', '<=', $endOfMonth)
+                    ->where(function($deepest) use ($startOfMonth) {
+                        $deepest->whereNull('end_date')
+                            ->orWhere('end_date', '>=', $startOfMonth);
+                    });
+            });
+        })->whereNull('deleted_at');
+
+        // Get all memberships for the month for debugging
+        $allMemberships = (clone $query)
+            ->select('id', 'payment_status', 'is_active', 'start_date', 'end_date')
+            ->get();
+        
+        \Log::info('All memberships for the month:', $allMemberships->toArray());
+
+        // Count paid memberships (active AND paid status)
+        $paidQuery = (clone $query)
+            ->where('is_active', true)
+            ->where('payment_status', 'paid');
+            
+        $paidCount = $paidQuery->count();
+        
+        \Log::info('Paid query:', [
+            'sql' => $paidQuery->toSql(),
+            'bindings' => $paidQuery->getBindings()
+        ]);
+
+ 
+        $unpaidQuery = (clone $query)
+            ->where(function($q) use ($endOfMonth) {
+                $q->where('is_active', false)
+                  ->orWhereIn('payment_status', ['pending', 'expired'])
+                  ->orWhere('end_date', '<=', $endOfMonth);
+            });
+            
+        $unpaidCount = $unpaidQuery->count();
+
+        \Log::info('Unpaid query:', [
+            'sql' => $unpaidQuery->toSql(),
+            'bindings' => $unpaidQuery->getBindings()
+        ]);
+
+        // Detailed logging of membership statuses
+        \Log::info('Membership counts:', [
+            'paid' => $paidCount,
+            'unpaid' => $unpaidCount,
+            'month' => $date->format('Y-m'),
+            'start_date' => $startOfMonth->format('Y-m-d'),
+            'end_date' => $endOfMonth->format('Y-m-d')
+        ]);
+
+        return [
+            'paidCount' => $paidCount,
+            'unpaidCount' => $unpaidCount,
+            'month' => $date->format('Y-m')
+        ];
+    } catch (\Exception $e) {
+        \Log::error('Error in getMembershipStats:', [
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+        return [
+            'error' => 'Error fetching stats: ' . $e->getMessage(),
+            'paidCount' => 0,
+            'unpaidCount' => 0,
+            'month' => $date->format('Y-m')
+        ];
+    }
+}
+
+public function getStatsOfPaidUnpaid(Request $request, $month = null)
+{
+    try {
+        $date = $month ? Carbon::parse($month) : Carbon::now();
+        $startOfMonth = $date->copy()->startOfMonth();
+        $endOfMonth = $date->copy()->endOfMonth();
+
+        \Log::info('Querying memberships for:', ['month' => $date->format('Y-m')]);
+
+        // Get base query for memberships active in the specified month
+        $query = Membership::where(function($q) use ($startOfMonth, $endOfMonth) {
+            $q->where(function($inner) use ($startOfMonth, $endOfMonth) {
+                // Memberships that start before or during this month
+                $inner->where('start_date', '<=', $endOfMonth)
+                    // AND end after or during this month (or have no end date)
+                    ->where(function($deepest) use ($startOfMonth) {
+                        $deepest->whereNull('end_date')
+                            ->orWhere('end_date', '>=', $startOfMonth);
+                    });
+            });
+        })->whereNull('deleted_at');
+
+        // Count paid memberships
+        $paidCount = (clone $query)
+            ->where('payment_status', 'paid')
+            ->count();
+
+        // Count unpaid memberships
+        $unpaidCount = (clone $query)
+            ->whereIn('payment_status', ['unpaid', 'pending'])
+            ->count();
+
+        \Log::info('Membership counts:', [
+            'paid' => $paidCount,
+            'unpaid' => $unpaidCount,
+            'month' => $date->format('Y-m'),
+            'start_date' => $startOfMonth->format('Y-m-d'),
+            'end_date' => $endOfMonth->format('Y-m-d')
+        ]);
+
+        return Inertia::render('Invoices/CountChart', [
+            'paidCount' => $paidCount,
+            'unpaidCount' => $unpaidCount,
+            'month' => $date->format('Y-m'),
+        ]);
+
+    } catch (\Exception $e) {
+        \Log::error('Error in getStatsOfPaidUnpaid:', [
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+
+        return Inertia::render('Invoices/CountChart', [
+            'error' => 'Error fetching stats: ' . $e->getMessage()
+        ]);
+    }
+}
+
 }

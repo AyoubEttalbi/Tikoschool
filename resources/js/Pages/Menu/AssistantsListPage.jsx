@@ -1,5 +1,6 @@
-
 import { Link, router, usePage } from '@inertiajs/react';
+import { useState, useEffect } from 'react';
+import { RotateCcw } from "lucide-react";
 
 import TableSearch from "../../Components/TableSearch";
 import Table from "../../Components/Table";
@@ -39,20 +40,72 @@ const columns = [
   },
 ];
 
-const AssistantsListPage = ({assistants = [], schools}) => {
-  // Ensure assistants is always an array
-  const safeAssistants = Array.isArray(assistants?.data) ? assistants.data : [];
-  // Sort assistants by created_at descending (latest first)
-  const sortedAssistants = [...safeAssistants].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+const AssistantsListPage = ({assistants = [], schools, filters: initialFilters}) => {
   const role = usePage().props.auth.user.role;
-  console.log("assistants list",assistants);
+  
+  // State for filters and search
+  const [filters, setFilters] = useState({
+    school: initialFilters?.school || '',
+    status: initialFilters?.status || '',
+    search: '',
+  });
+
+  const [showFilters, setShowFilters] = useState(false);
+
+  // Debounced function to apply filters
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      router.get(
+        route('assistants.index'),
+        { ...filters },
+        { preserveState: true, replace: true, preserveScroll: true }
+      );
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [filters]);
+
+  // Handle filter changes
+  const handleFilterChange = (e) => {
+    const { name, value } = e.target;
+    const newFilters = { ...filters, [name]: value };
+    setFilters(newFilters);
+
+    router.get(route('assistants.index'), {
+      ...newFilters,
+      page: 1
+    }, {
+      preserveState: true,
+      replace: true
+    });
+  };
+
+  // Clear filters and reset the page
+  const clearFilters = () => {
+    setFilters({
+      school: '',
+      status: '',
+      search: '',
+    });
+
+    router.get(
+      route('assistants.index'),
+      {},
+      { preserveState: false, replace: true, preserveScroll: true }
+    );
+  };
+
+  // Toggle visibility of filters
+  const toggleFilters = () => {
+    setShowFilters(!showFilters);
+  };
+
   const renderRow = (assistant) => (
     <tr
-     
       key={assistant.id}
       className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight cursor-pointer"
     >
-      <td  onClick={() => router.visit(`/assistants/${assistant.id}`)} className="flex items-center gap-4 p-4">
+      <td onClick={() => router.visit(`/assistants/${assistant.id}`)} className="flex items-center gap-4 p-4">
         <img
           src={assistant.profile_image ? assistant.profile_image : "/assistantProfile.png"}
           alt={`${assistant.first_name} ${assistant.last_name}`}
@@ -107,14 +160,23 @@ const AssistantsListPage = ({assistants = [], schools}) => {
       <div className="flex items-center justify-between">
         <h1 className="hidden md:block text-lg font-semibold">All Assistants</h1>
         <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
-          <TableSearch routeName="assistants.index"/>
+          <TableSearch
+            routeName="assistants.index"
+            value={filters.search}
+            onChange={(value) => setFilters((prev) => ({ ...prev, search: value }))}
+          />
           <div className="flex items-center gap-4 self-end">
-           
-            <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
-              <img src="/filter.png" alt="Filter" width={14} height={14} />
+            <button
+              onClick={clearFilters}
+              className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow"
+            >
+              <RotateCcw className="w-4 h-4 text-black" />
             </button>
-            <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
-              <img src="/sort.png" alt="Sort" width={14} height={14} />
+            <button
+              onClick={toggleFilters}
+              className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow"
+            >
+              <img src="/filter.png" alt="Filter" width={14} height={14} />
             </button>
             {role === "admin" && (
               <FormModal table="assistant" type="create" schools={schools} />
@@ -123,11 +185,48 @@ const AssistantsListPage = ({assistants = [], schools}) => {
         </div>
       </div>
 
+      {/* FILTER FORM */}
+      {showFilters && (
+        <div className="my-4 p-4 bg-gray-50 rounded-md">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">School</label>
+              <select
+                name="school"
+                value={filters.school}
+                onChange={handleFilterChange}
+                className="w-full rounded-md border-gray-300 shadow-sm focus:border-lamaPurple focus:ring-lamaPurple"
+              >
+                <option value="">All Schools</option>
+                {schools.map((school) => (
+                  <option key={school.id} value={school.id}>
+                    {school.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-      <Table columns={columns} renderRow={renderRow} data={sortedAssistants} />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+              <select
+                name="status"
+                value={filters.status}
+                onChange={handleFilterChange}
+                className="w-full rounded-md border-gray-300 shadow-sm focus:border-lamaPurple focus:ring-lamaPurple"
+              >
+                <option value="">All Statuses</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <Table columns={columns} renderRow={renderRow} data={assistants.data} />
 
       {/* Pagination */}
-      <Pagination links={assistants.links} />
+      <Pagination links={assistants.links} filters={filters} />
     </div>
   );
 };

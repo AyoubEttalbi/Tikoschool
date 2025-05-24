@@ -15,12 +15,12 @@ class ClassesController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index(Request $request)
+   public function index(Request $request)
     {   
         $user = $request->user();
         $role = $user->role;
         $levels = Level::all();
-        
+        $schools = School::all();
         // Get the selected school from session
         $selectedSchoolId = session('school_id');
         
@@ -30,12 +30,26 @@ class ClassesController extends Controller
         // If a school is selected in the session, filter by that school
         if ($selectedSchoolId) {
             $classesQuery->where('school_id', $selectedSchoolId);
-            
-            // Log the filtering
-            \Log::info('Classes filtered by school', [
-                'school_id' => $selectedSchoolId,
-                'user_role' => $role
-            ]);
+        }
+
+        // Apply search filter if search term is provided
+        if ($request->has('search') && !empty($request->search)) {
+            $searchTerm = $request->search;
+            $classesQuery->where(function ($query) use ($searchTerm) {
+                $query->where('name', 'LIKE', "%{$searchTerm}%")
+                      ->orWhereHas('level', function ($levelQuery) use ($searchTerm) {
+                          $levelQuery->where('name', 'LIKE', "%{$searchTerm}%");
+                      });
+            });
+        }
+
+        // Apply additional filters
+        if (!empty($request->level)) {
+            $classesQuery->where('level_id', $request->level);
+        }
+
+        if (!empty($request->school)) {
+            $classesQuery->where('school_id', $request->school);
         }
         
         // If user is a teacher, only show classes they teach
@@ -47,22 +61,12 @@ class ClassesController extends Controller
                 // Filter to only get classes this teacher teaches at the selected school
                 $teacherClassIds = $teacher->classes->pluck('id')->toArray();
                 $classesQuery->whereIn('id', $teacherClassIds);
-                
-                // Log teacher classes filtering
-                \Log::info('Teacher classes filtered', [
-                    'teacher_id' => $teacher->id,
-                    'teacher_email' => $teacher->email,
-                    'filtered_by_school' => !empty($selectedSchoolId),
-                    'school_id' => $selectedSchoolId
-                ]);
             } else {
                 // If teacher record not found, return empty collection
-                $classes = collect();
-                \Log::warning('Teacher not found for user', ['email' => $user->email]);
-                
-                return Inertia::render('Classes/Index', [
+                return Inertia::render('Menu/ClassesPage', [
                     'classes' => [],
                     'levels' => $levels,
+                    'filters' => $request->only(['search', 'level', 'school']),
                 ]);
             }
         }
@@ -78,13 +82,16 @@ class ClassesController extends Controller
         
         return Inertia::render('Menu/ClassesPage', [
             'classes' => $classes,
+            'schools' => $schools,
             'levels' => $levels,
+            'filters' => $request->only(['search', 'level', 'school']),
             'selectedSchool' => $selectedSchoolId ? [
                 'id' => $selectedSchoolId,
                 'name' => session('school_name')
             ] : null
         ]);
     }
+
 
     /**
      * Show the form for creating a new resource.

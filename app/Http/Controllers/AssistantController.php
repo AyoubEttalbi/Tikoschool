@@ -107,7 +107,7 @@ class AssistantController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index(Request $request)
+   public function index(Request $request)
     {
         $selectedSchoolId = session('school_id');
 
@@ -132,16 +132,26 @@ class AssistantController extends Controller
                   ->orWhere('email', 'LIKE', "%{$searchTerm}%")
                   ->orWhere('address', 'LIKE', "%{$searchTerm}%");
 
-                // Search by school name (if assistant has a relationship with schools)
-                // This might be redundant if session filter is active, but good for general search
+                // Search by school name
                 $q->orWhereHas('schools', function ($schoolQuery) use ($searchTerm) {
                     $schoolQuery->where('name', 'LIKE', "%{$searchTerm}%");
                 });
             });
         }
 
-        // Fetch paginated and filtered assistants, newest first
-        $assistants = $query->orderBy('created_at', 'desc')->paginate(10)->withQueryString()->through(function ($assistant) {
+        // Apply additional filters (school, status)
+        if (!empty($request->school)) {
+            $query->whereHas('schools', function ($schoolQuery) use ($request) {
+                $schoolQuery->where('schools.id', $request->school);
+            });
+        }
+
+        if (!empty($request->status)) {
+            $query->where('status', $request->status);
+        }
+
+        // Fetch paginated and filtered assistants
+        $assistants = $query->paginate(10)->withQueryString()->through(function ($assistant) {
             return [
                 'id' => $assistant->id,
                 'name' => $assistant->first_name . ' ' . $assistant->last_name,
@@ -153,18 +163,18 @@ class AssistantController extends Controller
                 'status' => $assistant->status,
                 'salary' => $assistant->salary,
                 'profile_image' => $assistant->profile_image ? $assistant->profile_image : null,
-                'schools_assistant' => $assistant->schools, // Keep school data if needed on list
+                'schools_assistant' => $assistant->schools,
             ];
         });
 
-        // Fetch schools for potential filter dropdowns (though list is already filtered by session)
+        // Fetch schools for filter dropdowns
         $schoolsForFilter = School::all();
 
         return Inertia::render('Menu/AssistantsListPage', [
             'assistants' => $assistants,
-            'schools' => $schoolsForFilter, // Pass schools for filters if you add them
+            'schools' => $schoolsForFilter,
             'search' => $request->search,
-            // activeSchool is already shared via HandleInertiaRequests
+            'filters' => $request->only(['school', 'status']), // Pass current filters
         ]);
     }
 

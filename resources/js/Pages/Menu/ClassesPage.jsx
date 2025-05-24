@@ -4,8 +4,8 @@ import TableSearch from "../../Components/TableSearch";
 import Table from "../../Components/Table";
 import Pagination from "../../Components/Pagination";
 import DashboardLayout from "@/Layouts/DashboardLayout";
-import { Eye, UserRoundPen } from "lucide-react";
-import { useEffect, useState } from "react"; // Import useState and useEffect
+import { Eye, RotateCcw } from "lucide-react";
+import { useEffect, useState } from "react";
 
 const columns = [
   { header: "Name", accessor: "name" },
@@ -15,12 +15,66 @@ const columns = [
   { header: "Actions", accessor: "action" },
 ];
 
-const ClassesPage = ({ classes, levels }) => {
+const ClassesPage = ({ classes, schools ,levels, filters: initialFilters }) => {
   const role = usePage().props.auth.user.role;
   const isAdmin = role === "admin";
-  console.log("User role:", role);
-  console.log("Classes:", classes);
-  console.log("Levels:", levels);
+  
+  // State for filters and search
+  const [filters, setFilters] = useState({
+    level: initialFilters?.level || '',
+    school: initialFilters?.school || '',
+    search: initialFilters?.search || '',
+  });
+
+  const [showFilters, setShowFilters] = useState(false);
+
+  // Debounced function to apply filters
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      router.get(
+        route('classes.index'),
+        { ...filters },
+        { preserveState: true, replace: true, preserveScroll: true }
+      );
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [filters]);
+
+  // Handle filter changes
+  const handleFilterChange = (e) => {
+    const { name, value } = e.target;
+    const newFilters = { ...filters, [name]: value };
+    setFilters(newFilters);
+
+    router.get(route('classes.index'), {
+      ...newFilters,
+      page: 1
+    }, {
+      preserveState: true,
+      replace: true
+    });
+  };
+
+  // Clear filters and reset the page
+  const clearFilters = () => {
+    setFilters({
+      level: '',
+      school: '',
+      search: '',
+    });
+
+    router.get(
+      route('classes.index'),
+      {},
+      { preserveState: false, replace: true, preserveScroll: true }
+    );
+  };
+
+  // Toggle visibility of filters
+  const toggleFilters = () => {
+    setShowFilters(!showFilters);
+  };
 
   const renderRow = (classe) => (
     <tr
@@ -58,24 +112,73 @@ const ClassesPage = ({ classes, levels }) => {
           {role === "teacher" ? "My Classes" : "All Classes"}
         </h1>
         <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
-          {/* <TableSearch routeName="classes"/> */}
+          <TableSearch
+            routeName="classes.index"
+            value={filters.search}
+            onChange={(value) => setFilters((prev) => ({ ...prev, search: value }))}
+          />
           <div className="flex items-center gap-4 self-end">
-            {/* Only show filter and sort buttons if there are classes */}
             {classes.length > 0 && (
               <>
-                <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
-                  <img src="/filter.png" alt="" width={14} height={14} />
+                <button
+                  onClick={clearFilters}
+                  className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow"
+                >
+                  <RotateCcw className="w-4 h-4 text-black" />
                 </button>
-                <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
-                  <img src="/sort.png" alt="" width={14} height={14} />
+                <button
+                  onClick={toggleFilters}
+                  className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow"
+                >
+                  <img src="/filter.png" alt="Filter" width={14} height={14} />
                 </button>
               </>
             )}
-            {/* Only show add class button for admin */}
             {isAdmin && <FormModal table="class" type="create" levels={levels} />}
           </div>
         </div>
       </div>
+
+      {/* FILTER FORM */}
+      {showFilters && (
+        <div className="my-4 p-4 bg-gray-50 rounded-md">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Level</label>
+              <select
+                name="level"
+                value={filters.level}
+                onChange={handleFilterChange}
+                className="w-full rounded-md border-gray-300 shadow-sm focus:border-lamaPurple focus:ring-lamaPurple"
+              >
+                <option value="">All Levels</option>
+                {levels.map((level) => (
+                  <option key={level.id} value={level.id}>
+                    {level.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">School</label>
+              <select
+                name="school"
+                value={filters.school}
+                onChange={handleFilterChange}
+                className="w-full rounded-md border-gray-300 shadow-sm focus:border-lamaPurple focus:ring-lamaPurple"
+              >
+                <option value="">All Schools</option>
+                {schools?.map((school) => (
+                  <option key={school.id} value={school.id}>
+                    {school.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Show a message if no classes are available */}
       {classes.length === 0 ? (

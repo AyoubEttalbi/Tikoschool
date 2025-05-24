@@ -3,39 +3,63 @@ import { Link, usePage } from '@inertiajs/react';
 import Menu from '@/Components/Menu';
 import Navbar from '@/Components/Navbar';
 import InboxPopup from '@/Components/InboxPopup';
+import axios from 'axios';
 
 export default function DashboardLayout({ children }) {
     const { auth, users } = usePage().props;
     const [showInbox, setShowInbox] = useState(false);
     const [onlineUsers, setOnlineUsers] = useState([]);
-    const [unreadCount, setUnreadCount] = useState(0);
+    const [unreadCount, setUnreadCount] = useState(() => {
+        // Initialize from localStorage if available
+        const saved = localStorage.getItem('totalUnreadCount');
+        return saved ? parseInt(saved, 10) : 0;
+    });
     const { props } = usePage();
     const user = props.auth.user;
-    console.log('props', props);
+
+    // Function to update unread count and save to localStorage
+    const updateUnreadCount = (count) => {
+        setUnreadCount(count);
+        localStorage.setItem('totalUnreadCount', count.toString());
+    };
+
     useEffect(() => {
         // Fetch initial unread count
         const fetchUnreadCount = async () => {
             try {
                 const response = await axios.get('/unread-count');
-                setUnreadCount(response.data.unread_count);
+                const totalCount = Object.values(response.data.unread_count).reduce((sum, count) => sum + count, 0);
+                updateUnreadCount(totalCount);
             } catch (error) {
                 console.error('Failed to fetch unread count', error);
+                // If fetch fails, try to use cached count
+                const saved = localStorage.getItem('totalUnreadCount');
+                if (saved) {
+                    setUnreadCount(parseInt(saved, 10));
+                }
             }
         };
-        fetchUnreadCount();
+
+        // Set up periodic sync for unread count
+        const syncInterval = setInterval(fetchUnreadCount, 10000); // Sync every 30 seconds
 
         // Listen to unread count updates
-        window.Echo.channel(`user.${auth.user.id}.notifications`)
-            .listen('.UnreadMessageCountUpdated', (e) => {
-                console.log('listening');
-                console.log('Unread message count updated:', e);
-                setUnreadCount(e.unread_count);
-            });
+        const channel = window.Echo.channel(`user.${auth.user.id}.notifications`);
+        channel.listen('.UnreadMessageCountUpdated', (e) => {
+            const totalCount = Object.values(e.unread_count).reduce((sum, count) => sum + count, 0);
+            updateUnreadCount(totalCount);
+        });
+
+        // Initial fetch
+        fetchUnreadCount();
 
         return () => {
+            clearInterval(syncInterval);
+            channel.stopListening('.UnreadMessageCountUpdated');
             window.Echo.leave(`user.${auth.user.id}.notifications`);
         };
-    }, [auth.user]);
+    }, [auth.user.id]);
+
     useEffect(() => {
         if (!auth.user) return;
 
@@ -55,15 +79,17 @@ export default function DashboardLayout({ children }) {
             window.Echo.leave(`presence-online-users`);
         };
     }, [auth.user]);
+
     const handleClosePopup = async () => {
         try {
-            await axios.post(`/message/${auth.user.id}/read`); // Make sure this route marks messages as read
-            setUnreadCount(0); // Update unread count immediately in UI
+            await axios.post(`/message/${auth.user.id}/read`);
+            updateUnreadCount(0); // Update unread count and save to localStorage
         } catch (error) {
             console.error('Failed to update unread count:', error);
         }
         setShowInbox(false);
     };
+
     // Enhance users with online status
     const usersWithStatus = (users || []).map(user => ({
         ...user,
@@ -101,9 +127,7 @@ export default function DashboardLayout({ children }) {
                             </span>
                         )}
                     </button>
-
-                )
-                }
+                )}
 
                 {/* Inbox Popup */}
                 {showInbox && (

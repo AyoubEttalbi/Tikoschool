@@ -43,24 +43,16 @@ use App\Http\Middleware\RoleRedirect;
 Route::get('/', function () {
     return auth()->check() ? redirect('/dashboard') : redirect('/login');
 });
-
-// Admin impersonation routes
-Route::middleware(['auth'])->group(function () {
-Route::post('/admin/switch-back', [AdminController::class, 'switchBack'])
-        ->middleware(CheckImpersonation::class)
-    ->name('admin.switch-back');
-        
-Route::post('/admin/view-as/{user}', [AdminController::class, 'viewAs'])
-        ->middleware(AdminMiddleware::class)
-    ->name('admin.view-as');
-});
-
-// Authenticated routes
 Route::middleware('auth')->group(function () {
     // Dashboard route with RoleRedirect middleware
     Route::get('/dashboard', [StatsController::class, 'index'])
         ->middleware(RoleRedirect::class)
         ->name('dashboard');
+
+    // Membership stats route
+    Route::get('/stats/membership/{month?}', [StatsController::class, 'getStatsOfPaidUnpaid'])
+        ->name('membership.stats')
+        ->where('month', '[0-9]{4}-[0-9]{2}');
 
     // Profile routes
     Route::controller(ProfileController::class)->group(function () {
