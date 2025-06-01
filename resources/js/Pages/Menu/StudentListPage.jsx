@@ -63,7 +63,7 @@ const StudentListPage = ({ students, Allclasses, Alllevels, Allschools, filters:
   });
 
   const [showFilters, setShowFilters] = useState(false);
-
+  console.log('role', role);
   // Debounced function to apply filters
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -192,7 +192,7 @@ const StudentListPage = ({ students, Allclasses, Alllevels, Allschools, filters:
               <Eye className="w-4 h-4 text-white" />
             </button>
           </Link>
-          {role === "admin" && (
+          {(role === "admin" || role === "assistant") && (
             <>
               <FormModal table="student" type="update" data={item} levels={Alllevels} classes={Allclasses} schools={Allschools} />
               <FormModal table="student" type="delete" id={item.id} route="students" />
@@ -233,7 +233,7 @@ const StudentListPage = ({ students, Allclasses, Alllevels, Allschools, filters:
             <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
               <img src="/sort.png" alt="Sort" width={14} height={14} />
             </button>
-            {role === "admin" && (
+            {(role === "admin" || role === "assistant") && (
               <FormModal table="student" type="create" levels={Alllevels} classes={Allclasses} schools={Allschools} />
             )}
           </div>

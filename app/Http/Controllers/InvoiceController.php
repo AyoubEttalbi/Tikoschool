@@ -93,14 +93,21 @@ class InvoiceController extends Controller
             // Fetch the membership
             $membership = Membership::findOrFail($validated['membership_id']);
 
-            // Calculate the percentage of the amount paid
-            $paymentPercentage = ($validated['amountPaid'] / $validated['totalAmount']) * 100;
+            // Calculate the amount that should be included in teacher percentages
+            $amountForTeacherPercentage = $validated['totalAmount'];
+            if ($validated['includePartialMonth'] && $validated['partialMonthAmount']) {
+                // Subtract the partial month amount from the total for teacher percentage calculation
+                $amountForTeacherPercentage -= $validated['partialMonthAmount'];
+            }
+
+            // Calculate the percentage of the amount paid (excluding partial month)
+            $paymentPercentage = ($validated['amountPaid'] / $amountForTeacherPercentage) * 100;
 
             // Update teachers' wallets based on the payment percentage
             foreach ($membership->teachers as $teacherData) {
                 $teacher = Teacher::find($teacherData['teacherId']);
                 if ($teacher) {
-                    // Calculate the teacher's amount for the paid percentage
+                    // Calculate the teacher's amount for the paid percentage (excluding partial month)
                     $teacherAmount = ($teacherData['amount'] * $validated['months']) * ($paymentPercentage / 100);
 
                     // Update the teacher's wallet
@@ -123,7 +130,7 @@ class InvoiceController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error creating invoice:', ['error' => $e->getMessage()]);
-            return redirect()->back()->withErrors(['error' => 'An error occurred while processing your request.']);
+            return redirect()->back()->withErrors(['error' => 'An error occurred while creating the invoice.']);
         }
     }
 
@@ -344,14 +351,21 @@ class InvoiceController extends Controller
             // Fetch the membership
             $membership = Membership::findOrFail($validated['membership_id']);
 
-            // Calculate the percentage of the amount paid
-            $paymentPercentage = ($validated['amountPaid'] / $validated['totalAmount']) * 100;
+            // Calculate the amount that should be included in teacher percentages
+            $amountForTeacherPercentage = $validated['totalAmount'];
+            if ($validated['includePartialMonth'] && $validated['partialMonthAmount']) {
+                // Subtract the partial month amount from the total for teacher percentage calculation
+                $amountForTeacherPercentage -= $validated['partialMonthAmount'];
+            }
+
+            // Calculate the percentage of the amount paid (excluding partial month)
+            $paymentPercentage = ($validated['amountPaid'] / $amountForTeacherPercentage) * 100;
 
             // Update teachers' wallets based on the payment percentage
             foreach ($membership->teachers as $teacherData) {
                 $teacher = Teacher::find($teacherData['teacherId']);
                 if ($teacher) {
-                    // Calculate the teacher's amount for the paid percentage
+                    // Calculate the teacher's amount for the paid percentage (excluding partial month)
                     $teacherAmount = ($teacherData['amount'] * $validated['months']) * ($paymentPercentage / 100);
 
                     // Update the teacher's wallet

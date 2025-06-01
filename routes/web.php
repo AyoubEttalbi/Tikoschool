@@ -27,6 +27,7 @@ use App\Http\Controllers\TeacherController;
 use App\Http\Controllers\TeacherClassController;
 use App\Http\Controllers\TransactionController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\PerformanceController;
 
 // Middleware
 use App\Http\Middleware\AdminMiddleware;
@@ -86,6 +87,9 @@ Route::middleware('auth')->group(function () {
         'attendances' => AttendanceController::class,
         'schools' => SchoolController::class,
     ], ['except' => ['show', 'index']]);
+    
+    // Attendance stats route
+    Route::get('/attendance/stats', [AttendanceController::class, 'getStats'])->name('attendance.stats');
     
     // Student promotion management routes - accessible to all authenticated users
     Route::get('/schoolyear/setup-promotions', [SchoolYearController::class, 'setupPromotions'])
@@ -231,6 +235,11 @@ Route::middleware('auth')->group(function () {
         Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');
         Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
     });
+
+    // Performance routes
+    Route::get('/students/{student}/performance', [PerformanceController::class, 'show'])
+        ->name('performance.student')
+        ->middleware('auth');
 });
 
 // Authentication routes
@@ -281,7 +290,16 @@ Route::get('/debug-assistant/{id}', function($id) {
         })
     ]);
 });
-
+// Admin impersonation routes
+Route::middleware(['auth'])->group(function () {
+Route::post('/admin/switch-back', [AdminController::class, 'switchBack'])
+        ->middleware(CheckImpersonation::class)
+    ->name('admin.switch-back');
+        
+Route::post('/admin/view-as/{user}', [AdminController::class, 'viewAs'])
+        ->middleware(AdminMiddleware::class)
+    ->name('admin.view-as');
+});
 // Debug invoice data
 Route::get('/debug-invoice-data', [App\Http\Controllers\TransactionController::class, 'debugInvoiceData'])
     ->name('debug.invoice.data');

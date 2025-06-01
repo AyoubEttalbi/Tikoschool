@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import Announcements from "@/Pages/Menu/Announcements/Announcements";
 import BigCalendar from "@/Components/BigCalender";
 import FormModal from "@/Components/FormModal";
-import Performance from "@/Components/Performance";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Link, usePage, router } from '@inertiajs/react';
 import Pagination from '@/Components/Pagination';
@@ -61,7 +60,13 @@ const SingleAssistantPage = ({
 
   // Handle school change
   const handleSchoolChange = () => {
-    router.visit('/select-profile');
+    // Only trigger if the assistant has multiple schools
+    if (assistant?.schools?.length > 1) {
+      router.get(route('profiles.select'), { force: 1 }, {
+        preserveState: true,
+        preserveScroll: true,
+      });
+    }
   };
 
   return (

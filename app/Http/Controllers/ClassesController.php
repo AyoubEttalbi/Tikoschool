@@ -99,8 +99,10 @@ class ClassesController extends Controller
     public function create()
     {
         $levels = Level::all(); // Fetch all levels for the dropdown
+        $schools = School::all(); // Fetch all schools for the dropdown
         return Inertia::render('Menu/ClassesPage', [
             'levels' => $levels,
+            'schools' => $schools,
         ]);
     }
 
@@ -113,6 +115,7 @@ class ClassesController extends Controller
         $validatedData = $request->validate([
             'name' => 'required|string|max:255|unique:classes,name',
             'level_id' => 'required|exists:levels,id',
+            'school_id' => 'required|exists:schools,id',
             'number_of_students' => 'nullable|integer|min:0',
         ]);
 
@@ -204,9 +207,11 @@ class ClassesController extends Controller
     public function edit(Classes $class)
     {
         $levels = Level::all(); // Fetch all levels for the dropdown
+        $schools = School::all(); // Fetch all schools for the dropdown
         return Inertia::render('Classes/Edit', [
             'class' => $class,
             'levels' => $levels,
+            'schools' => $schools,
         ]);
     }
 
@@ -219,6 +224,7 @@ class ClassesController extends Controller
         $validatedData = $request->validate([
             'name' => 'required|string|max:255|unique:classes,name,' . $class->id,
             'level_id' => 'required|exists:levels,id',
+            'school_id' => 'required|exists:schools,id',
             'number_of_students' => 'nullable|integer|min:0',
         ]);
 

@@ -24,9 +24,17 @@ class School extends Model
             ->select('teachers.*') // Explicitly select all columns from teachers table
             ->withTimestamps();
     }
+
+    /**
+     * Get the classes belonging to the school.
+     */
+    public function classes(): HasMany
+    {
+        return $this->hasMany(Classes::class, 'school_id');
+    }
+
     public function assistants()
-{
-    return $this->belongsToMany(Assistant::class, 'assistant_school')->withTimestamps();
-}
-    
+    {
+        return $this->belongsToMany(Assistant::class, 'assistant_school')->withTimestamps();
+    }
 }

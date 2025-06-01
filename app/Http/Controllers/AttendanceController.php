@@ -432,4 +432,51 @@ class AttendanceController extends Controller
         ->withProperties($properties)
         ->log($description);
 }
+
+    public function getStats(Request $request)
+    {
+        $selectedSchoolId = session('school_id');
+        $lastWeek = now()->subWeek();
+        $today = now();
+
+        // First get total active students for the school
+        $studentsQuery = \App\Models\Student::where('status', 'active')
+            ->when($selectedSchoolId, function ($q) use ($selectedSchoolId) {
+                $q->where('schoolId', $selectedSchoolId);
+            });
+        
+        $totalActiveStudents = $studentsQuery->count();
+
+        // Query builder for attendance records from the last week
+        $query = Attendance::query()
+            ->whereBetween('date', [$lastWeek, $today])
+            ->when($selectedSchoolId, function ($q) use ($selectedSchoolId) {
+                $q->whereHas('class', function($query) use ($selectedSchoolId) {
+                    $query->where('school_id', $selectedSchoolId);
+                });
+            });
+
+        // Get stats by day of week
+        $stats = $query->get()
+            ->groupBy(function($record) {
+                return \Carbon\Carbon::parse($record->date)->format('D'); // Returns Mon, Tue, etc.
+            })
+            ->map(function($records) use ($totalActiveStudents) {
+                $absentCount = $records->where('status', 'absent')->count();
+                $lateCount = $records->where('status', 'late')->count();
+                
+                return [
+                    'present' => $totalActiveStudents - ($absentCount + $lateCount),
+                    'absent' => $absentCount,
+                    'late' => $lateCount,
+                    'total' => $totalActiveStudents
+                ];
+            })
+            ->map(function($stats, $day) {
+                return array_merge(['name' => $day], $stats);
+            })
+            ->values();
+
+        return response()->json($stats);
+    }
 }

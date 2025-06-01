@@ -20,6 +20,9 @@ use Cloudinary\Api\Upload\UploadApi;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use App\Models\Attendance;
+use App\Models\Invoice;
+use App\Models\Membership;
 
 class AssistantController extends Controller
 {   
@@ -252,209 +255,285 @@ class AssistantController extends Controller
     
      public function show($id)
      {
-         $assistant = Assistant::with(['schools'])->find($id);
-         
-         if (!$assistant) {
-             abort(404);
-         }
-
-         $user = Auth::user();
-         $selectedSchoolId = session('school_id');
-         $isAdminBrowsingNormally = $user->role === 'admin' && !session()->has('admin_user_id');
-         $isCurrentUserTheAssistant = $user->email === $assistant->email; // Or use user_id if available
-         
-         \Log::info('Assistant show method - Access check', [
-            'assistant_id' => $id,
-            'selected_school_id' => $selectedSchoolId,
-            'user_role' => $user->role,
-            'is_admin_browsing' => $isAdminBrowsingNormally,
-            'is_current_user_assistant' => $isCurrentUserTheAssistant,
-            'assistant_has_schools' => $assistant->schools->isNotEmpty(),
-         ]);
-
-         // If no school selected AND assistant HAS schools, potentially redirect.
-         if (!$selectedSchoolId && $assistant->schools->isNotEmpty()) {
-            // Redirect if NOT an admin browsing normally AND NOT the assistant viewing their own profile.
-            if (!$isAdminBrowsingNormally && !$isCurrentUserTheAssistant) {
-                \Log::info('Assistant show: Redirecting to profiles.select (no school selected)');
-                return redirect()->route('profiles.select')->with('info', 'Please select a school context to view this assistant.');
-            }
-         }
-         
-         // Get all schools this assistant has access to
-         $assistantSchools = $assistant->schools;
-
-         // If a school IS selected, check if the assistant belongs to it.
-         if ($selectedSchoolId) {
-             $schoolBelongsToAssistant = $assistant->schools->contains('id', $selectedSchoolId);
-             // Redirect if NOT admin browsing normally AND assistant doesn't belong to selected school.
-             if (!$isAdminBrowsingNormally && !$schoolBelongsToAssistant) {
-                 \Log::warning('Assistant show: Redirecting to profiles.select (assistant not in selected school)', [
-                     'assistant_id' => $assistant->id,
-                     'selected_school_id' => $selectedSchoolId
-                 ]);
-                 return redirect()->route('profiles.select')->with('error', 'This assistant is not associated with your selected school.');
+         try {
+             // Get the assistant
+             $assistant = Assistant::with(['schools'])->findOrFail($id);
+             
+             // Get selected school from session or default to first school
+             $selectedSchoolId = session('school_id');
+             if (!$selectedSchoolId && $assistant->schools->isNotEmpty()) {
+                 $selectedSchoolId = $assistant->schools->first()->id;
              }
-         }
-         
-         // Get all schools for the dropdown
-         $schools = School::all();
-         
-         // Filter classes by the selected school
-         $classes = Classes::when($selectedSchoolId, function ($query) use ($selectedSchoolId) {
-             return $query->where('school_id', $selectedSchoolId);
-         })->get();
-         
-         // Filter students by the selected school
-         $students = \App\Models\Student::when($selectedSchoolId, function ($query) use ($selectedSchoolId) {
-             return $query->where(DB::raw('"schoolId"'), $selectedSchoolId);
-         })->get();
-         
-         $subjects = Subject::all();
-     
-         // Find the user by email
-         $user = User::where('email', $assistant->email)->first();
-         
-         // Initialize logs with a default paginator structure
-         $logs = new \Illuminate\Pagination\LengthAwarePaginator([], 0, 10);
 
-         // If selected school ID exists, use only that school ID for filtering
-         // Otherwise fall back to all schools this assistant has access to
-         $schoolIds = $selectedSchoolId 
-             ? [$selectedSchoolId] 
-             : $assistant->schools->pluck('id')->toArray();
-     
-         if (!$user) {
-             // If no user is found, keep the default empty logs and initialize announcements
+             // Define schoolIds based on selected school or all assistant's schools
+             $schoolIds = $selectedSchoolId 
+                 ? [$selectedSchoolId] 
+                 : $assistant->schools->pluck('id')->toArray();
+
+             // Log assistant and school info
+             \Log::info('Assistant dashboard data fetch started', [
+                 'assistant_id' => $id,
+                 'selected_school_id' => $selectedSchoolId,
+                 'assistant_schools' => $assistant->schools->pluck('id')->toArray(),
+                 'school_ids' => $schoolIds
+             ]);
+
+             // Get current date
+             $today = Carbon::now();
+             
+             // Get user and initialize basic data
+             $user = Auth::user();
+             $schools = School::all();
+             $classes = Classes::when($selectedSchoolId, function ($query) use ($selectedSchoolId) {
+                 return $query->where('school_id', $selectedSchoolId);
+             })->get();
+             $subjects = Subject::all();
+
+             // Initialize logs with a default paginator structure
+             $logs = new \Illuminate\Pagination\LengthAwarePaginator([], 0, 10);
+
+             // Get announcements if user exists
              $announcements = [];
-         } else {
-             // Fetch the assistant's activity logs based on the user's ID if user exists
-             $logs = Activity::where('causer_type', User::class)
-                 ->where('causer_id', $user->id)
-                 ->latest()
-                 ->paginate(10); // Use paginate here
-     
-             // Fetch announcements for the employee
-             $now = Carbon::now();
-             $announcements = Announcement::where(function($q) use ($now) {
-                 // Active announcements: 
-                 // - No start date, or start date is in the past
-                 // - No end date, or end date is in the future
-                 $q->where(function($subq) use ($now) {
-                     $subq->whereNull('date_start')
-                          ->orWhere('date_start', '<=', $now);
-                 })->where(function($subq) use ($now) {
-                     $subq->whereNull('date_end')
-                          ->orWhere('date_end', '>=', $now);
-                 });
-             })
-             // Visibility filter
-             ->where(function($q) use ($user) {
-                 $q->where('visibility', 'all')
-                   ->orWhere('visibility', $user->role);
-             })
-             ->orderBy('date_announcement', 'desc')
-             ->limit(5) // Limit to 5 most recent announcements
-             ->get();
-         }
-         
-         // Get current date
-         $today = Carbon::now();
-         
-         // FEATURE 1: Recent absences from the selected school only (not all schools)
-         try {
-             \Log::debug('Fetching recent absences', ['school_ids' => $schoolIds]);
-             
-             // First, get the total count for 7 days for "See more" button determination
-             $totalAbsences = \App\Models\Attendance::whereIn('status', ['absent', 'late'])
-                 ->where(function($query) use ($schoolIds) {
-                     // Get absences from classes directly related to schools
-                     $query->whereHas('class', function($classQuery) use ($schoolIds) {
-                         $classQuery->whereIn('school_id', $schoolIds);
-                     });
-                     
-                     // Also get absences from students belonging to the assistant's schools
-                     $query->orWhereHas('student', function($studentQuery) use ($schoolIds) {
-                         $studentQuery->whereIn(DB::raw('"schoolId"'), $schoolIds);
+             if ($user) {
+                 // Fetch the assistant's activity logs
+                 $logs = Activity::where('causer_type', User::class)
+                     ->where('causer_id', $user->id)
+                     ->latest()
+                     ->paginate(10);
+
+                 // Fetch announcements for the employee
+                 $now = Carbon::now();
+                 $announcements = Announcement::where(function($q) use ($now) {
+                     $q->where(function($subq) use ($now) {
+                         $subq->whereNull('date_start')
+                              ->orWhere('date_start', '<=', $now);
+                     })->where(function($subq) use ($now) {
+                         $subq->whereNull('date_end')
+                              ->orWhere('date_end', '>=', $now);
                      });
                  })
-                 ->where('date', '>=', $today->copy()->subDays(7)) // Only count from last 7 days for "See more"
-                 ->count();
-             
-             // Debug the SQL being executed
-             \DB::enableQueryLog();
-             
-             // Then fetch the data with limit to 10 from last 7 days
-             $recentAbsences = \App\Models\Attendance::with(['student', 'class'])
-                 ->whereIn('status', ['absent', 'late'])
-                 ->where(function($query) use ($schoolIds) {
-                     // Get absences from classes directly related to schools
-                     $query->whereHas('class', function($classQuery) use ($schoolIds) {
-                         $classQuery->whereIn('school_id', $schoolIds);
-                     });
-                     
-                     // Also get absences from students belonging to the assistant's schools
-                     $query->orWhereHas('student', function($studentQuery) use ($schoolIds) {
-                         $studentQuery->whereIn(DB::raw('"schoolId"'), $schoolIds);
-                     });
+                 ->where(function($q) use ($user) {
+                     $q->where('visibility', 'all')
+                       ->orWhere('visibility', $user->role);
                  })
-                 ->where('date', '>=', $today->copy()->subDays(7)) // Show only from last 7 days
-                 ->orderBy('date', 'desc')
-                 ->limit(10)
+                 ->orderBy('date_announcement', 'desc')
+                 ->limit(5)
                  ->get();
-             
-             // Log the executed query
-             \Log::debug('Query log for recent absences', ['queries' => \DB::getQueryLog()]);
-             \DB::disableQueryLog();
-             
-             $mappedAbsences = $recentAbsences->map(function($attendance) {
-                 return [
-                     'id' => $attendance->id,
-                     'student_id' => $attendance->student ? $attendance->student->id : null,
-                     'student_name' => $attendance->student ? $attendance->student->firstName . ' ' . $attendance->student->lastName : 'Unknown',
-                     'class_name' => $attendance->class ? $attendance->class->name : 'Unknown',
-                     'date' => $attendance->date,
-                     'status' => $attendance->status,
-                     'reason' => $attendance->reason
-                 ];
-             });
-             
-             $recentAbsences = $mappedAbsences;
-         } catch (\Exception $e) {
-             \Log::error('Error fetching recent absences: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
-             $recentAbsences = [];
-             $totalAbsences = 0;
-         }
-         
-         // FEATURE 2: Unpaid invoices for students in the selected school only
-         try {
-             \Log::info('Fetching unpaid invoices', ['school_ids' => $schoolIds]);
-             
-             // Get total count for invoices in the last 7 days
-             $totalUnpaidInvoices = \App\Models\Invoice::where(function($query) use ($schoolIds) {
-                 $query->whereHas('student', function($studentQuery) use ($schoolIds) {
-                     $studentQuery->whereIn(DB::raw('"schoolId"'), $schoolIds);
-                 });
-             })
-             ->where('rest', '>', 0) // Invoices with remaining balance
-             ->where('billDate', '>=', $today->copy()->subDays(7)) // Only from last 7 days for "See more"
-             ->count();
-             
-             // Then fetch data with limit to 10 from the last 7 days
-             $unpaidInvoices = \App\Models\Invoice::with(['student', 'student.class', 'student.school', 'offer'])
-                 ->where(function($query) use ($schoolIds) {
-                     $query->whereHas('student', function($studentQuery) use ($schoolIds) {
-                         $studentQuery->whereIn(DB::raw('"schoolId"'), $schoolIds);
+             }
+
+             // Get statistics
+             $statistics = [
+                 'students_count' => \App\Models\Student::whereIn(DB::raw('"schoolId"'), $schoolIds)->count(),
+                 'classes_count' => \App\Models\Classes::whereIn('school_id', $schoolIds)->count(),
+             ];
+
+             // Get selected school info
+             $selectedSchool = $selectedSchoolId ? [
+                 'id' => $selectedSchoolId,
+                 'name' => session('school_name')
+             ] : null;
+
+             // Add diagnostic logging for students and invoices
+             try {
+                 \Log::info('Checking students and invoices for school', [
+                     'school_id' => $selectedSchoolId,
+                     'school_name' => session('school_name')
+                 ]);
+
+                 // Specifically check student ID 1
+                 $studentOne = \App\Models\Student::where('id', 1)
+                     ->whereNull('deleted_at')
+                     ->first();
+                 
+                 \Log::info('Student ID 1 details', [
+                     'exists' => $studentOne ? true : false,
+                     'school_id' => $studentOne ? $studentOne->schoolId : null,
+                     'name' => $studentOne ? $studentOne->firstName . ' ' . $studentOne->lastName : null,
+                     'raw_data' => $studentOne ? $studentOne->toArray() : null
+                 ]);
+
+                 // Check all students regardless of school
+                 $allStudents = \App\Models\Student::whereNull('deleted_at')->get();
+                 \Log::info('All students in system', [
+                     'count' => $allStudents->count(),
+                     'students' => $allStudents->map(function($student) {
+                         return [
+                             'id' => $student->id,
+                             'name' => $student->firstName . ' ' . $student->lastName,
+                             'school_id' => $student->schoolId
+                         ];
+                     })->toArray()
+                 ]);
+
+                 // Check students in school
+                 $studentsInSchool = \App\Models\Student::where(DB::raw('"schoolId"'), $selectedSchoolId)
+                     ->whereNull('deleted_at')
+                     ->get();
+                 
+                 \Log::info('Students in school', [
+                     'count' => $studentsInSchool->count(),
+                     'student_ids' => $studentsInSchool->pluck('id')->toArray(),
+                     'student_names' => $studentsInSchool->map(function($student) {
+                         return $student->firstName . ' ' . $student->lastName;
+                     })->toArray()
+                 ]);
+
+                 // Check invoices for student 1 specifically
+                 if ($studentOne) {
+                     $invoicesForStudentOne = Invoice::where('student_id', 1)
+                         ->whereNull('deleted_at')
+                         ->get();
+                     
+                     \Log::info('Invoices for student ID 1', [
+                         'count' => $invoicesForStudentOne->count(),
+                         'invoices' => $invoicesForStudentOne->map(function($invoice) {
+                             return [
+                                 'id' => $invoice->id,
+                                 'student_id' => $invoice->student_id,
+                                 'amount' => $invoice->totalAmount,
+                                 'paid' => $invoice->amountPaid,
+                                 'rest' => $invoice->rest,
+                                 'bill_date' => $invoice->billDate,
+                                 'creation_date' => $invoice->creationDate
+                             ];
+                         })->toArray()
+                     ]);
+                 }
+
+                 // Check invoices for these students
+                 if ($studentsInSchool->isNotEmpty()) {
+                     $studentIds = $studentsInSchool->pluck('id')->toArray();
+                     $invoicesForStudents = Invoice::whereIn('student_id', $studentIds)
+                         ->whereNull('deleted_at')
+                         ->get();
+                     
+                     \Log::info('Invoices for students in school', [
+                         'count' => $invoicesForStudents->count(),
+                         'invoices' => $invoicesForStudents->map(function($invoice) {
+                             return [
+                                 'id' => $invoice->id,
+                                 'student_id' => $invoice->student_id,
+                                 'amount' => $invoice->totalAmount,
+                                 'paid' => $invoice->amountPaid,
+                                 'rest' => $invoice->rest,
+                                 'bill_date' => $invoice->billDate,
+                                 'creation_date' => $invoice->creationDate
+                             ];
+                         })->toArray()
+                     ]);
+                 }
+             } catch (\Exception $e) {
+                 \Log::error('Error in diagnostic logging: ' . $e->getMessage(), [
+                     'trace' => $e->getTraceAsString()
+                 ]);
+             }
+
+             // FEATURE 1: Recent absences
+             try {
+                 \DB::enableQueryLog();
+                 \Log::info('Fetching recent absences', ['school_ids' => $schoolIds]);
+                 
+                 $recentAbsences = Attendance::with(['student', 'class'])
+                     ->where(function($query) use ($schoolIds) {
+                         $query->whereHas('class', function($classQuery) use ($schoolIds) {
+                             $classQuery->whereIn('school_id', $schoolIds);
+                         });
+                         
+                         // Also get absences from students belonging to the assistant's schools
+                         $query->orWhereHas('student', function($studentQuery) use ($schoolIds) {
+                             $studentQuery->whereIn('schoolId', $schoolIds);
+                         });
+                     })
+                     ->where('date', '>=', $today->copy()->subDays(7)) // Show only from last 7 days
+                     ->orderBy('date', 'desc')
+                     ->limit(10)
+                     ->get();
+                 
+                 // Log the executed query and results
+                 \Log::info('Recent absences query log', [
+                     'queries' => \DB::getQueryLog(),
+                     'count' => $recentAbsences->count(),
+                     'first_record' => $recentAbsences->first() ? $recentAbsences->first()->toArray() : null
+                 ]);
+                 \DB::disableQueryLog();
+                 
+                 $totalAbsences = Attendance::where(function($query) use ($schoolIds) {
+                     $query->whereHas('class', function($classQuery) use ($schoolIds) {
+                         $classQuery->whereIn('school_id', $schoolIds);
+                     });
+                     $query->orWhereHas('student', function($studentQuery) use ($schoolIds) {
+                         $studentQuery->whereIn('schoolId', $schoolIds);
                      });
                  })
-                 ->where('rest', '>', 0) // Invoices with remaining balance
-                 ->where('billDate', '>=', $today->copy()->subDays(7)) // Only from last 7 days
-                 ->orderBy('billDate', 'asc')
-                 ->limit(10)
-                 ->get()
-                 ->map(function($invoice) {
-                     $student = $invoice->student; // Access the loaded student
-                     $offerName = $invoice->offer ? $invoice->offer->offer_name : 'N/A'; // Access offer if loaded
+                 ->where('date', '>=', $today->copy()->subDays(7))
+                 ->count();
+                 
+                 \Log::info('Total absences count', ['count' => $totalAbsences]);
+                 
+                 $mappedAbsences = $recentAbsences->map(function($attendance) {
+                     return [
+                         'id' => $attendance->id,
+                         'student_id' => $attendance->student ? $attendance->student->id : null,
+                         'student_name' => $attendance->student ? $attendance->student->firstName . ' ' . $attendance->student->lastName : 'Unknown',
+                         'class_name' => $attendance->class ? $attendance->class->name : 'Unknown',
+                         'date' => $attendance->date,
+                         'status' => $attendance->status,
+                         'reason' => $attendance->reason
+                     ];
+                 });
+                 
+                 $recentAbsences = $mappedAbsences;
+             } catch (\Exception $e) {
+                 \Log::error('Error fetching recent absences: ' . $e->getMessage(), [
+                     'trace' => $e->getTraceAsString(),
+                     'school_ids' => $schoolIds
+                 ]);
+                 $recentAbsences = [];
+                 $totalAbsences = 0;
+             }
+             
+             // FEATURE 2: Unpaid invoices
+             try {
+                 \DB::enableQueryLog();
+                 \Log::info('Fetching unpaid invoices', [
+                     'school_ids' => $schoolIds,
+                     'today' => $today->format('Y-m-d'),
+                     'seven_days_ago' => $today->copy()->subDays(7)->format('Y-m-d')
+                 ]);
+                 
+                 $unpaidInvoices = Invoice::with(['student', 'student.class', 'student.school', 'offer'])
+                     ->where(function($query) use ($schoolIds) {
+                         $query->whereHas('student', function($studentQuery) use ($schoolIds) {
+                             $studentQuery->whereIn('schoolId', $schoolIds);
+                         });
+                     })
+                     ->where('rest', '>', 0)
+                     ->orderBy('billDate', 'asc')
+                     ->limit(10)
+                     ->get();
+                 
+                 // Log the executed query and results
+                 \Log::info('Unpaid invoices query log', [
+                     'queries' => \DB::getQueryLog(),
+                     'count' => $unpaidInvoices->count(),
+                     'first_record' => $unpaidInvoices->first() ? $unpaidInvoices->first()->toArray() : null,
+                     'all_records' => $unpaidInvoices->toArray()
+                 ]);
+                 \DB::disableQueryLog();
+                 
+                 $totalUnpaidInvoices = Invoice::where(function($query) use ($schoolIds) {
+                     $query->whereHas('student', function($studentQuery) use ($schoolIds) {
+                         $studentQuery->whereIn('schoolId', $schoolIds);
+                     });
+                 })
+                 ->where('rest', '>', 0)
+                 ->count();
+                 
+                 \Log::info('Total unpaid invoices count', ['count' => $totalUnpaidInvoices]);
+                 
+                 $unpaidInvoices = $unpaidInvoices->map(function($invoice) {
+                     $student = $invoice->student;
+                     $offerName = $invoice->offer ? $invoice->offer->offer_name : 'N/A';
                      
                      return [
                          'id' => $invoice->id,
@@ -471,188 +550,175 @@ class AssistantController extends Controller
                          'months' => $invoice->months ?? 1,
                          'offer_name' => $offerName,
                          'offer_id' => $invoice->offer_id,
-                         // Include payments array for the modal
                          'payments' => ($invoice->amountPaid > 0) ? [[
                              'date' => $invoice->last_payment_date ? $invoice->last_payment_date->format('Y-m-d') : ($invoice->creationDate ? $invoice->creationDate->format('Y-m-d') : null),
                              'amount' => is_numeric($invoice->amountPaid) ? floatval($invoice->amountPaid) : 0,
-                             'method' => 'Cash' // Assuming cash for now
+                             'method' => 'Cash'
                          ]] : [],
                      ];
                  });
-         } catch (\Exception $e) {
-             \Log::error('Error fetching unpaid invoices: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
-             $unpaidInvoices = [];
-             $totalUnpaidInvoices = 0;
-         }
-         
-         // FEATURE 3: Expiring memberships
-         try {
-             \Log::info('Fetching expiring memberships', ['school_ids' => $schoolIds]);
+             } catch (\Exception $e) {
+                 \Log::error('Error fetching unpaid invoices: ' . $e->getMessage(), [
+                     'trace' => $e->getTraceAsString(),
+                     'school_ids' => $schoolIds
+                 ]);
+                 $unpaidInvoices = [];
+                 $totalUnpaidInvoices = 0;
+             }
              
-             // Get total count of expiring memberships for the "See more" button
-             $totalExpiringMemberships = \App\Models\Membership::where(function($query) use ($schoolIds) {
-                 $query->whereHas('student', function($studentQuery) use ($schoolIds) {
-                     $studentQuery->whereIn(DB::raw('"schoolId"'), $schoolIds);
-                 });
-             })
-             ->where('endDate', '>=', $today) // Not expired yet
-             ->where('endDate', '<=', $today->copy()->addDays(30)) // Expires within the next 30 days
-             ->count();
-             
-             // Fetch expiring memberships with limit to 10
-             $expiringMemberships = \App\Models\Membership::with(['student'])
-                 ->where(function($query) use ($schoolIds) {
+             // FEATURE 3: Expiring memberships
+             try {
+                 \DB::enableQueryLog();
+                 \Log::info('Fetching expiring memberships', ['school_ids' => $schoolIds]);
+                 
+                 $expiringMemberships = Membership::with(['student'])
+                     ->where(function($query) use ($schoolIds) {
+                         $query->whereHas('student', function($studentQuery) use ($schoolIds) {
+                             $studentQuery->whereIn('schoolId', $schoolIds);
+                         });
+                     })
+                     ->where('end_date', '>=', $today)
+                     ->where('end_date', '<=', $today->copy()->addDays(30))
+                     ->orderBy('end_date', 'asc')
+                     ->limit(10)
+                     ->get();
+                 
+                 // Log the executed query and results
+                 \Log::info('Expiring memberships query log', [
+                     'queries' => \DB::getQueryLog(),
+                     'count' => $expiringMemberships->count(),
+                     'first_record' => $expiringMemberships->first() ? $expiringMemberships->first()->toArray() : null
+                 ]);
+                 \DB::disableQueryLog();
+                 
+                 $totalExpiringMemberships = Membership::where(function($query) use ($schoolIds) {
                      $query->whereHas('student', function($studentQuery) use ($schoolIds) {
-                         $studentQuery->whereIn(DB::raw('"schoolId"'), $schoolIds);
+                         $studentQuery->whereIn('schoolId', $schoolIds);
                      });
                  })
-                 ->where('endDate', '>=', $today) // Not expired yet
-                 ->where('endDate', '<=', $today->copy()->addDays(30)) // Expires within the next 30 days
-                 ->orderBy('endDate', 'asc') // Soonest expiry first
-                 ->limit(10)
-                 ->get()
-                 ->map(function($membership) use ($today) {
-                     $endDate = Carbon::parse($membership->endDate);
+                 ->where('end_date', '>=', $today)
+                 ->where('end_date', '<=', $today->copy()->addDays(30))
+                 ->count();
+                 
+                 \Log::info('Total expiring memberships count', ['count' => $totalExpiringMemberships]);
+                 
+                 $expiringMemberships = $expiringMemberships->map(function($membership) use ($today) {
+                     $endDate = Carbon::parse($membership->end_date);
                      $daysLeft = $today->diffInDays($endDate, false);
                      
                      return [
                          'id' => $membership->id,
                          'student_id' => $membership->student ? $membership->student->id : null,
                          'student_name' => $membership->student ? $membership->student->firstName . ' ' . $membership->student->lastName : 'Unknown',
-                         'start_date' => $membership->startDate,
-                         'end_date' => $membership->endDate,
-                         'days_left' => max(0, $daysLeft) // Ensure non-negative days
+                         'start_date' => $membership->start_date,
+                         'end_date' => $membership->end_date,
+                         'days_left' => max(0, $daysLeft)
                      ];
                  });
-         } catch (\Exception $e) {
-             \Log::error('Error fetching expiring memberships: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
-             $expiringMemberships = [];
-             $totalExpiringMemberships = 0;
-         }
-         
-         // FEATURE 4: Recent payments
-         try {
-             \Log::info('Fetching recent payments', ['school_ids' => $schoolIds]);
+             } catch (\Exception $e) {
+                 \Log::error('Error fetching expiring memberships: ' . $e->getMessage(), [
+                     'trace' => $e->getTraceAsString(),
+                     'school_ids' => $schoolIds
+                 ]);
+                 $expiringMemberships = [];
+                 $totalExpiringMemberships = 0;
+             }
              
-             // Get total count of recent payments for the "See more" button
-             $totalRecentPayments = \App\Models\Invoice::where(function($query) use ($schoolIds) {
-                 $query->whereHas('student', function($studentQuery) use ($schoolIds) {
-                     $studentQuery->whereIn(DB::raw('"schoolId"'), $schoolIds);
-                 });
-             })
-             ->where('amountPaid', '>', 0) // Has some payment
-             ->where('creationDate', '>=', $today->copy()->subDays(30)) // Created in last 30 days
-             ->count();
-             
-             // Fetch recent payments with limit to 10
-             $recentPayments = \App\Models\Invoice::with(['student', 'student.class', 'student.school', 'offer'])
-                 ->where(function($query) use ($schoolIds) {
+             // FEATURE 4: Recent payments
+             try {
+                 \DB::enableQueryLog();
+                 \Log::info('Fetching recent payments', [
+                     'school_ids' => $schoolIds,
+                     'today' => $today->format('Y-m-d'),
+                     'thirty_days_ago' => $today->copy()->subDays(30)->format('Y-m-d')
+                 ]);
+                 
+                 $recentPayments = Invoice::with(['student', 'student.class', 'student.school', 'offer'])
+                     ->where(function($query) use ($schoolIds) {
+                         $query->whereHas('student', function($studentQuery) use ($schoolIds) {
+                             $studentQuery->whereIn('schoolId', $schoolIds);
+                         });
+                     })
+                     ->where('amountPaid', '>', 0)
+                     ->orderBy('creationDate', 'desc')
+                     ->limit(10)
+                     ->get();
+                 
+                 // Log the executed query and results
+                 \Log::info('Recent payments query log', [
+                     'queries' => \DB::getQueryLog(),
+                     'count' => $recentPayments->count(),
+                     'first_record' => $recentPayments->first() ? $recentPayments->first()->toArray() : null,
+                     'all_records' => $recentPayments->toArray()
+                 ]);
+                 \DB::disableQueryLog();
+                 
+                 $totalRecentPayments = Invoice::where(function($query) use ($schoolIds) {
                      $query->whereHas('student', function($studentQuery) use ($schoolIds) {
-                         $studentQuery->whereIn(DB::raw('"schoolId"'), $schoolIds);
+                         $studentQuery->whereIn('schoolId', $schoolIds);
                      });
                  })
-                 ->where('amountPaid', '>', 0) // Has some payment
-                 ->where('creationDate', '>=', $today->copy()->subDays(30)) // Created in last 30 days
-                 ->orderBy('creationDate', 'desc') // Most recent first
-                 ->limit(10)
-                 ->get()
-                 ->map(function($invoice) {
-                     $student = $invoice->student; // Access the loaded student
-                     $offer = $invoice->offer; // Access the loaded offer
+                 ->where('amountPaid', '>', 0)
+                 ->count();
+                 
+                 \Log::info('Total recent payments count', ['count' => $totalRecentPayments]);
+                 
+                 $recentPayments = $recentPayments->map(function($invoice) {
+                     $student = $invoice->student;
+                     $offerName = $invoice->offer ? $invoice->offer->offer_name : 'N/A';
                      
                      return [
                          'id' => $invoice->id,
-                         'invoice_id' => $invoice->id, // Keep for consistency if needed
                          'student_id' => $student ? $student->id : null,
                          'student_name' => $student ? $student->firstName . ' ' . $student->lastName : 'Unknown',
-                         'student_class' => $student && $student->class ? $student->class->name : 'N/A',
-                         'student_school' => $student && $student->school ? $student->school->name : 'N/A',
-                         'billDate' => $invoice->billDate ? $invoice->billDate->format('Y-m-d') : null,
-                         'creationDate' => $invoice->creationDate ? $invoice->creationDate->format('Y-m-d') : null,
-                         'endDate' => $invoice->endDate ? $invoice->endDate->format('Y-m-d') : null,
-                         'totalAmount' => is_numeric($invoice->totalAmount) ? floatval($invoice->totalAmount) : 0,
-                         'amountPaid' => is_numeric($invoice->amountPaid) ? floatval($invoice->amountPaid) : 0,
-                         'rest' => is_numeric($invoice->rest) ? floatval($invoice->rest) : 0,
                          'payment_date' => $invoice->last_payment_date ? $invoice->last_payment_date->format('Y-m-d') : ($invoice->creationDate ? $invoice->creationDate->format('Y-m-d') : null),
-                         'amount' => is_numeric($invoice->amountPaid) ? floatval($invoice->amountPaid) : 0, // Use amountPaid for payment amount
-                         'payment_method' => 'Invoice Payment', // Keep default method
-                         'offer_name' => $offer ? $offer->offer_name : 'N/A',
-                         'offer_id' => $invoice->offer_id,
-                         // Include payments array for the modal
-                         'payments' => ($invoice->amountPaid > 0) ? [[
-                             'date' => $invoice->last_payment_date ? $invoice->last_payment_date->format('Y-m-d') : ($invoice->creationDate ? $invoice->creationDate->format('Y-m-d') : null),
-                             'amount' => is_numeric($invoice->amountPaid) ? floatval($invoice->amountPaid) : 0,
-                             'method' => 'Cash' // Assuming cash
-                         ]] : [],
+                         'amount' => is_numeric($invoice->amountPaid) ? floatval($invoice->amountPaid) : 0,
+                         'payment_method' => 'Cash',
+                         'offer_name' => $offerName
                      ];
                  });
+             } catch (\Exception $e) {
+                 \Log::error('Error fetching recent payments: ' . $e->getMessage(), [
+                     'trace' => $e->getTraceAsString(),
+                     'school_ids' => $schoolIds
+                 ]);
+                 $recentPayments = [];
+                 $totalRecentPayments = 0;
+             }
+
+             // Log final data being sent to view
+             \Log::info('Assistant dashboard data being sent to view', [
+                 'recent_absences_count' => count($recentAbsences),
+                 'unpaid_invoices_count' => count($unpaidInvoices),
+                 'expiring_memberships_count' => count($expiringMemberships),
+                 'recent_payments_count' => count($recentPayments)
+             ]);
+
+             return Inertia::render('Menu/SingleAssistantPage', [
+                 'assistant' => $assistant,
+                 'announcements' => $announcements,
+                 'classes' => $classes,
+                 'subjects' => $subjects,
+                 'schools' => $schools,
+                 'logs' => $logs,
+                 'recentAbsences' => $recentAbsences,
+                 'unpaidInvoices' => $unpaidInvoices,
+                 'expiringMemberships' => $expiringMemberships,
+                 'recentPayments' => $recentPayments,
+                 'totalAbsences' => $totalAbsences,
+                 'totalUnpaidInvoices' => $totalUnpaidInvoices,
+                 'totalExpiringMemberships' => $totalExpiringMemberships,
+                 'totalRecentPayments' => $totalRecentPayments,
+                 'selectedSchool' => $selectedSchool,
+                 'statistics' => $statistics
+             ]);
          } catch (\Exception $e) {
-             \Log::error('Error fetching recent payments: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
-             $recentPayments = [];
-             $totalRecentPayments = 0;
+             \Log::error('Error in assistant dashboard: ' . $e->getMessage(), [
+                 'trace' => $e->getTraceAsString(),
+                 'assistant_id' => $id
+             ]);
+             return redirect()->back()->with('error', 'An error occurred while loading the assistant dashboard.');
          }
-         
-         // Get additional statistics based on the selected school
-         $studentsCount = \App\Models\Student::whereIn(DB::raw('"schoolId"'), $schoolIds)->count();
-         $classesCount = \App\Models\Classes::whereIn('school_id', $schoolIds)->count();
-         
-         // Get recurring transactions for this assistant
-         $recurringTransactions = \App\Models\Transaction::where('is_recurring', 1)
-             ->where('user_id', $assistant->id)
-             ->get();
-             
-         // Check if any recurring transactions have been paid this month
-         $currentMonth = now()->format('Y-m');
-         $startDate = \Carbon\Carbon::parse($currentMonth . '-01')->startOfMonth();
-         $endDate = \Carbon\Carbon::parse($currentMonth . '-01')->endOfMonth();
-         
-         foreach ($recurringTransactions as $transaction) {
-             // Check if a corresponding one-time transaction exists for this month
-             $isPaidThisMonth = \App\Models\Transaction::where('is_recurring', 0)
-                 ->where('description', 'like', '%(Recurring payment from #' . $transaction->id . ')%')
-                 ->whereBetween('payment_date', [$startDate, $endDate])
-                 ->exists();
-             
-             $transaction->paid_this_month = $isPaidThisMonth;
-         }
-         
-         return Inertia::render('Menu/SingleAssistantPage', [
-             'assistant' => [
-                 'id' => $assistant->id,
-                 'first_name' => $assistant->first_name,
-                 'last_name' => $assistant->last_name,
-                 'email' => $assistant->email,
-                 'phone_number' => $assistant->phone_number,
-                 'profile_image' => $assistant->profile_image,
-                 'address' => $assistant->address,
-                 'status' => $assistant->status,
-                 'salary' => $assistant->salary,
-                 'schools' => $assistantSchools,
-             ],
-             'schools' => $schools,
-             'classes' => $classes,
-             'subjects' => $subjects,
-             'students' => $students,
-             'logs' => $logs,
-             'announcements' => $announcements,
-             'recentAbsences' => $recentAbsences,
-             'totalAbsences' => $totalAbsences,
-             'unpaidInvoices' => $unpaidInvoices,
-             'totalUnpaidInvoices' => $totalUnpaidInvoices,
-             'expiringMemberships' => $expiringMemberships,
-             'totalExpiringMemberships' => $totalExpiringMemberships,
-             'recentPayments' => $recentPayments,
-             'totalRecentPayments' => $totalRecentPayments,
-             'selectedSchool' => $selectedSchoolId ? [
-                 'id' => $selectedSchoolId,
-                 'name' => session('school_name')
-             ] : null,
-             'statistics' => [
-                 'students_count' => $studentsCount,
-                 'classes_count' => $classesCount,
-             ],
-             'recurringTransactions' => $recurringTransactions,
-         ]);
      }
     /**
      * Show the form for editing the specified resource.

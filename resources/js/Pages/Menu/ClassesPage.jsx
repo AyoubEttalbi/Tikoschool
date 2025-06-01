@@ -12,6 +12,7 @@ const columns = [
   { header: "Level", accessor: "level", className: "hidden md:table-cell" },
   { header: "Number of Students", accessor: "numStudents", className: "hidden md:table-cell" },
   { header: "Number of Teachers", accessor: "numTeachers", className: "hidden lg:table-cell" },
+  { header: "School", accessor: "school", className: "hidden lg:table-cell" },
   { header: "Actions", accessor: "action" },
 ];
 
@@ -78,14 +79,15 @@ const ClassesPage = ({ classes, schools ,levels, filters: initialFilters }) => {
 
   const renderRow = (classe) => (
     <tr
-      onClick={() => router.visit(`/classes/${classe.id}`)}
+      
       key={classe.id}
       className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight cursor-pointer"
     >
-      <td className="p-4 font-semibold">{classe.name}</td>
-      <td className="hidden md:table-cell">{levels.find((level) => level.id === classe.level_id)?.name}</td>
+      <td onClick={() => router.visit(`/classes/${classe.id}`)} className="p-4 font-semibold">{classe.name}</td>
+      <td onClick={() => router.visit(`/classes/${classe.id}`)} className="hidden md:table-cell">{levels.find((level) => level.id === classe.level_id)?.name}</td>
       <td className="hidden md:table-cell text-gray-500">{classe.number_of_students}</td>
       <td className="hidden lg:table-cell text-gray-500">{classe.number_of_teachers}</td>
+      <td className="hidden lg:table-cell">{schools.find((school) => school.id === classe.school_id)?.name}</td>
       <td>
         <div className="flex items-center gap-2">
           <Link href={`/classes/${classe.id}`}>
@@ -95,7 +97,7 @@ const ClassesPage = ({ classes, schools ,levels, filters: initialFilters }) => {
           </Link>
           {isAdmin && (
             <>
-              <FormModal table="class" type="update" id={classe.id} data={classe} groups={classes} levels={levels} />
+              <FormModal table="class" type="update" id={classe.id} data={classe} groups={classes} levels={levels} schools={schools} route="classes"/>
               <FormModal table="class" type="delete" id={classe.id} route="classes" />
             </>
           )}
@@ -134,7 +136,7 @@ const ClassesPage = ({ classes, schools ,levels, filters: initialFilters }) => {
                 </button>
               </>
             )}
-            {isAdmin && <FormModal table="class" type="create" levels={levels} />}
+            {isAdmin && <FormModal table="class" type="create" levels={levels} schools={schools} route="classes"/>}
           </div>
         </div>
       </div>

@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import { Link, usePage } from '@inertiajs/react';
 import Announcements from "@/Pages/Menu/Announcements/Announcements";
 import BigCalendar from "@/Components/BigCalender";
-import Performance from "@/Components/Performance";
+
 import DashboardLayout from '@/Layouts/DashboardLayout';
 import FormModal from '@/Components/FormModal';
 import MembershipCard from '@/Components/MembershipCard';
 import StudentProfile from '@/Components/StudentProfile';
 import StudentPromotionStatus from '@/Components/StudentPromotionStatus';
 import { ChevronDown, ChevronUp, Users, AlertCircle, Printer } from 'lucide-react';
+import Performance from '@/Components/Performance';
 // import studentProfile from "./studentProfile.png";
 const SingleStudentPage = ({ student, Alllevels, Allclasses, Allschools, Alloffers, Allteachers,memberships }) => {
   const role = usePage().props.auth.user.role;
@@ -19,6 +20,15 @@ const SingleStudentPage = ({ student, Alllevels, Allclasses, Allschools, Alloffe
   console.log('Alloffers', Alloffers);
   console.log('Allteachers', Allteachers);
   console.log('memberships', memberships);
+  
+  console.log("Full student data being passed to Performance:", {
+    id: student.id,
+    name: student.name,
+    attendances: student.attendances,
+    results: student.results,
+    memberships: student.memberships,
+    invoices: student.invoices
+  });
  
   return (
     <div className="flex-1 p-4 flex flex-col gap-4 xl:flex-row">
@@ -27,75 +37,118 @@ const SingleStudentPage = ({ student, Alllevels, Allclasses, Allschools, Alloffe
         {/* TOP */}
         <div className="flex flex-col lg:flex-row gap-4">
           {/* USER INFO CARD */}
-          <div className="bg-lamaSky py-6 px-4 rounded-md flex-1 flex gap-4">
-            <div className="w-1/3">
-              <img
-                src={student.profile_image ? student.profile_image : "/studentProfile.png"}
-                alt={student.name}
-                width={144}
-                height={144}
-                className="w-36 h-36 rounded-full object-cover"
-              />
+<div className="bg-lamaSky py-6 px-4 rounded-md flex-1 flex gap-4">
+  <div className="w-1/3">
+    <img
+      src={student.profile_image ? student.profile_image : "/studentProfile.png"}
+      alt={student.name}
+      width={144}
+      height={144}
+      className="w-36 h-36 rounded-full object-cover"
+    />
+  </div>
+  
+  <div className="w-2/3 flex flex-col justify-between gap-4">
+    {/* Action Buttons Row */}
+    <div className="flex justify-end items-center gap-3">
+      {/* Print/PDF Button - Enhanced */}
+      <a
+        href={route('students.downloadPdf', { student: student.id })}
+        className="inline-flex items-center gap-2   text-black rounded-lg shadow-sm  hover:shadow-md transition-all duration-200 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 group"
+        target="_blank"
+        rel="noopener noreferrer"
+        download
+        title="Download student profile as PDF"
+      >
+        <Printer className="w-5 h-5 group-hover:text-blue-600 transition-colors" />
+    
+      </a>
 
-            </div>
-
-            <div className="w-2/3 flex flex-col justify-between gap-4">
-              {/* Download PDF Button */}
-              <div className="flex justify-end">
-                <a
-                  href={route('students.downloadPdf', { student: student.id })}
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-white border border-blue-200 text-blue-700 rounded-md shadow-sm hover:bg-blue-50 hover:text-blue-900 transition-colors duration-150 font-medium text-xs focus:outline-none focus:ring-2 focus:ring-blue-300"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  download
+      {/* Edit Button - Enhanced (only show for admin/assistant) */}
+      {(role === "admin" || role === "assistant") && (
+        <div className="relative">
+          <FormModal 
+            table="student" 
+            type="update" 
+            icon={'updateIcon2'} 
+            data={student} 
+            id={student.id} 
+            levels={Alllevels} 
+            classes={Allclasses} 
+            schools={Allschools}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-sm hover:shadow-md transition-all duration-200 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 group"
+            buttonContent={
+              <>
+                <svg 
+                  className="w-4 h-4 group-hover:scale-110 transition-transform duration-150" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  viewBox="0 0 24 24"
                 >
-                  <Printer className="w-4 h-4" />
-                  Print / PDF
-                </a>
-              </div>
-              <div className="flex items-center gap-4">
-                <h1 className="text-xl font-semibold">{student.firstName} {student.lastName}</h1>
-                <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                  student.status === 'inactive' 
-                    ? 'bg-red-100 text-red-800 border border-red-200' 
-                    : 'bg-green-100 text-green-800 border border-green-200'
-                }`}>
-                  {student.status === 'inactive' ? 'Inactive' : 'Active'}
-                </span>
-              </div>
-              <p className="text-sm text-gray-500">
-                {student.bio || "No bio available."}
-              </p>
-              <div className="flex items-center justify-between gap-2 flex-wrap text-xs font-medium">
-                <div className="w-full md:w-1/3 lg:w-full 2xl:w-1/3 flex items-center gap-2">
-                  <img src="/school.png" alt="school" width={14} height={14} />
-                  <span>{Allschools.find(school => school.id === student.schoolId)?.name || ""}</span>
-                </div>
-                <div className="w-full md:w-1/3 lg:w-full 2xl:w-1/3 flex items-center gap-2">
-                  <img src="/date.png" alt="Date" width={14} height={14} />
-                  <span>
-                    {student.created_at ?
-                      new Intl.DateTimeFormat('en-GB', {
-                        day: '2-digit',
-                        month: 'long',
-                        year: 'numeric'
-                      }).format(new Date(student.created_at)) :
-                      "03 January 2025"
-                    }
-                  </span>
-                </div>
-                <div className="w-full md:w-1/3 lg:w-full 2xl:w-1/3 flex items-center gap-2">
-                  <img src="/mail.png" alt="Email" width={14} height={14} />
-                  <span>{student.email || "user@gmail.com"}</span>
-                </div>
-                <div className="w-full md:w-1/3 lg:w-full 2xl:w-1/3 flex items-center gap-2">
-                  <img src="/phone.png" alt="Phone" width={14} height={14} />
-                  <span>{student.phoneNumber || "+1 234 567"}</span>
-                </div>
-              </div>
-            </div>
-            <FormModal table="student" type="update" icon={'updateIcon2'} data={student} id={student.id} levels={Alllevels} classes={Allclasses} schools={Allschools} />
-          </div>
+                  <path 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round" 
+                    strokeWidth={2} 
+                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" 
+                  />
+                </svg>
+                <span className="hidden sm:inline">Edit Profile</span>
+                <span className="sm:hidden">Edit</span>
+              </>
+            }
+            title="Edit student information"
+          />
+        </div>
+      )}
+    </div>
+
+    {/* Student Name and Status */}
+    <div className="flex items-center gap-4">
+      <h1 className="text-xl font-semibold">{student.firstName} {student.lastName}</h1>
+      <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+        student.status === 'inactive'
+          ? 'bg-red-100 text-red-800 border border-red-200'
+          : 'bg-green-100 text-green-800 border border-green-200'
+      }`}>
+        {student.status === 'inactive' ? 'Inactive' : 'Active'}
+      </span>
+    </div>
+
+    {/* Bio */}
+    <p className="text-sm text-gray-500">
+      {student.bio || "No bio available."}
+    </p>
+
+    {/* Student Details */}
+    <div className="flex items-center justify-between gap-2 flex-wrap text-xs font-medium">
+      <div className="w-full md:w-1/3 lg:w-full 2xl:w-1/3 flex items-center gap-2">
+        <img src="/school.png" alt="school" width={14} height={14} />
+        <span>{Allschools.find(school => school.id === student.schoolId)?.name || ""}</span>
+      </div>
+      <div className="w-full md:w-1/3 lg:w-full 2xl:w-1/3 flex items-center gap-2">
+        <img src="/date.png" alt="Date" width={14} height={14} />
+        <span>
+          {student.created_at ?
+            new Intl.DateTimeFormat('en-GB', {
+              day: '2-digit',
+              month: 'long',
+              year: 'numeric'
+            }).format(new Date(student.created_at)) :
+            "03 January 2025"
+          }
+        </span>
+      </div>
+      <div className="w-full md:w-1/3 lg:w-full 2xl:w-1/3 flex items-center gap-2">
+        <img src="/mail.png" alt="Email" width={14} height={14} />
+        <span>{student.email || "user@gmail.com"}</span>
+      </div>
+      <div className="w-full md:w-1/3 lg:w-full 2xl:w-1/3 flex items-center gap-2">
+        <img src="/phone.png" alt="Phone" width={14} height={14} />
+        <span>{student.phoneNumber || "+1 234 567"}</span>
+      </div>
+    </div>
+  </div>
+</div>
           {/* SMALL CARDS */}
           <div className="flex-1 flex gap-4 justify-between flex-wrap">
             {/* CARD */}
@@ -373,24 +426,30 @@ const SingleStudentPage = ({ student, Alllevels, Allclasses, Allschools, Alloffe
         <div className="bg-white p-4 rounded-md">
           <h1 className="text-xl font-semibold">Shortcuts</h1>
           <div className="mt-4 flex gap-4 flex-wrap text-xs text-gray-500">
-            <Link className="p-3 rounded-md bg-lamaSkyLight" href="/lessons">
+            {/* <Link className="p-3 rounded-md bg-lamaSkyLight" href="/lessons">
               Student&apos;s Lessons
-            </Link>
+            </Link> */}
             <Link className="p-3 rounded-md bg-lamaPurpleLight" href="/teachers">
               Student&apos;s Teachers
             </Link>
-            <Link className="p-3 rounded-md bg-pink-50" href="/exams">
+            <Link className="p-3 rounded-md bg-lamaSkyLight" href="/attendances">
+              Student&apos;s Attendances
+            </Link>
+            <Link className="p-3 rounded-md bg-pink-50" href="/classes">
+              Student&apos;s Classes
+            </Link>
+            {/* <Link className="p-3 rounded-md bg-pink-50" href="/exams">
               Student&apos;s Exams
-            </Link>
-            <Link className="p-3 rounded-md bg-lamaSkyLight" href="/assignments">
-              Student&apos;s Assignments
-            </Link>
+            </Link> */}
+              {/* <Link className="p-3 rounded-md bg-lamaSkyLight" href="/assignments">
+                Student&apos;s Assignments
+              </Link> */}
             <Link className="p-3 rounded-md bg-lamaYellowLight" href="/results">
               Student&apos;s Results
             </Link>
           </div>
         </div>
-        <Performance />
+        <Performance student={student} />
         <Announcements />
       </div>
 

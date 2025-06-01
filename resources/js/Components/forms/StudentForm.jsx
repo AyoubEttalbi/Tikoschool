@@ -431,7 +431,7 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
               {filteredClasses.length > 0 ? (
                 filteredClasses.map((classe) => (
                   <SelectItem key={classe.id} value={classe.id.toString()}>
-                    {classe.name}
+                    {classe.name} ({classe.school_id ? `School : ${schools.find((school) => school.id === classe.school_id)?.name}` : "No School"})
                   </SelectItem>
                 ))
               ) : (

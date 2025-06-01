@@ -6,10 +6,11 @@ import { router } from "@inertiajs/react";
 
 const schema = z.object({
   name: z.string().min(1, { message: "Class name is required!" }),
-  level_id: z.string().min(1, { message: "Level is required!" }),
+  level_id: z.any(),
+  school_id: z.any(),
 });
 
-const ClassesForm = ({ type = "", data = [], levels = [], setOpen }) => {
+const ClassesForm = ({ type = "", data = [], levels = [], setOpen ,schools = []}) => {
   const {
     register,
     handleSubmit,
@@ -19,6 +20,7 @@ const ClassesForm = ({ type = "", data = [], levels = [], setOpen }) => {
     defaultValues: {
       name: data?.name || "",
       level_id: data?.level_id || "",
+      school_id: data?.school_id || "",
     },
   });
 
@@ -73,6 +75,24 @@ const ClassesForm = ({ type = "", data = [], levels = [], setOpen }) => {
           </select>
           {errors.level_id?.message && (
             <p className="text-xs text-red-400">{errors.level_id.message}</p>
+          )}
+        </div>
+        <div className="flex flex-col gap-2 w-full md:w-1/3">
+          <label className="text-xs text-gray-600">School</label>
+          <select
+            className="ring-[1.5px] ring-gray-300 p-2 rounded-md text-sm w-full"
+            {...register("school_id")}
+            defaultValue={data?.school_id}
+          >
+            <option value="">Select School</option>
+            {schools?.map((school) => (
+              <option key={school.id} value={school.id}>
+                {school.name}
+              </option>
+            ))}
+          </select>
+          {errors.school_id?.message && (
+            <p className="text-xs text-red-400">{errors.school_id.message}</p>
           )}
         </div>
       </div>

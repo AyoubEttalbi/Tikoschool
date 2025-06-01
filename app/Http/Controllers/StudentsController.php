@@ -124,10 +124,12 @@ class StudentsController extends Controller
          // Get the selected school from session and apply filter
          $selectedSchoolId = session('school_id');
          if ($selectedSchoolId) {
-             $query->where(DB::raw('"schoolId"'), $selectedSchoolId);
-             
-             // Log the filtering
-             \Log::info('Students filtered by school', [
+             // Show students for the selected school OR students with no school assigned
+             $query->where(function($q) use ($selectedSchoolId) {
+                 $q->where('schoolId', $selectedSchoolId)
+                   ->orWhereNull('schoolId');
+             });
+             \Log::info('Students filtered by school (including unassigned)', [
                  'school_id' => $selectedSchoolId,
                  'user_role' => $request->user()->role
              ]);
@@ -430,7 +432,7 @@ protected function transformStudentData($student)
                     'id' => $attendance->id,
                     'date' => $attendance->date,
                     'status' => $attendance->status,
-                    'classe' => $attendance->class ? $attendance->class->name : null,
+                    'class' => $attendance->class ? $attendance->class->name : null,
                     'recordedBy' => $attendance->recordedBy ? $attendance->recordedBy->name : null,
                     'created_at' => $attendance->created_at,
                     'reason' => $attendance->reason

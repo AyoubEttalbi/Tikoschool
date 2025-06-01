@@ -67,9 +67,10 @@ class ProfileController extends Controller
     /**
      * Show profile selection page (for teachers and assistants).
      */
-    public function select()
+    public function select(Request $request)
     {
         $user = auth()->user();
+        $force = $request->query('force');
 
         if ($user->role === 'teacher') {
             $teacher = Teacher::with('schools')->where('email', $user->email)->first();
@@ -78,9 +79,18 @@ class ProfileController extends Controller
                 abort(403, 'No schools found for this teacher.');
             }
 
-            // Check if admin is inspecting and allow selection even with existing school_id
             $isAdminInspection = session()->has('admin_user_id');
-            
+
+            // If force param is set, always show selection page
+            if ($force) {
+                return Inertia::render('Auth/SelectProfile', [
+                    'schools' => $teacher->schools->map(fn($school) => [
+                        'id' => $school->id,
+                        'name' => $school->name,
+                    ]),
+                    'isAdminInspection' => $isAdminInspection,
+                ]);
+            }
             // Only redirect if school already selected AND not in admin inspection mode
             if (session('school_id') && !$isAdminInspection) {
                 return redirect()->route('teachers.show', $teacher->id);
@@ -101,9 +111,18 @@ class ProfileController extends Controller
                 abort(403, 'No schools found for this assistant.');
             }
 
-            // Check if admin is inspecting and allow selection even with existing school_id
             $isAdminInspection = session()->has('admin_user_id');
-            
+
+            // If force param is set, always show selection page
+            if ($force) {
+                return Inertia::render('Auth/SelectProfile', [
+                    'schools' => $assistant->schools->map(fn($school) => [
+                        'id' => $school->id,
+                        'name' => $school->name,
+                    ]),
+                    'isAdminInspection' => $isAdminInspection,
+                ]);
+            }
             // Only redirect if school already selected AND not in admin inspection mode
             if (session('school_id') && !$isAdminInspection) {
                 return redirect()->route('assistants.show', $assistant->id);
