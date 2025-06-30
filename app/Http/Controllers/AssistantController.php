@@ -284,6 +284,8 @@ class AssistantController extends Controller
              // Get user and initialize basic data
              $user = Auth::user();
              $schools = School::all();
+             
+             $selectedAssistant=User::where('email', $assistant->email)->first();
              $classes = Classes::when($selectedSchoolId, function ($query) use ($selectedSchoolId) {
                  return $query->where('school_id', $selectedSchoolId);
              })->get();
@@ -297,7 +299,7 @@ class AssistantController extends Controller
              if ($user) {
                  // Fetch the assistant's activity logs
                  $logs = Activity::where('causer_type', User::class)
-                     ->where('causer_id', $user->id)
+                     ->where('causer_id', $selectedAssistant->id)
                      ->latest()
                      ->paginate(10);
 

@@ -864,7 +864,7 @@ public function index(Request $request)
             // Validate the request
             $validated = $request->validate([
                 'type' => 'required|string|in:wallet,payment,salary',
-                'user_id' => 'required|exists:users,id',
+                'user_id' => 'nullable|exists:users,id',
                 'amount' => 'required|numeric|min:0.01',
                 'description' => 'nullable|string|max:255',
                 'recurring' => 'nullable|boolean',
