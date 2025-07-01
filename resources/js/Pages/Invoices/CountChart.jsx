@@ -109,6 +109,7 @@ const CountChart = () => {
                        focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
                        transition-all duration-200 hover:border-gray-400 dark:hover:border-gray-600"
             max={new Date().toISOString().slice(0, 7)}
+            min={"2022-01"}
           />
           {isLoading && (
             <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-900 dark:border-white border-t-transparent 

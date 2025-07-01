@@ -1,6 +1,8 @@
 import React, { useEffect } from 'react';
 import InputError from '@/Components/InputError';
 import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
+
 import UserSelect from '../PaymentsAndTransactions/UserSelect';
 
 const TransactionDetails = ({
@@ -181,6 +183,7 @@ const TransactionDetails = ({
           Payment Date
         </label>
         <DatePicker
+          minDate={new Date("2025-01-01")}
           id="payment_date"
           name="payment_date"
           selected={values.payment_date}

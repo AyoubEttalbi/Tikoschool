@@ -43,6 +43,7 @@ const EventCalendar = () => {
     <div className="bg-white p-4 rounded-md shadow-md">
       <Calendar
         onChange={onChange}
+        minDate={new Date("2022-01-01")}
         value={value}
         tileClassName={({ date }) => {
           const isEventDay = events.some(
