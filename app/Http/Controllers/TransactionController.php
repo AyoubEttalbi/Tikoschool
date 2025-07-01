@@ -863,15 +863,17 @@ public function index(Request $request)
 
             // Validate the request
             $validated = $request->validate([
-                'type' => 'required|string|in:wallet,payment,salary',
+                'type' => 'required|string|in:wallet,payment,salary,expense', // Add 'expense' here
                 'user_id' => 'nullable|exists:users,id',
                 'amount' => 'required|numeric|min:0.01',
                 'description' => 'nullable|string|max:255',
-                'recurring' => 'nullable|boolean',
-                'frequency' => 'nullable|required_if:recurring,1|in:weekly,monthly,quarterly,yearly',
-                'next_payment_date' => 'nullable|required_if:recurring,1|date',
+                'is_recurring' => 'nullable|boolean',
+                'frequency' => 'nullable|required_if:is_recurring,1|in:weekly,monthly,quarterly,yearly',
+                'next_payment_date' => 'nullable|required_if:is_recurring,1|date',
                 'payment_date' => 'nullable|date',
             ]);
+            // Always set is_recurring to 0 or 1
+            $validated['is_recurring'] = $request->boolean('is_recurring') ? 1 : 0;
             
             // Set payment_date to today if not provided
             if (!isset($validated['payment_date'])) {
@@ -1031,28 +1033,29 @@ public function index(Request $request)
             // Create transaction (rest will be saved if set above)
             $transaction = new Transaction($validated);
             $transaction->save();
-            
+
             \Log::info('Transaction created successfully', [
                 'transaction_id' => $transaction->id,
                 'type' => $transaction->type,
                 'amount' => $transaction->amount
             ]);
-            
-            // Update employee balance based on transaction type
-            try {
-                $this->updateEmployeeBalance($transaction);
-            } catch (\Exception $e) {
-                // If balance update fails, delete the transaction and return error
-                \Log::error('Transaction store failed during balance update', [
-                    'transaction_id' => $transaction->id,
-                    'error' => $e->getMessage()
-                ]);
-                
-                $transaction->delete();
-                
-                return back()->with('error', $e->getMessage());
+
+            // Only update employee balance for salary, wallet, or payment
+            if (in_array($transaction->type, ['salary', 'wallet', 'payment'])) {
+                try {
+                    $this->updateEmployeeBalance($transaction);
+                } catch (\Exception $e) {
+                    // If balance update fails, delete the transaction and return error
+                    \Log::error('Transaction store failed during balance update', [
+                        'transaction_id' => $transaction->id,
+                        'error' => $e->getMessage()
+                    ]);
+
+                    $transaction->delete();
+
+                    return back()->with('error', $e->getMessage());
+                }
             }
-            
             // Return an Inertia redirect instead of JSON response
             return redirect()->route('transactions.index')->with('success', 'Transaction created successfully');
             
@@ -1617,7 +1620,15 @@ public function processRecurring()
             $newTransaction->created_at = now();
             $newTransaction->updated_at = now();
             $newTransaction->save();
-            
+
+            // Insert into recurring_transaction_payments pivot table
+            $period = $transaction->next_payment_date ? date('Y-m', strtotime($transaction->next_payment_date)) : now()->format('Y-m');
+            \App\Models\RecurringTransactionPayment::create([
+                'recurring_transaction_id' => $transaction->id,
+                'transaction_id' => $newTransaction->id,
+                'period' => $period,
+            ]);
+
             // Update employee balance
             if (in_array($transaction->type, ['salary', 'wallet'])) {
                 $this->updateEmployeeBalance($newTransaction);
@@ -1625,7 +1636,7 @@ public function processRecurring()
             
             // Calculate the next payment date based on frequency
             $nextDate = $this->calculateNextPaymentDate($transaction);
-            
+
             // Update the next payment date
             $transaction->next_payment_date = $nextDate;
             $transaction->save();
@@ -1827,13 +1838,14 @@ public function processRecurring()
  /**
      * Show the page for recurring transactions
      */
-    public function showRecurringTransactions()
+    public function showRecurringTransactions(Request $request)
     {
+        $month = $request->month ?? \Carbon\Carbon::now()->format('Y-m');
         // Get all recurring transactions
         $recurringTransactions = Transaction::where('is_recurring', 1)
-            ->with('user')  // Eager load the user relation
+            ->with('user', 'recurringPayments')
             ->get()
-            ->map(function ($transaction) {
+            ->map(function ($transaction) use ($month) {
                 return [
                     'id' => $transaction->id,
                     'user_id' => $transaction->user_id,
@@ -1848,11 +1860,15 @@ public function processRecurring()
                     'next_payment_date' => $transaction->next_payment_date,
                     'created_at' => $transaction->created_at,
                     'updated_at' => $transaction->updated_at,
+                    'paid_this_period' => $transaction->recurringPayments->contains(function ($payment) use ($month) {
+                        return $payment->period === $month;
+                    }),
                 ];
             });
 
         return Inertia::render('Payments/RecurringTransactionsPage', [
-            'recurringTransactions' => $recurringTransactions
+            'recurringTransactions' => $recurringTransactions,
+            'selectedMonth' => $month
         ]);
     }
     /**
@@ -1872,17 +1888,15 @@ public function recurringTransactions(Request $request)
             $query->whereBetween('next_payment_date', [$startDate, $endDate])
                 ->orWhereNull('next_payment_date');
         })
+        ->with('recurringPayments')
         ->get();
-    
-    // Filter out transactions where the user has already been paid this month
-    $paidUserIds = Transaction::where('is_recurring', 0)
-        ->whereBetween('payment_date', [$startDate, $endDate])
-        ->pluck('user_id')
-        ->toArray();
-    
-    // Only include transactions where the user hasn't been paid this month
-    $recurringTransactions = $recurringTransactions->filter(function($transaction) use ($paidUserIds) {
-        return !in_array($transaction->user_id, $paidUserIds);
+
+    // Set paid_this_period for each transaction based on recurringPayments for the period
+    $recurringTransactions = $recurringTransactions->map(function ($transaction) use ($month) {
+        $transaction->paid_this_period = $transaction->recurringPayments->contains(function ($payment) use ($month) {
+            return $payment->period === $month;
+        });
+        return $transaction;
     });
     
     // Get list of available months for filter (last 12 months + next 12 months)
@@ -1920,6 +1934,7 @@ public function processMonthRecurringTransactions(Request $request)
                 $query->whereBetween('next_payment_date', [$startDate, $endDate])
                     ->orWhereNull('next_payment_date');
             })
+            ->with('recurringPayments')
             ->get();
         
         if ($recurringTransactions->isEmpty()) {
@@ -1954,6 +1969,13 @@ public function processMonthRecurringTransactions(Request $request)
             $newTransaction->is_recurring = 0; // This is a one-time transaction
             $newTransaction->save();
 
+            // Insert into recurring_transaction_payments pivot table
+            \App\Models\RecurringTransactionPayment::create([
+                'recurring_transaction_id' => $transaction->id,
+                'transaction_id' => $newTransaction->id,
+                'period' => now()->format('Y-m'),
+            ]);
+
             // Update the next payment date of the recurring transaction
             $this->updateNextPaymentDate($transaction);
             
@@ -1987,6 +2009,13 @@ public function processMonthRecurringTransactions(Request $request)
             $newTransaction->payment_date = now();
             $newTransaction->is_recurring = 0; // This is a one-time transaction
             $newTransaction->save();
+
+            // Insert into recurring_transaction_payments pivot table
+            \App\Models\RecurringTransactionPayment::create([
+                'recurring_transaction_id' => $transaction->id,
+                'transaction_id' => $newTransaction->id,
+                'period' => now()->format('Y-m'),
+            ]);
 
             // Update the next payment date of the recurring transaction
             $this->updateNextPaymentDate($transaction);
@@ -2025,6 +2054,7 @@ public function processMonthRecurringTransactions(Request $request)
             foreach ($transactionIds as $id) {
                 $transaction = Transaction::find($id);
                 
+                               
                 if ($transaction && $transaction->is_recurring) {
                     // Skip if user already paid this month
                     if (in_array($transaction->user_id, $paidUserIds)) {
@@ -2042,6 +2072,13 @@ public function processMonthRecurringTransactions(Request $request)
                     $newTransaction->payment_date = now();
                     $newTransaction->is_recurring = 0; // This is a one-time transaction
                     $newTransaction->save();
+
+                    // Insert into recurring_transaction_payments pivot table
+                    \App\Models\RecurringTransactionPayment::create([
+                        'recurring_transaction_id' => $transaction->id,
+                        'transaction_id' => $newTransaction->id,
+                        'period' => now()->format('Y-m'),
+                    ]);
 
                     // Update the next payment date of the recurring transaction
                     $this->updateNextPaymentDate($transaction);
@@ -2093,6 +2130,13 @@ public function processMonthRecurringTransactions(Request $request)
                     $newTransaction->payment_date = now();
                     $newTransaction->is_recurring = 0; // This is a one-time transaction
                     $newTransaction->save();
+
+                    // Insert into recurring_transaction_payments pivot table
+                    \App\Models\RecurringTransactionPayment::create([
+                        'recurring_transaction_id' => $transaction->id,
+                        'transaction_id' => $newTransaction->id,
+                        'period' => now()->format('Y-m'),
+                    ]);
 
                     // Update the next payment date of the recurring transaction
                     $this->updateNextPaymentDate($transaction);

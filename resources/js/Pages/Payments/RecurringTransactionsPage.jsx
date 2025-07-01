@@ -17,7 +17,7 @@ const RecurringTransactionsPage = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
-  
+  console.log("recurringTransactions", recurringTransactions);
   // Initialize with selectedMonth from props or current month
   const [month, setMonth] = useState(() => {
     if (selectedMonth) return selectedMonth;
@@ -31,6 +31,18 @@ const RecurringTransactionsPage = ({
   useEffect(() => {
     setSelectedTransactions([]);
   }, [recurringTransactions, month]);
+
+  // Load data with current month when component mounts
+  useEffect(() => {
+    if (!selectedMonth) {
+      const now = new Date();
+      const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      router.get(route('transactions.recurring', { month: currentMonth }), {}, {
+        preserveState: true,
+        replace: true
+      });
+    }
+  }, [selectedMonth]);
 
   // Toggle all transactions selection
   const toggleSelectAll = (e) => {
@@ -279,46 +291,10 @@ const RecurringTransactionsPage = ({
 
   // Determine payment status based on available data
   const getPaymentStatus = (transaction) => {
-    // Check if this transaction is marked as paid for this month
-    if (transaction.paid_this_month) {
+    // Use backend-provided paid_this_period for accuracy
+    if (transaction.paid_this_period) {
       return 'Paid';
     }
-    
-    // Check if last payment date exists and is within the current month
-    if (transaction.payment_date) {
-      const lastPayment = new Date(transaction.payment_date);
-      
-      // Check if the last payment was in the selected month and year
-      const selectedDate = month ? new Date(`${month}-01`) : new Date(); 
-      
-      if (lastPayment.getMonth() === selectedDate.getMonth() && 
-          lastPayment.getFullYear() === selectedDate.getFullYear()) {
-        return 'Paid';
-      }
-    }
-    
-    // Check if this is a user-related payment and user has already been paid this month
-    if ((transaction.type === 'salary' || transaction.type === 'payment') && transaction.user_id) {
-      const selectedDate = month ? new Date(`${month}-01`) : new Date();
-      const selectedMonth = selectedDate.getMonth();
-      const selectedYear = selectedDate.getFullYear();
-      
-      // Look through all transactions to find if same user was paid this month
-      const userPaidThisMonth = recurringTransactions.some(t => 
-        t.user_id === transaction.user_id && 
-        t.type === transaction.type && 
-        t.id !== transaction.id &&
-        t.payment_date && 
-        new Date(t.payment_date).getMonth() === selectedMonth && 
-        new Date(t.payment_date).getFullYear() === selectedYear &&
-        t.paid_this_month
-      );
-      
-      if (userPaidThisMonth) {
-        return 'User Already Paid';
-      }
-    }
-    
     return 'Unpaid';
   };
 
@@ -337,81 +313,110 @@ const RecurringTransactionsPage = ({
   };
 
   // Filter transactions based on date criteria
-  // Fixed getFilteredTransactions function
-const getFilteredTransactions = () => {
-  const currentDate = new Date();
-  const currentMonth = currentDate.getMonth();
-  const currentYear = currentDate.getFullYear();
-  
-  // Parse selected month if available
-  let selectedMonth, selectedYear, selectedDate;
-  if (month) {
-    selectedDate = new Date(`${month}-01`);
-    selectedMonth = selectedDate.getMonth();
-    selectedYear = selectedDate.getFullYear();
-  }
-
-  return recurringTransactions.filter(transaction => {
-    // Get dates we'll need for comparisons
-    const nextPaymentDate = transaction.next_payment_date ? new Date(transaction.next_payment_date) : null;
-    const lastPaymentDate = transaction.payment_date ? new Date(transaction.payment_date) : null;
-    const paymentStatus = getPaymentStatus(transaction);
-    const isRecurring = transaction.is_recurring;
+  const getFilteredTransactions = () => {
+    const currentDate = new Date();
+    const currentMonth = currentDate.getMonth();
+    const currentYear = currentDate.getFullYear();
     
-    // Apply "show unpaid only" filter if enabled
-    if (showUnpaidOnly && paymentStatus === 'Paid') {
+    // Parse selected month if available
+    let selectedMonth, selectedYear, selectedDate;
+    if (month) {
+      selectedDate = new Date(`${month}-01`);
+      selectedMonth = selectedDate.getMonth();
+      selectedYear = selectedDate.getFullYear();
+    }
+
+    return recurringTransactions.filter(transaction => {
+      // Get dates we'll need for comparisons
+      const nextPaymentDate = transaction.next_payment_date ? new Date(transaction.next_payment_date) : null;
+      const lastPaymentDate = transaction.payment_date ? new Date(transaction.payment_date) : null;
+      const paymentStatus = getPaymentStatus(transaction);
+      const isRecurring = transaction.is_recurring;
+      
+      // Apply "show unpaid only" filter if enabled
+      if (showUnpaidOnly && paymentStatus === 'Paid') {
+        return false;
+      }
+      
+      // If no month filter is applied, show all transactions
+      if (!month) {
+        return true;
+      }
+      
+      // Check if this transaction should appear for the selected month based on frequency
+      const shouldShowForMonth = checkIfTransactionShouldShowForMonth(transaction, selectedMonth, selectedYear);
+      
+      // Always include transactions that should show for this month
+      if (shouldShowForMonth) {
+        return true;
+      }
+      
+      // Also include unpaid recurring transactions regardless of month (for overdue payments)
+      const isUnpaidRecurring = isRecurring && paymentStatus !== 'Paid';
+      return isUnpaidRecurring;
+    });
+  };
+
+  // Helper function to determine if a transaction should show for a specific month based on frequency
+  const checkIfTransactionShouldShowForMonth = (transaction, targetMonth, targetYear) => {
+    if (!transaction.is_recurring) {
       return false;
     }
     
-    // Always include unpaid recurring transactions regardless of month
-    const isUnpaidRecurring = isRecurring && paymentStatus !== 'Paid';
+    const frequency = transaction.frequency;
+    const startDate = transaction.payment_date ? new Date(transaction.payment_date) : new Date(transaction.created_at);
+    const startMonth = startDate.getMonth();
+    const startYear = startDate.getFullYear();
     
-    // If no month filter is applied, show all transactions
-    if (!month) {
-      return true;
-    }
+    // Calculate how many months/years have passed since the start date
+    const monthsDiff = (targetYear - startYear) * 12 + (targetMonth - startMonth);
     
-    // For past months: show transactions that were paid in that month
-    if (selectedDate < new Date(currentYear, currentMonth, 1)) {
-      const paidInSelectedMonth = lastPaymentDate && 
-        lastPaymentDate.getMonth() === selectedMonth && 
-        lastPaymentDate.getFullYear() === selectedYear;
+    switch (frequency) {
+      case 'daily':
+        // Show for all months after start date
+        return monthsDiff >= 0;
         
-      return paidInSelectedMonth || isUnpaidRecurring;
-    } 
-    
-    // For current month: 
-    // 1. Show transactions with next payment date in this month
-    // 2. OR show overdue transactions
-    // 3. OR show transactions already paid this month
-    // 4. Always show unpaid recurring transactions
-    else if (selectedMonth === currentMonth && selectedYear === currentYear) {
-      const dueThisMonth = nextPaymentDate && 
-        nextPaymentDate.getMonth() === currentMonth && 
-        nextPaymentDate.getFullYear() === currentYear;
-      
-      const isOverdue = nextPaymentDate && nextPaymentDate < currentDate;
-      
-      const alreadyPaidThisMonth = lastPaymentDate && 
-        lastPaymentDate.getMonth() === currentMonth && 
-        lastPaymentDate.getFullYear() === currentYear;
-      
-      return dueThisMonth || isOverdue || alreadyPaidThisMonth || isUnpaidRecurring;
-    } 
-    
-    // For future months: 
-    // 1. Show recurring transactions with next payment date in that future month
-    // 2. OR show any unpaid recurring transactions
-    else {
-      const dueInSelectedMonth = nextPaymentDate && 
-        nextPaymentDate.getMonth() === selectedMonth && 
-        nextPaymentDate.getFullYear() === selectedYear;
-      
-      return dueInSelectedMonth || isUnpaidRecurring;
+      case 'weekly':
+        // Show for all months after start date (weekly transactions appear monthly)
+        return monthsDiff >= 0;
+        
+      case 'biweekly':
+        // Show for all months after start date (biweekly transactions appear monthly)
+        return monthsDiff >= 0;
+        
+      case 'monthly':
+        // Show for all months after start date
+        return monthsDiff >= 0;
+        
+      case 'quarterly':
+        // Show every 3 months
+        return monthsDiff >= 0 && monthsDiff % 3 === 0;
+        
+      case 'semiannually':
+      case 'biannually':
+        // Show every 6 months
+        return monthsDiff >= 0 && monthsDiff % 6 === 0;
+        
+      case 'annually':
+      case 'yearly':
+        // Show every 12 months
+        return monthsDiff >= 0 && monthsDiff % 12 === 0;
+        
+      case 'termly':
+        // Show every 4 months (approximate school term)
+        return monthsDiff >= 0 && monthsDiff % 4 === 0;
+        
+      case 'semester':
+        // Show every 6 months
+        return monthsDiff >= 0 && monthsDiff % 6 === 0;
+        
+      default:
+        // Default to monthly
+        return monthsDiff >= 0;
     }
-  });
-};
-const [showFilters, setShowFilters] = useState(false);
+  };
+
+  const [showFilters, setShowFilters] = useState(false);
   // The content to be rendered
   const content = (
     <>
@@ -562,80 +567,83 @@ const [showFilters, setShowFilters] = useState(false);
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {getFilteredTransactions().map((transaction) => {
-                    const status = getTransactionStatus(transaction.next_payment_date);
-                    const statusColorClass = getStatusColorClass(status);
-                    const paymentStatus = getPaymentStatus(transaction);
-                    const paymentStatusColorClass = getPaymentStatusColorClass(paymentStatus);
-                    
-                    return (
-                      <tr key={transaction.id}>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <input
-                            type="checkbox"
-                            checked={selectedTransactions.includes(transaction.id)}
-                            onChange={() => toggleSelect(transaction.id)}
-                            className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                          />
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {transaction.id}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {transaction.user_name || `User #${transaction.user_id}`}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                            transaction.type === 'payment' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                          }`}>
-                            {transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          ${parseFloat(transaction.amount).toFixed(2)}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">
-                          {transaction.description}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {transaction.frequency.charAt(0).toUpperCase() + transaction.frequency.slice(1)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {formatDate(transaction.payment_date)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {formatDate(transaction.next_payment_date)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm">
-                          <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${paymentStatusColorClass}`}>
-                            {paymentStatus}
-                          </span>
-                          {paymentStatus === 'User Already Paid' && (
-                            <div className="mt-1 text-xs text-gray-500">
-                              Same user already received payment
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm">
-                          <span className={`font-medium ${statusColorClass}`}>
-                            {status}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                          <button
-                            onClick={() => handleProcessTransaction(transaction.id)}
-                            disabled={isProcessing || paymentStatus === 'Paid' || paymentStatus === 'User Already Paid'}
-                            className={`text-blue-600 hover:text-blue-900 mr-4 ${
-                              (isProcessing || paymentStatus === 'Paid' || paymentStatus === 'User Already Paid') ? 'opacity-50 cursor-not-allowed' : ''
-                            }`}
-                          >
-                            {paymentStatus === 'Paid' ? 'Already Processed' : 
-                             paymentStatus === 'User Already Paid' ? 'User Already Paid' : 'Process Now'}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {(() => {
+                    const filteredTransactions = getFilteredTransactions();
+                    return filteredTransactions.map((transaction) => {
+                      const status = getTransactionStatus(transaction.next_payment_date);
+                      const statusColorClass = getStatusColorClass(status);
+                      const paymentStatus = getPaymentStatus(transaction);
+                      const paymentStatusColorClass = getPaymentStatusColorClass(paymentStatus);
+                      
+                      return (
+                        <tr key={transaction.id}>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <input
+                              type="checkbox"
+                              checked={selectedTransactions.includes(transaction.id)}
+                              onChange={() => toggleSelect(transaction.id)}
+                              className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                            />
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            {transaction.id}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {transaction.user_name || `User #${transaction.user_id}`}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                              transaction.type === 'payment' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                            }`}>
+                              {transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {parseFloat(transaction.amount).toFixed(2)} DH
+                          </td>
+                          <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">
+                            {transaction.description}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {transaction.frequency.charAt(0).toUpperCase() + transaction.frequency.slice(1)}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {formatDate(transaction.payment_date)}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {formatDate(transaction.next_payment_date)}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm">
+                            <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${paymentStatusColorClass}`}>
+                              {paymentStatus}
+                            </span>
+                            {paymentStatus === 'User Already Paid' && (
+                              <div className="mt-1 text-xs text-gray-500">
+                                Same user already received payment
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm">
+                            <span className={`font-medium ${statusColorClass}`}>
+                              {status}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                            <button
+                              onClick={() => handleProcessTransaction(transaction.id)}
+                              disabled={isProcessing || paymentStatus === 'Paid' || paymentStatus === 'User Already Paid'}
+                              className={`text-blue-600 hover:text-blue-900 mr-4 ${
+                                (isProcessing || paymentStatus === 'Paid' || paymentStatus === 'User Already Paid') ? 'opacity-50 cursor-not-allowed' : ''
+                              }`}
+                            >
+                              {paymentStatus === 'Paid' ? 'Already Processed' : 
+                               paymentStatus === 'User Already Paid' ? 'User Already Paid' : 'Process Now'}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
                 </tbody>
               </table>
             </div>

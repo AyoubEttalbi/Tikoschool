@@ -4,58 +4,60 @@ import Table from "@/Components/Table";
 import TableSearch from "@/Components/TableSearch";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Link, router, usePage } from '@inertiajs/react';
-import { Eye, RotateCcw } from "lucide-react";
+import { Eye ,RotateCcw } from "lucide-react";
 import { useState, useEffect } from 'react';
 import FilterForm from '@/Components/FilterForm';
 import { motion } from "framer-motion";
 
-const columns = [
-  {
-    header: "Info",
-    accessor: "info",
-  },
-  {
-    header: "Teacher ID",
-    accessor: "teacherId",
-    className: "hidden md:table-cell",
-  },
-  {
-    header: "Subjects",
-    accessor: "subjects",
-    className: "hidden md:table-cell",
-  },
-  {
-    header: "Classes",
-    accessor: "classes",
-    className: "hidden md:table-cell",
-  },
-  {
-    header: "Phone",
-    accessor: "phone",
-    className: "hidden lg:table-cell",
-  },
-  {
-    header: "Address",
-    accessor: "address",
-    className: "hidden lg:table-cell",
-  },
-  {
-    header: "Status",
-    accessor: "status",
-    className: "hidden lg:table-cell",
-  },
-  {
-    header: "Actions",
-    accessor: "action",
-  },
-];
-
 const TeacherListPage = ({ teachers, subjects, classes, schools, filters: initialFilters }) => {
+  const role = usePage().props.auth.user.role;
+
+  const columns = [
+    {
+      header: "Info",
+      accessor: "info",
+    },
+    {
+      header: "Teacher ID",
+      accessor: "teacherId",
+      className: "hidden md:table-cell",
+    },
+    {
+      header: "Subjects",
+      accessor: "subjects",
+      className: "hidden md:table-cell",
+    },
+    {
+      header: "Classes",
+      accessor: "classes",
+      className: "hidden md:table-cell",
+    },
+    {
+      header: "Phone",
+      accessor: "phone",
+      className: "hidden lg:table-cell",
+    },
+    {
+      header: "Address",
+      accessor: "address",
+      className: "hidden lg:table-cell",
+    },
+    {
+      header: "Status",
+      accessor: "status",
+      className: "hidden lg:table-cell",
+    },
+    {
+      header: "Actions",
+      accessor: "action",
+      show: role === "admin", // Only show if admin
+    },
+  ];
+
   // Ensure teachers is always an array
   const safeTeachers = Array.isArray(teachers?.data) ? teachers.data : [];
   // Sort teachers by created_at descending (latest first)
   const sortedTeachers = [...safeTeachers].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  const role = usePage().props.auth.user.role;
   
   // State for filters and search
   const [filters, setFilters] = useState({
@@ -126,7 +128,9 @@ const TeacherListPage = ({ teachers, subjects, classes, schools, filters: initia
     >
       <td 
         className="flex items-center gap-4 p-4 cursor-pointer" 
-        onClick={() => router.visit(`/teachers/${item.id}`)}
+        onClick={() => {
+          if (role === 'admin') router.visit(`/teachers/${item.id}`);
+        }}
       >
         <img
           src={item.profile_image ? item.profile_image : "/teacherPrfile2.png"}
@@ -160,11 +164,13 @@ const TeacherListPage = ({ teachers, subjects, classes, schools, filters: initia
       </td>
       <td>
         <div className="flex items-center gap-2">
-          <Link href={`/teachers/${item.id}`}>
-            <button className="w-7 h-7 flex items-center justify-center rounded-full bg-lamaSky">
-              <Eye className="w-4 h-4 text-white"/>
-            </button>
-          </Link>
+          {role === "admin" && (
+            <Link href={`/teachers/${item.id}`}>
+              <button className="w-7 h-7 flex items-center justify-center rounded-full bg-lamaSky">
+                <Eye className="w-4 h-4 text-white"/>
+              </button>
+            </Link>
+          )}
           {role === "admin" && (
             <>
               <FormModal 
@@ -302,7 +308,7 @@ const TeacherListPage = ({ teachers, subjects, classes, schools, filters: initia
 
       {/* LIST */}
       <Table
-        columns={columns}
+        columns={columns.filter(col => col.show === undefined || col.show)}
         data={sortedTeachers}
         renderRow={renderRow}
         filters={filters}

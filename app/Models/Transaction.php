@@ -31,4 +31,9 @@ class Transaction extends Model
     {
         return $this->belongsTo(User::class);
     }
+
+    public function recurringPayments()
+    {
+        return $this->hasMany(\App\Models\RecurringTransactionPayment::class, 'recurring_transaction_id');
+    }
 }

@@ -382,9 +382,11 @@ const SingleAssistantPage = ({
         </div>
 
         {/* ACTIVITY LOGS */}
-        <div className="flex flex-col gap-4 mt-4">
-          <ActivityLogs logs={safeLogs} />
-        </div>
+        {role === "admin" && (
+          <div className="flex flex-col gap-4 mt-4">
+            <ActivityLogs logs={safeLogs} />
+          </div>
+        )}
       </div>
 
       {/* RIGHT */}

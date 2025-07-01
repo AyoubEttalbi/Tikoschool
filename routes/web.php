@@ -33,6 +33,7 @@ use App\Http\Controllers\PerformanceController;
 use App\Http\Middleware\AdminMiddleware;
 use App\Http\Middleware\CheckImpersonation;
 use App\Http\Middleware\RoleRedirect;
+use App\Http\Middleware\CanViewTeacherProfile;
 
 /*
 |--------------------------------------------------------------------------
@@ -71,7 +72,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/students/{student}', [StudentsController::class, 'show'])->name('students.show');
     Route::get('/students/{student}/download-pdf', [StudentsController::class, 'downloadPdf'])->name('students.downloadPdf');
     Route::get('/teachers', [TeacherController::class, 'index'])->name('teachers.index');
-    Route::get('/teachers/{teacher}', [TeacherController::class, 'show'])->name('teachers.show');
+    Route::get('/teachers/{teacher}', [TeacherController::class, 'show'])
+        ->middleware(CanViewTeacherProfile::class)
+        ->name('teachers.show');
     Route::get('/schools/{school}', [SchoolController::class, 'show'])->name('schools.show');
     Route::get('/results', [ResultsController::class, 'index'])->name('results.index');
     Route::get('/attendances', [AttendanceController::class, 'index'])->name('attendances.index');
@@ -181,6 +184,7 @@ Route::middleware('auth')->group(function () {
             Route::get('/batch-payment', 'batchPaymentForm')->name('transactions.batch-payment-form');
             Route::post('/batch-payment', 'batchPayEmployees')->name('transactions.batch-pay');
             Route::get('/recurring-transactions', 'showRecurringTransactions')->name('transactions.recurring');
+            Route::get('/recurring-transactions/filter', 'recurringTransactions')->name('transactions.recurring.filter');
             Route::post('/recurring-transactions/process/{id}', 'processSingleRecurringTransaction')->name('transactions.process-single-recurring');
             Route::post('/recurring-transactions/process-selected', 'processSelectedRecurringTransactions')->name('transactions.process-selected-recurring');
             Route::post('/recurring-transactions/process-all', 'processAllRecurringTransactions')->name('transactions.process-all-recurring');

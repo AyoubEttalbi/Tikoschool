@@ -327,9 +327,11 @@ const PaymentForm = ({ transaction = null, errors = {}, formType, onCancel, user
     
     // Make sure transaction type is correctly set based on selected user's role
     let finalType = values.type;
-    
-    // CRITICAL: Ensure teacher payments use 'payment' type, not 'salary'
-    if (selectedUser && selectedUser.role === 'teacher') {
+
+    // Always prioritize expense if selected
+    if (values.type === 'expense') {
+      finalType = 'expense';
+    } else if (selectedUser && selectedUser.role === 'teacher') {
       finalType = 'payment';
       console.log('Teacher detected - setting transaction type to PAYMENT');
     } else if (selectedUser && ['assistant', 'admin', 'staff'].includes(selectedUser.role)) {
