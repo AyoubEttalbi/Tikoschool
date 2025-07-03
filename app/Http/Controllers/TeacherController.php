@@ -19,6 +19,11 @@ use Illuminate\Support\Facades\Auth;
 use Cloudinary\Cloudinary;
 use Cloudinary\Configuration\Configuration;
 use Cloudinary\Api\Upload\UploadApi;
+use App\Models\User;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rules;
+use Illuminate\Validation\ValidationException;
+
 class TeacherController extends Controller
 {
     
@@ -600,6 +605,105 @@ class TeacherController extends Controller
         } catch (\Exception $e) {
             \Log::error('Error deleting teacher: ' . $e->getMessage());
             return redirect()->back()->with('error', 'Failed to delete teacher. Please try again.');
+        }
+    }
+
+    /**
+     * Store both a user and a teacher in a single transaction.
+     */
+    public function storeWithUser(Request $request)
+    {
+        DB::beginTransaction();
+        try {
+            // Validate user data
+            $userData = $request->validate([
+                'user.name' => 'required|string|max:255',
+                'user.email' => 'required|string|lowercase|email|max:255|unique:users,email',
+                'user.password' => ['required', 'confirmed', Rules\Password::defaults()],
+                'user.role' => 'required|in:admin,assistant,teacher',
+            ]);
+
+            // Validate teacher data
+            $teacherData = $request->validate([
+                'teacher.first_name' => 'required|string|max:100',
+                'teacher.last_name' => 'required|string|max:100',
+                'teacher.address' => 'nullable|string|max:255',
+                'teacher.phone_number' => 'nullable|string|max:20',
+                'teacher.email' => 'required|string|email|max:255|unique:teachers,email',
+                'teacher.status' => 'required|in:active,inactive',
+                'teacher.wallet' => 'required|numeric|min:0',
+                'teacher.profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120',
+                'teacher.schools' => 'array',
+                'teacher.schools.*' => 'exists:schools,id',
+                'teacher.subjects' => 'array',
+                'teacher.subjects.*' => 'exists:subjects,id',
+                'teacher.classes' => 'array',
+                'teacher.classes.*' => 'exists:classes,id',
+            ]);
+
+            // Create user
+            $user = User::create([
+                'name' => $request->input('user.name'),
+                'email' => $request->input('user.email'),
+                'password' => Hash::make($request->input('user.password')),
+                'role' => $request->input('user.role'),
+            ]);
+
+            // Handle teacher profile image
+            $teacherDataArr = [
+                'first_name' => $request->input('teacher.first_name'),
+                'last_name' => $request->input('teacher.last_name'),
+                'address' => $request->input('teacher.address'),
+                'phone_number' => $request->input('teacher.phone_number'),
+                'email' => $request->input('teacher.email'),
+                'status' => $request->input('teacher.status'),
+                'wallet' => $request->input('teacher.wallet'),
+            ];
+
+            if ($request->hasFile('teacher.profile_image')) {
+                $uploadResult = $this->uploadToCloudinary($request->file('teacher.profile_image'));
+                $teacherDataArr['profile_image'] = $uploadResult['secure_url'];
+            }
+
+            // Create teacher
+            $teacher = Teacher::create($teacherDataArr);
+
+            // Sync relationships
+            $teacher->subjects()->sync($request->input('teacher.subjects', []));
+            $teacher->classes()->sync($request->input('teacher.classes', []));
+            $teacher->schools()->sync($request->input('teacher.schools', []));
+
+            DB::commit();
+            // Always redirect to teachers.index for Inertia
+            return redirect()->route('teachers.index')->with('success', 'User and Teacher created successfully.');
+        } catch (ValidationException $e) {
+            DB::rollBack();
+            $errors = $e->errors();
+            $userErrors = [];
+            $teacherErrors = [];
+            foreach ($errors as $key => $val) {
+                if (str_starts_with($key, 'user.')) $userErrors[$key] = $val;
+                if (str_starts_with($key, 'teacher.')) $teacherErrors[$key] = $val;
+            }
+            // Only return JSON for true API requests
+            if ($request->expectsJson() || $request->isXmlHttpRequest()) {
+                return response()->json(['errors' => [
+                    'user' => $userErrors,
+                    'teacher' => $teacherErrors,
+                ]], 422);
+            } else {
+                // For Inertia/browser, redirect back with errors
+                return redirect()->back()
+                    ->withErrors(['user' => $userErrors, 'teacher' => $teacherErrors])
+                    ->withInput();
+            }
+        } catch (\Exception $e) {
+            DB::rollBack();
+            if ($request->expectsJson() || $request->isXmlHttpRequest()) {
+                return response()->json(['error' => 'Failed to create user and teacher.'], 500);
+            } else {
+                return redirect()->back()->with('error', 'Failed to create user and teacher.');
+            }
         }
     }
 }

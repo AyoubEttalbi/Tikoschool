@@ -23,6 +23,8 @@ use Illuminate\Support\Facades\Auth;
 use App\Models\Attendance;
 use App\Models\Invoice;
 use App\Models\Membership;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rules;
 
 class AssistantController extends Controller
 {   
@@ -839,6 +841,90 @@ class AssistantController extends Controller
         } catch (\Exception $e) {
             return redirect()->back()
                 ->with('error', 'An error occurred while deleting the assistant: ' . $e->getMessage());
+        }
+    }
+
+    public function storeWithUser(Request $request)
+    {
+        DB::beginTransaction();
+        try {
+            // Validate user data
+            $userData = $request->validate([
+                'user.name' => 'required|string|max:255',
+                'user.email' => 'required|string|lowercase|email|max:255|unique:users,email',
+                'user.password' => ['required', 'confirmed', Rules\Password::defaults()],
+                'user.role' => 'required|in:admin,assistant,teacher',
+            ]);
+
+            // Validate assistant data
+            $assistantData = $request->validate([
+                'assistant.first_name' => 'required|string|max:100',
+                'assistant.last_name' => 'required|string|max:100',
+                'assistant.phone_number' => 'required|string|max:20',
+                'assistant.email' => 'required|string|email|max:255|unique:assistants,email',
+                'assistant.address' => 'required|string|max:255',
+                'assistant.status' => 'required|in:active,inactive',
+                'assistant.salary' => 'required|numeric|min:0',
+                'assistant.profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120',
+                'assistant.schools' => 'array',
+                'assistant.schools.*' => 'exists:schools,id',
+            ]);
+
+            // Create user
+            $user = User::create([
+                'name' => $request->input('user.name'),
+                'email' => $request->input('user.email'),
+                'password' => Hash::make($request->input('user.password')),
+                'role' => $request->input('user.role'),
+            ]);
+
+            // Handle assistant profile image
+            $assistantDataArr = [
+                'first_name' => $request->input('assistant.first_name'),
+                'last_name' => $request->input('assistant.last_name'),
+                'phone_number' => $request->input('assistant.phone_number'),
+                'email' => $request->input('assistant.email'),
+                'address' => $request->input('assistant.address'),
+                'status' => $request->input('assistant.status'),
+                'salary' => $request->input('assistant.salary'),
+            ];
+            if ($request->hasFile('assistant.profile_image')) {
+                $uploadResult = $this->uploadToCloudinary($request->file('assistant.profile_image'));
+                $assistantDataArr['profile_image'] = $uploadResult['secure_url'];
+            }
+            // Create assistant
+            $assistant = Assistant::create($assistantDataArr);
+            // Sync schools
+            $assistant->schools()->sync($request->input('assistant.schools', []));
+            DB::commit();
+            // Always redirect to assistants.index for Inertia
+            return redirect()->route('assistants.index')->with('success', 'User and Assistant created successfully.');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            DB::rollBack();
+            $errors = $e->errors();
+            $userErrors = [];
+            $assistantErrors = [];
+            foreach ($errors as $key => $val) {
+                if (str_starts_with($key, 'user.')) $userErrors[$key] = $val;
+                if (str_starts_with($key, 'assistant.')) $assistantErrors[$key] = $val;
+            }
+            if ($request->expectsJson() || $request->isXmlHttpRequest()) {
+                return response()->json(['errors' => [
+                    'user' => $userErrors,
+                    'assistant' => $assistantErrors,
+                ]], 422);
+            } else {
+                return redirect()->back()
+                    ->withErrors(['user' => $userErrors, 'assistant' => $assistantErrors])
+                    ->withInput();
+            }
+        } catch (\Exception $e) {
+            DB::rollBack();
+            if ($request->expectsJson() || $request->isXmlHttpRequest()) {
+                return response()->json(['error' => 'Failed to create user and assistant.'], 500);
+            } else {
+                return redirect()->back()->with('error', 'Failed to create user and assistant.');
+            }
         }
     }
 }

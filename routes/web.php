@@ -238,6 +238,10 @@ Route::middleware('auth')->group(function () {
         Route::post('/setting', [RegisteredUserController::class, 'store'])->name('register.store');
         Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');
         Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
+
+        // Add after other teacher routes, inside the admin middleware group if possible
+        Route::post('/teachers-with-user', [TeacherController::class, 'storeWithUser'])->name('teachers.storeWithUser');
+        Route::post('/assistants-with-user', [\App\Http\Controllers\AssistantController::class, 'storeWithUser'])->name('assistants.storeWithUser');
     });
 
     // Performance routes

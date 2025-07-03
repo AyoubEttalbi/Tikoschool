@@ -17,6 +17,7 @@ export default function ResultsPage({
     teacherSubjectIds = [],
     loggedInTeacherId = null,
 }) {
+    console.log('schools', schools);
     // When user is a teacher, immediately select their teacher ID
     const getInitialTeacher = () => {
         if (role === "teacher") {
@@ -79,6 +80,7 @@ export default function ResultsPage({
     const [editValue, setEditValue] = useState("");
     const [saving, setSaving] = useState(false);
     const [studentMemberships, setStudentMemberships] = useState({});
+    const [resetKey, setResetKey] = useState(0);
     const inputRef = useRef(null);
 
     // For teachers, set their subjects directly
@@ -113,15 +115,6 @@ export default function ResultsPage({
             }
         }
     }, [role, subjects, teacherSubjectIds, selectedSubject]);
-
-    // Debug logging for class selection
-    useEffect(() => {
-        console.log("Selected class changed:", {
-            selectedClass,
-            availableClassesCount: availableClasses?.length || 0,
-            teacherRole: role === "teacher",
-        });
-    }, [selectedClass, availableClasses, role]);
 
     // Fetch classes when teacher is selected (for all users including teachers)
     useEffect(() => {
@@ -271,31 +264,6 @@ export default function ResultsPage({
         }
     }, [editingCell]);
 
-    // Log important state for debugging
-    useEffect(() => {
-        console.log("Component state updated:", {
-            role,
-            selectedTeacher,
-            selectedClass,
-            selectedSubject,
-            teacherSubjectIds,
-            studentMembershipsCount: Object.keys(studentMemberships || {})
-                .length,
-        });
-
-        // If we have memberships data, log it for debugging
-        if (Object.keys(studentMemberships || {}).length > 0) {
-            console.log("Current memberships data:", studentMemberships);
-        }
-    }, [
-        role,
-        selectedTeacher,
-        selectedClass,
-        selectedSubject,
-        studentMemberships,
-        teacherSubjectIds,
-    ]);
-
     const getGradeColor = (grade) => {
         if (!grade) return "text-gray-400";
 
@@ -353,15 +321,6 @@ export default function ResultsPage({
         const { studentId, subjectId, field } = editingCell;
         setSaving(true);
 
-        // Log what we're trying to update
-        console.log("Attempting to update grade:", {
-            student_id: studentId,
-            subject_id: subjectId,
-            class_id: selectedClass,
-            grade_field: field,
-            value: editValue,
-        });
-
         // Prepare the data for the request
         const postData = {
             student_id: studentId,
@@ -381,23 +340,12 @@ export default function ResultsPage({
         // Ensure URL is correct with a leading slash
         const url = "/results/update-grade";
 
-        // Log the full request for debugging
-        console.log("Sending POST request to:", url);
-        console.log("With data:", postData);
-        console.log("Headers:", axios.defaults.headers.common);
-
         // Send the request
         axios
             .post(url, postData)
             .then((response) => {
-                console.log("Update successful!", response.data);
-
                 if (!response.data.success) {
-                    console.error(
-                        "Server reported failure:",
-                        response.data.message,
-                    );
-                    alert(`Failed to save grade: ${response.data.message}`);
+                    alert(`Échec de l'enregistrement de la note : ${response.data.message}`);
                     setSaving(false);
                     return;
                 }
@@ -417,11 +365,13 @@ export default function ResultsPage({
 
                 if (existingResultIndex >= 0) {
                     // Update existing result
-                    newResults[studentId][existingResultIndex][field] =
-                        editValue;
-                    newResults[studentId][existingResultIndex].final_grade =
-                        response.data.final_grade;
-                    console.log("Updated existing result");
+                    newResults[studentId][existingResultIndex][field] = editValue;
+                    if (field === "notes") {
+                        newResults[studentId][existingResultIndex].notes = editValue;
+                    } else {
+                        newResults[studentId][existingResultIndex][field] = editValue;
+                        newResults[studentId][existingResultIndex].final_grade = response.data.final_grade;
+                    }
                 } else {
                     // Add new result
                     const newResult = {
@@ -429,10 +379,11 @@ export default function ResultsPage({
                         subject_id: subjectId,
                         class_id: selectedClass,
                         [field]: editValue,
-                        final_grade: response.data.final_grade,
                     };
+                    if (field !== "notes") {
+                        newResult.final_grade = response.data.final_grade;
+                    }
                     newResults[studentId].push(newResult);
-                    console.log("Added new result");
                 }
 
                 setClassResults(newResults);
@@ -441,28 +392,22 @@ export default function ResultsPage({
                 setSaving(false);
             })
             .catch((error) => {
-                console.error("Error saving grade:", error);
-
-                let errorMessage = "An unknown error occurred";
+                let errorMessage = "Une erreur inconnue s'est produite";
                 if (error.response) {
-                    console.error("Error response:", error.response);
                     errorMessage =
                         error.response?.data?.message ||
-                        `Server error: ${error.response.status}`;
+                        `Erreur du serveur : ${error.response.status}`;
                 } else if (error.request) {
-                    console.error("No response received:", error.request);
                     errorMessage =
-                        "No response from server. Please check your connection.";
+                        "Aucune réponse du serveur. Veuillez vérifier votre connexion.";
                 } else {
-                    console.error("Request error:", error.message);
-                    errorMessage = error.message || "Request setup error";
+                    errorMessage = error.message || "Erreur de configuration de la requête";
                 }
 
                 const retry = confirm(
-                    `Failed to save grade: ${errorMessage}\n\nWould you like to try again?`,
+                    `Échec de l'enregistrement de la note : ${errorMessage}\n\nVoulez-vous réessayer ?`,
                 );
                 if (retry) {
-                    // Wait a moment and try again
                     setTimeout(saveEdit, 1000);
                 } else {
                     setSaving(false);
@@ -704,6 +649,24 @@ export default function ResultsPage({
         return "";
     };
 
+    // Remove subject filter and reset availableSubjects for teacher
+    const clearSubjectFilter = () => {
+        setSelectedSubject("");
+    };
+
+    // Deep reset: use a resetKey to force re-render of selects and reset all state
+    const resetAllFilters = () => {
+        setSelectedTeacher("");
+        setSelectedClass("");
+        setSelectedSubject("");
+        setAvailableClasses(classes);
+        setAvailableStudents(students);
+        setAvailableSubjects(subjects);
+        setClassResults(results);
+        setStudentMemberships({});
+        setResetKey((k) => k + 1); // Force re-render of selects
+    };
+
     return (
         <div className="bg-white p-4 rounded-md flex-1 m-4 mt-0">
             {/* TOP */}
@@ -720,16 +683,15 @@ export default function ResultsPage({
                     )}
                 </div>
                 <div className="flex items-center gap-4">
-                    {selectedSubject && (
-                        <button
-                            onClick={() => setSelectedSubject("")}
-                            className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md text-sm flex items-center gap-1"
-                            title="Effacer le filtre de sujet"
-                        >
-                            <XCircle size={16} />
-                            <span>Effacer le filtre</span>
-                        </button>
-                    )}
+                    <button
+                        onClick={resetAllFilters}
+                        className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md text-sm flex items-center gap-1"
+                        title="Réinitialiser tous les filtres"
+                        type="button"
+                    >
+                        <XCircle size={16} />
+                        <span>Réinitialiser les filtres</span>
+                    </button>
                     <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
                         <Filter className="w-4 h-4 text-white" />
                     </button>
@@ -754,6 +716,7 @@ export default function ResultsPage({
                             Sélectionner un enseignant
                         </label>
                         <select
+                            key={"teacher-" + resetKey}
                             value={selectedTeacher}
                             onChange={(e) => setSelectedTeacher(e.target.value)}
                             className="w-full rounded-md border-gray-300 shadow-sm focus:border-lamaPurple focus:ring-lamaPurple"
@@ -779,18 +742,28 @@ export default function ResultsPage({
                         Sélectionner une classe
                     </label>
                     <select
+                        key={"class-" + resetKey}
                         value={selectedClass}
                         onChange={(e) => setSelectedClass(e.target.value)}
                         className="w-full rounded-md border-gray-300 shadow-sm focus:border-lamaPurple focus:ring-lamaPurple"
                         disabled={!selectedTeacher && role !== "teacher"}
                     >
                         <option value="">Sélectionner une classe</option>
-                        {availableClasses &&
-                            availableClasses.map((class_) => (
+                        {Array.isArray(availableClasses) && availableClasses.map((class_) => {
+                            // Fallback: if class_.school_id is missing, get it from the original classes prop
+                            let schoolId = class_.school_id;
+                            if (typeof schoolId === 'undefined') {
+                                const original = Array.isArray(classes) ? classes.find(c => c.id === class_.id) : null;
+                                schoolId = original ? original.school_id : undefined;
+                            }
+                            const schoolList = Array.isArray(schools) ? schools : Object.values(schools || {});
+                            const school = schoolList.find(s => Number(s.id) === Number(schoolId));
+                            return (
                                 <option key={class_.id} value={class_.id}>
-                                    {class_.name}
+                                    {class_.name} {school ? `(${school.name})` : "(École inconnue)"}
                                 </option>
-                            ))}
+                            );
+                        })}
                     </select>
                 </div>
 
@@ -812,6 +785,7 @@ export default function ResultsPage({
                         )}
                     </label>
                     <select
+                        key={"subject-" + resetKey}
                         value={selectedSubject}
                         onChange={(e) => setSelectedSubject(e.target.value)}
                         className={`w-full rounded-md border-gray-300 shadow-sm focus:border-lamaPurple focus:ring-lamaPurple ${selectedSubject ? "bg-lamaPurple/10 border-lamaPurple/30" : ""}`}
@@ -873,11 +847,11 @@ export default function ResultsPage({
                           selectedSubject &&
                           String(subject.id) === String(selectedSubject)
                               ? "bg-lamaPurple/10 text-lamaPurple"
-                              : "text-gray-500"
+                              : ""
                       }`}
                                     >
                                         <div className="flex flex-col">
-                                            <span className="mb-2">
+                                            <span className="font-medium">
                                                 {subject.name}
                                             </span>
                                             <div className="grid grid-cols-4 gap-2 text-xxs">
@@ -1008,6 +982,18 @@ export default function ResultsPage({
                     )}
                 </div>
             )}
+
+            {/* RESET BUTTON - Always at the bottom */}
+            {/* <div className="mt-4">
+                <button
+                    onClick={resetAllFilters}
+                    className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md text-sm flex items-center gap-1"
+                    title="Réinitialiser tous les filtres"
+                    type="button"
+                >
+                    <span>Réinitialiser les filtres</span>
+                </button>
+            </div> */}
         </div>
     );
 }
