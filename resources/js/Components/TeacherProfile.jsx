@@ -1,25 +1,36 @@
-import React from 'react';
-import TeacherInvoicesTable from './TeacherInvoicesTable';
-import RecurringPaymentsCard from './RecurringPaymentsCard';
+import React, { Suspense, lazy } from "react";
 
-export default function TeacherProfile({ invoices = [], paginate = [], teacher = {}, recurringTransactions = [] }) {
-    console.log('TeacherProfile received invoices:', invoices);
-    console.log('TeacherProfile received paginate:', paginate);
+// Lazy load child components
+const TeacherInvoicesTable = lazy(() => import("./TeacherInvoicesTable"));
+const RecurringPaymentsCard = lazy(() => import("./RecurringPaymentsCard"));
 
+export default function TeacherProfile({
+    invoices = [],
+    paginate = [],
+    teacher = {},
+    recurringTransactions = [],
+}) {
     return (
         <div className="space-y-6">
-            {/* Recurring Payments Section */}
+            {/* Section des paiements récurrents */}
             {recurringTransactions && recurringTransactions.length > 0 && (
                 <div className="mb-6">
-                    <RecurringPaymentsCard 
-                        recurringTransactions={recurringTransactions} 
-                        userId={teacher.id}
-                    />
+                    <Suspense fallback={<span>Chargement...</span>}>
+                        <RecurringPaymentsCard
+                            recurringTransactions={recurringTransactions}
+                            userId={teacher.id}
+                        />
+                    </Suspense>
                 </div>
             )}
-            
-            {/* Invoices Table */}
-            <TeacherInvoicesTable invoices={invoices} invoiceslinks={paginate} />
+
+            {/* Tableau des factures */}
+            <Suspense fallback={<span>Chargement...</span>}>
+                <TeacherInvoicesTable
+                    invoices={invoices}
+                    invoiceslinks={paginate}
+                />
+            </Suspense>
         </div>
     );
 }

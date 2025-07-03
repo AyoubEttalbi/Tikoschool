@@ -1,20 +1,34 @@
-import React, { useEffect, useState } from 'react';
-import { Head, usePage } from '@inertiajs/react';
-import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
-import { Card, CardContent, CardHeader, CardTitle } from '@/Components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
-import { Badge } from '@/Components/ui/badge';
-import { ScrollArea } from '@/Components/ui/scroll-area';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
-import { Skeleton } from '@/Components/ui/skeleton';
+import React, { useEffect, useState } from "react";
+import { Head, usePage } from "@inertiajs/react";
+import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout";
+import {
+    PieChart,
+    Pie,
+    Cell,
+    ResponsiveContainer,
+    Tooltip,
+    Legend,
+} from "recharts";
+import { Card, CardContent, CardHeader, CardTitle } from "@/Components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/Components/ui/tabs";
+import { Badge } from "@/Components/ui/badge";
+import { ScrollArea } from "@/Components/ui/scroll-area";
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from "@/Components/ui/table";
+import { Skeleton } from "@/Components/ui/skeleton";
 
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042'];
+const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042"];
 
 const Performance = ({ auth }) => {
     const { props } = usePage();
     const { student, performance } = props;
-    const [activeTab, setActiveTab] = useState('overview');
+    const [activeTab, setActiveTab] = useState("overview");
 
     if (!student || !performance) {
         return (
@@ -24,7 +38,9 @@ const Performance = ({ auth }) => {
                         <Card>
                             <CardContent className="p-6">
                                 <div className="flex items-center justify-center h-64">
-                                    <p className="text-gray-500">Loading performance data...</p>
+                                    <p className="text-gray-500">
+                                        Loading performance data...
+                                    </p>
                                 </div>
                             </CardContent>
                         </Card>
@@ -52,10 +68,10 @@ const Performance = ({ auth }) => {
 
     const renderPieChart = () => {
         const data = [
-            { name: 'Academic', value: academic.score },
-            { name: 'Attendance', value: attendance.score },
-            { name: 'Payment', value: payment.score },
-            { name: 'Membership', value: membership.score }
+            { name: "Academic", value: academic.score },
+            { name: "Attendance", value: attendance.score },
+            { name: "Payment", value: payment.score },
+            { name: "Membership", value: membership.score },
         ];
 
         return (
@@ -72,7 +88,10 @@ const Performance = ({ auth }) => {
                             dataKey="value"
                         >
                             {data.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                <Cell
+                                    key={`cell-${index}`}
+                                    fill={COLORS[index % COLORS.length]}
+                                />
                             ))}
                         </Pie>
                         <Tooltip />
@@ -80,7 +99,9 @@ const Performance = ({ auth }) => {
                     </PieChart>
                 </ResponsiveContainer>
                 <div className="text-center mt-4">
-                    <div className="text-3xl font-bold">{totalScore.toFixed(1)}</div>
+                    <div className="text-3xl font-bold">
+                        {totalScore.toFixed(1)}
+                    </div>
                     <div className="text-sm text-gray-500">Total Score</div>
                 </div>
             </div>
@@ -107,19 +128,37 @@ const Performance = ({ auth }) => {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {academic.recentResults.map((result, index) => (
-                                        <TableRow key={index}>
-                                            <TableCell>{result.subject}</TableCell>
-                                            <TableCell>{result.class}</TableCell>
-                                            <TableCell>{result.score}</TableCell>
-                                            <TableCell>
-                                                <Badge variant={result.grade === 'F' ? 'destructive' : 'default'}>
-                                                    {result.grade}
-                                                </Badge>
-                                            </TableCell>
-                                            <TableCell>{new Date(result.date).toLocaleDateString()}</TableCell>
-                                        </TableRow>
-                                    ))}
+                                    {academic.recentResults.map(
+                                        (result, index) => (
+                                            <TableRow key={index}>
+                                                <TableCell>
+                                                    {result.subject}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {result.class}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {result.score}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Badge
+                                                        variant={
+                                                            result.grade === "F"
+                                                                ? "destructive"
+                                                                : "default"
+                                                        }
+                                                    >
+                                                        {result.grade}
+                                                    </Badge>
+                                                </TableCell>
+                                                <TableCell>
+                                                    {new Date(
+                                                        result.date,
+                                                    ).toLocaleDateString()}
+                                                </TableCell>
+                                            </TableRow>
+                                        ),
+                                    )}
                                 </TableBody>
                             </Table>
                         </ScrollArea>
@@ -141,13 +180,21 @@ const Performance = ({ auth }) => {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {academic.subjectAverages.map((subject, index) => (
-                                        <TableRow key={index}>
-                                            <TableCell>{subject.subject}</TableCell>
-                                            <TableCell>{subject.average.toFixed(1)}</TableCell>
-                                            <TableCell>{subject.count}</TableCell>
-                                        </TableRow>
-                                    ))}
+                                    {academic.subjectAverages.map(
+                                        (subject, index) => (
+                                            <TableRow key={index}>
+                                                <TableCell>
+                                                    {subject.subject}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {subject.average.toFixed(1)}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {subject.count}
+                                                </TableCell>
+                                            </TableRow>
+                                        ),
+                                    )}
                                 </TableBody>
                             </Table>
                         </ScrollArea>
@@ -176,18 +223,35 @@ const Performance = ({ auth }) => {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {attendance.recentAttendance.map((record, index) => (
-                                        <TableRow key={index}>
-                                            <TableCell>{new Date(record.date).toLocaleDateString()}</TableCell>
-                                            <TableCell>
-                                                <Badge variant={record.status === 'present' ? 'default' : 'destructive'}>
-                                                    {record.status}
-                                                </Badge>
-                                            </TableCell>
-                                            <TableCell>{record.class}</TableCell>
-                                            <TableCell>{record.recordedBy}</TableCell>
-                                        </TableRow>
-                                    ))}
+                                    {attendance.recentAttendance.map(
+                                        (record, index) => (
+                                            <TableRow key={index}>
+                                                <TableCell>
+                                                    {new Date(
+                                                        record.date,
+                                                    ).toLocaleDateString()}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Badge
+                                                        variant={
+                                                            record.status ===
+                                                            "present"
+                                                                ? "default"
+                                                                : "destructive"
+                                                        }
+                                                    >
+                                                        {record.status}
+                                                    </Badge>
+                                                </TableCell>
+                                                <TableCell>
+                                                    {record.class}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {record.recordedBy}
+                                                </TableCell>
+                                            </TableRow>
+                                        ),
+                                    )}
                                 </TableBody>
                             </Table>
                         </ScrollArea>
@@ -210,18 +274,32 @@ const Performance = ({ auth }) => {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {attendance.monthlyStats.map((stat, index) => (
-                                        <TableRow key={index}>
-                                            <TableCell>{stat.month}</TableCell>
-                                            <TableCell>{stat.present}</TableCell>
-                                            <TableCell>{stat.total}</TableCell>
-                                            <TableCell>
-                                                <Badge variant={stat.rate >= 80 ? 'default' : 'destructive'}>
-                                                    {stat.rate}%
-                                                </Badge>
-                                            </TableCell>
-                                        </TableRow>
-                                    ))}
+                                    {attendance.monthlyStats.map(
+                                        (stat, index) => (
+                                            <TableRow key={index}>
+                                                <TableCell>
+                                                    {stat.month}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {stat.present}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {stat.total}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Badge
+                                                        variant={
+                                                            stat.rate >= 80
+                                                                ? "default"
+                                                                : "destructive"
+                                                        }
+                                                    >
+                                                        {stat.rate}%
+                                                    </Badge>
+                                                </TableCell>
+                                            </TableRow>
+                                        ),
+                                    )}
                                 </TableBody>
                             </Table>
                         </ScrollArea>
@@ -251,19 +329,38 @@ const Performance = ({ auth }) => {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {payment.recentPayments.map((payment, index) => (
-                                        <TableRow key={index}>
-                                            <TableCell>{new Date(payment.date).toLocaleDateString()}</TableCell>
-                                            <TableCell>{payment.amount.toFixed(2)}</TableCell>
-                                            <TableCell>{payment.paid.toFixed(2)}</TableCell>
-                                            <TableCell>
-                                                <Badge variant={payment.status === 'Paid' ? 'default' : 'warning'}>
-                                                    {payment.status}
-                                                </Badge>
-                                            </TableCell>
-                                            <TableCell>{payment.offer}</TableCell>
-                                        </TableRow>
-                                    ))}
+                                    {payment.recentPayments.map(
+                                        (payment, index) => (
+                                            <TableRow key={index}>
+                                                <TableCell>
+                                                    {new Date(
+                                                        payment.date,
+                                                    ).toLocaleDateString()}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {payment.amount.toFixed(2)}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {payment.paid.toFixed(2)}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Badge
+                                                        variant={
+                                                            payment.status ===
+                                                            "Paid"
+                                                                ? "default"
+                                                                : "warning"
+                                                        }
+                                                    >
+                                                        {payment.status}
+                                                    </Badge>
+                                                </TableCell>
+                                                <TableCell>
+                                                    {payment.offer}
+                                                </TableCell>
+                                            </TableRow>
+                                        ),
+                                    )}
                                 </TableBody>
                             </Table>
                         </ScrollArea>
@@ -286,14 +383,24 @@ const Performance = ({ auth }) => {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {payment.paymentHistory.map((history, index) => (
-                                        <TableRow key={index}>
-                                            <TableCell>{history.month}</TableCell>
-                                            <TableCell>{history.total.toFixed(2)}</TableCell>
-                                            <TableCell>{history.paid.toFixed(2)}</TableCell>
-                                            <TableCell>{history.count}</TableCell>
-                                        </TableRow>
-                                    ))}
+                                    {payment.paymentHistory.map(
+                                        (history, index) => (
+                                            <TableRow key={index}>
+                                                <TableCell>
+                                                    {history.month}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {history.total.toFixed(2)}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {history.paid.toFixed(2)}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {history.count}
+                                                </TableCell>
+                                            </TableRow>
+                                        ),
+                                    )}
                                 </TableBody>
                             </Table>
                         </ScrollArea>
@@ -323,22 +430,49 @@ const Performance = ({ auth }) => {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {membership.currentMemberships.map((membership, index) => (
-                                    <TableRow key={index}>
-                                        <TableCell>{membership.offer}</TableCell>
-                                        <TableCell>{new Date(membership.start_date).toLocaleDateString()}</TableCell>
-                                        <TableCell>{new Date(membership.end_date).toLocaleDateString()}</TableCell>
-                                        <TableCell>
-                                            <Badge variant={membership.status === 'paid' ? 'default' : 'warning'}>
-                                                {membership.status}
-                                            </Badge>
-                                        </TableCell>
-                                        <TableCell>{membership.teachers}</TableCell>
-                                        <TableCell>
-                                            {membership.total_paid.toFixed(2)} / {membership.total_amount.toFixed(2)}
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
+                                {membership.currentMemberships.map(
+                                    (membership, index) => (
+                                        <TableRow key={index}>
+                                            <TableCell>
+                                                {membership.offer}
+                                            </TableCell>
+                                            <TableCell>
+                                                {new Date(
+                                                    membership.start_date,
+                                                ).toLocaleDateString()}
+                                            </TableCell>
+                                            <TableCell>
+                                                {new Date(
+                                                    membership.end_date,
+                                                ).toLocaleDateString()}
+                                            </TableCell>
+                                            <TableCell>
+                                                <Badge
+                                                    variant={
+                                                        membership.status ===
+                                                        "paid"
+                                                            ? "default"
+                                                            : "warning"
+                                                    }
+                                                >
+                                                    {membership.status}
+                                                </Badge>
+                                            </TableCell>
+                                            <TableCell>
+                                                {membership.teachers}
+                                            </TableCell>
+                                            <TableCell>
+                                                {membership.total_paid.toFixed(
+                                                    2,
+                                                )}{" "}
+                                                /{" "}
+                                                {membership.total_amount.toFixed(
+                                                    2,
+                                                )}
+                                            </TableCell>
+                                        </TableRow>
+                                    ),
+                                )}
                             </TableBody>
                         </Table>
                     </ScrollArea>
@@ -363,10 +497,26 @@ const Performance = ({ auth }) => {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                        {renderScoreCard('Academic Score', academic.score, COLORS[0])}
-                        {renderScoreCard('Attendance Score', attendance.score, COLORS[1])}
-                        {renderScoreCard('Payment Score', payment.score, COLORS[2])}
-                        {renderScoreCard('Membership Score', membership.score, COLORS[3])}
+                        {renderScoreCard(
+                            "Academic Score",
+                            academic.score,
+                            COLORS[0],
+                        )}
+                        {renderScoreCard(
+                            "Attendance Score",
+                            attendance.score,
+                            COLORS[1],
+                        )}
+                        {renderScoreCard(
+                            "Payment Score",
+                            payment.score,
+                            COLORS[2],
+                        )}
+                        {renderScoreCard(
+                            "Membership Score",
+                            membership.score,
+                            COLORS[3],
+                        )}
                     </div>
 
                     <Card className="mb-6">
@@ -379,7 +529,9 @@ const Performance = ({ auth }) => {
                         <TabsList className="grid w-full grid-cols-4">
                             <TabsTrigger value="overview">Overview</TabsTrigger>
                             <TabsTrigger value="academic">Academic</TabsTrigger>
-                            <TabsTrigger value="attendance">Attendance</TabsTrigger>
+                            <TabsTrigger value="attendance">
+                                Attendance
+                            </TabsTrigger>
                             <TabsTrigger value="payment">Payment</TabsTrigger>
                         </TabsList>
 
@@ -411,4 +563,4 @@ const Performance = ({ auth }) => {
     );
 };
 
-export default Performance; 
+export default Performance;

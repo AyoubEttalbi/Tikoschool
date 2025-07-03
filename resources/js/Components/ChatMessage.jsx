@@ -1,21 +1,26 @@
 // ChatMessage Component with double checkmarks
-import React from 'react';
-import { IoCheckmarkDone, IoCheckmark } from 'react-icons/io5';
+import React from "react";
+import { IoCheckmarkDone, IoCheckmark } from "react-icons/io5";
 const ChatMessage = ({ message = {}, isUser }) => {
     const formatTime = (dateString) => {
-        if (!dateString) return '';
+        if (!dateString) return "";
         return new Date(dateString).toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit'
+            hour: "2-digit",
+            minute: "2-digit",
         });
     };
 
     return (
-        <div className={`flex mb-4 ${isUser ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-xs lg:max-w-md p-3 rounded-lg ${isUser
-                ? 'bg-blue-600 text-white rounded-br-none'
-                : 'bg-gray-100 text-gray-800 rounded-bl-none'
-                }`}>
+        <div
+            className={`flex mb-4 ${isUser ? "justify-end" : "justify-start"}`}
+        >
+            <div
+                className={`max-w-xs lg:max-w-md p-3 rounded-lg ${
+                    isUser
+                        ? "bg-blue-600 text-white rounded-br-none"
+                        : "bg-gray-100 text-gray-800 rounded-bl-none"
+                }`}
+            >
                 <p className="text-sm">{message.message}</p>
                 <div className="flex items-center justify-end mt-1 space-x-1">
                     <div className="text-xs opacity-70">

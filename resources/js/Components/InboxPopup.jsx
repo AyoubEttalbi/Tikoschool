@@ -1,10 +1,18 @@
-import React, { useEffect, useRef, useState } from 'react';
-import axios from 'axios';
-import { FiSend, FiSearch, FiX, FiMoreVertical, FiPaperclip, FiSmile, FiMic } from 'react-icons/fi';
-import Avatar from './Avatar';
-import ChatMessage from './ChatMessage';
-import ContactItem from './ContactItem';
-import EmojiPicker from './EmojiPicker';
+import React, { useEffect, useRef, useState } from "react";
+import axios from "axios";
+import {
+    FiSend,
+    FiSearch,
+    FiX,
+    FiMoreVertical,
+    FiPaperclip,
+    FiSmile,
+    FiMic,
+} from "react-icons/fi";
+import Avatar from "./Avatar";
+import ChatMessage from "./ChatMessage";
+import ContactItem from "./ContactItem";
+import EmojiPicker from "./EmojiPicker";
 // Main InboxPopup Component
 
 export default function InboxPopup({ auth, users = [], onClose }) {
@@ -12,10 +20,10 @@ export default function InboxPopup({ auth, users = [], onClose }) {
     const webSocketChannel = userId ? `message.${userId}` : null;
     const [selectedUser, setSelectedUser] = useState(null);
     const [currentMessages, setCurrentMessages] = useState([]);
-    const [messageInput, setMessageInput] = useState('');
+    const [messageInput, setMessageInput] = useState("");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
-    const [searchQuery, setSearchQuery] = useState('');
+    const [searchQuery, setSearchQuery] = useState("");
     const [isTyping, setIsTyping] = useState(false);
 
     const [lastMessages, setLastMessages] = useState({});
@@ -28,7 +36,7 @@ export default function InboxPopup({ auth, users = [], onClose }) {
     const typingTimeoutRef = useRef(null);
     const inputRef = useRef(null);
     const [unreadMessages, setUnreadMessages] = useState(() => {
-        const saved = localStorage.getItem('unreadMessages');
+        const saved = localStorage.getItem("unreadMessages");
         return saved ? JSON.parse(saved) : {};
     });
 
@@ -39,18 +47,22 @@ export default function InboxPopup({ auth, users = [], onClose }) {
 
         // Set up periodic sync
         const interval = setInterval(() => {
-            axios.get('/unread-count')
-                .then(response => {
+            axios
+                .get("/unread-count")
+                .then((response) => {
                     const newUnreadCounts = response.data.unread_count;
-                    setUnreadMessages(prev => {
+                    setUnreadMessages((prev) => {
                         const updated = { ...prev, ...newUnreadCounts };
                         // Save to localStorage whenever counts are updated
-                        localStorage.setItem('unreadMessages', JSON.stringify(updated));
+                        localStorage.setItem(
+                            "unreadMessages",
+                            JSON.stringify(updated),
+                        );
                         return updated;
                     });
                 })
-                .catch(error => {
-                    console.error('Failed to fetch unread counts:', error);
+                .catch((error) => {
+                    console.error("Failed to fetch unread counts:", error);
                 });
         }, 10000); // Sync every 10 seconds
 
@@ -66,8 +78,8 @@ export default function InboxPopup({ auth, users = [], onClose }) {
             }
         };
 
-        window.addEventListener('resize', handleResize);
-        return () => window.removeEventListener('resize', handleResize);
+        window.addEventListener("resize", handleResize);
+        return () => window.removeEventListener("resize", handleResize);
     }, []);
 
     // Fetch initial data
@@ -75,8 +87,8 @@ export default function InboxPopup({ auth, users = [], onClose }) {
         try {
             setLoading(true);
             const [unreadResponse, lastMessagesData] = await Promise.all([
-                axios.get('/unread-count'),
-                fetchLastMessages()
+                axios.get("/unread-count"),
+                fetchLastMessages(),
             ]);
 
             // Initialize with all users to prevent missing counts
@@ -87,10 +99,13 @@ export default function InboxPopup({ auth, users = [], onClose }) {
 
             setUnreadMessages(initializedUnreadCounts);
             // Save to localStorage after initialization
-            localStorage.setItem('unreadMessages', JSON.stringify(initializedUnreadCounts));
+            localStorage.setItem(
+                "unreadMessages",
+                JSON.stringify(initializedUnreadCounts),
+            );
             setLastMessages(lastMessagesData);
         } catch (err) {
-            console.error('Failed to fetch initial data', err);
+            console.error("Failed to fetch initial data", err);
         } finally {
             setLoading(false);
         }
@@ -98,10 +113,10 @@ export default function InboxPopup({ auth, users = [], onClose }) {
 
     const fetchLastMessages = async () => {
         try {
-            const response = await axios.get('/messages/last-messages', {
+            const response = await axios.get("/messages/last-messages", {
                 params: {
-                    contact_ids: users.map(user => user.id)
-                }
+                    contact_ids: users.map((user) => user.id),
+                },
             });
 
             // Ensure the response is correctly formatted
@@ -110,30 +125,35 @@ export default function InboxPopup({ auth, users = [], onClose }) {
             }
 
             const formattedMessages = {};
-            Object.entries(response.data.lastMessages).forEach(([contactId, message]) => {
-                formattedMessages[contactId] = {
-                    id: message.id,
-                    sender_id: message.sender_id,
-                    recipient_id: message.recipient_id,
-                    message: message.message,
-                    is_read: message.is_read,
-                    created_at: message.created_at
-                };
-            });
+            Object.entries(response.data.lastMessages).forEach(
+                ([contactId, message]) => {
+                    formattedMessages[contactId] = {
+                        id: message.id,
+                        sender_id: message.sender_id,
+                        recipient_id: message.recipient_id,
+                        message: message.message,
+                        is_read: message.is_read,
+                        created_at: message.created_at,
+                    };
+                },
+            );
 
             return formattedMessages;
         } catch (err) {
-            console.error('Error fetching last messages:', err);
+            console.error("Error fetching last messages:", err);
             return {};
         }
     };
-
 
     // Handle visibility and focus changes
 
     useEffect(() => {
         const handleVisibilityChange = () => {
-            if (document.visibilityState === 'visible' && document.hasFocus() && selectedUserRef.current) {
+            if (
+                document.visibilityState === "visible" &&
+                document.hasFocus() &&
+                selectedUserRef.current
+            ) {
                 markMessagesAsRead();
             }
         };
@@ -144,12 +164,15 @@ export default function InboxPopup({ auth, users = [], onClose }) {
             }
         };
 
-        document.addEventListener('visibilitychange', handleVisibilityChange);
-        window.addEventListener('focus', handleFocus);
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+        window.addEventListener("focus", handleFocus);
 
         return () => {
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
-            window.removeEventListener('focus', handleFocus);
+            document.removeEventListener(
+                "visibilitychange",
+                handleVisibilityChange,
+            );
+            window.removeEventListener("focus", handleFocus);
         };
     }, []);
 
@@ -157,72 +180,89 @@ export default function InboxPopup({ auth, users = [], onClose }) {
     const connectWebSocket = () => {
         const channel = window.Echo.private(webSocketChannel);
 
-        channel.listen('.MessageSent', async (e) => {
-            if (e.message.sender_id === userId) return;
+        channel
+            .listen(".MessageSent", async (e) => {
+                if (e.message.sender_id === userId) return;
 
-            const isViewingChat = selectedUserRef.current?.id === e.message.sender_id;
+                const isViewingChat =
+                    selectedUserRef.current?.id === e.message.sender_id;
 
-            // Always update last message
-            setLastMessages(prev => ({
-                ...prev,
-                [e.message.sender_id]: e.message
-            }));
+                // Always update last message
+                setLastMessages((prev) => ({
+                    ...prev,
+                    [e.message.sender_id]: e.message,
+                }));
 
-            if (isViewingChat && document.hasFocus()) {
-                try {
-                    await axios.post(`/message/${e.message.sender_id}/read`, {
-                        message_ids: [e.message.id]
-                    });
-                    e.message.is_read = true;
+                if (isViewingChat && document.hasFocus()) {
+                    try {
+                        await axios.post(
+                            `/message/${e.message.sender_id}/read`,
+                            {
+                                message_ids: [e.message.id],
+                            },
+                        );
+                        e.message.is_read = true;
 
-                    // Decrement unread count if we're viewing
-                    setUnreadMessages(prev => {
+                        // Decrement unread count if we're viewing
+                        setUnreadMessages((prev) => {
+                            const updated = {
+                                ...prev,
+                                [e.message.sender_id]: Math.max(
+                                    0,
+                                    (prev[e.message.sender_id] || 0) - 1,
+                                ),
+                            };
+                            localStorage.setItem(
+                                "unreadMessages",
+                                JSON.stringify(updated),
+                            );
+                            return updated;
+                        });
+                    } catch (error) {
+                        console.error("Failed to mark message as read", error);
+                    }
+                } else if (!isViewingChat) {
+                    // Increment unread count if not viewing
+                    setUnreadMessages((prev) => {
                         const updated = {
                             ...prev,
-                            [e.message.sender_id]: Math.max(0, (prev[e.message.sender_id] || 0) - 1)
+                            [e.message.sender_id]:
+                                (prev[e.message.sender_id] || 0) + 1,
                         };
-                        localStorage.setItem('unreadMessages', JSON.stringify(updated));
+                        localStorage.setItem(
+                            "unreadMessages",
+                            JSON.stringify(updated),
+                        );
                         return updated;
                     });
-                } catch (error) {
-                    console.error('Failed to mark message as read', error);
                 }
-            } else if (!isViewingChat) {
-                // Increment unread count if not viewing
-                setUnreadMessages(prev => {
-                    const updated = {
-                        ...prev,
-                        [e.message.sender_id]: (prev[e.message.sender_id] || 0) + 1
-                    };
-                    localStorage.setItem('unreadMessages', JSON.stringify(updated));
-                    return updated;
-                });
-            }
 
-            if (isViewingChat) {
-                setCurrentMessages(prev => [...prev, e.message]);
-                scrollToBottom();
-            }
-        })
-            .listen('.MessagesRead', (e) => {
+                if (isViewingChat) {
+                    setCurrentMessages((prev) => [...prev, e.message]);
+                    scrollToBottom();
+                }
+            })
+            .listen(".MessagesRead", (e) => {
                 console.log("📩 MessagesRead event received:", e);
 
                 // Update current messages if in chat
-                setCurrentMessages(prev =>
-                    prev.map(msg =>
-                        e.message_ids.includes(msg.id) ? { ...msg, is_read: true } : msg
-                    )
+                setCurrentMessages((prev) =>
+                    prev.map((msg) =>
+                        e.message_ids.includes(msg.id)
+                            ? { ...msg, is_read: true }
+                            : msg,
+                    ),
                 );
 
                 // Update lastMessages for all affected conversations
-                setLastMessages(prev => {
+                setLastMessages((prev) => {
                     const updated = { ...prev };
-                    Object.keys(updated).forEach(senderId => {
+                    Object.keys(updated).forEach((senderId) => {
                         const lastMsg = updated[senderId];
                         if (lastMsg && e.message_ids.includes(lastMsg.id)) {
                             updated[senderId] = {
                                 ...lastMsg,
-                                is_read: true
+                                is_read: true,
                             };
                         }
                     });
@@ -231,15 +271,18 @@ export default function InboxPopup({ auth, users = [], onClose }) {
 
                 // Clear unread count if it's the current chat
                 if (selectedUserRef.current?.id === e.sender_id) {
-                    setUnreadMessages(prev => {
+                    setUnreadMessages((prev) => {
                         const updated = { ...prev };
                         delete updated[e.sender_id];
-                        localStorage.setItem('unreadMessages', JSON.stringify(updated));
+                        localStorage.setItem(
+                            "unreadMessages",
+                            JSON.stringify(updated),
+                        );
                         return updated;
                     });
                 }
             })
-            .listenForWhisper('typing', (e) => {
+            .listenForWhisper("typing", (e) => {
                 if (e.userId === selectedUserRef.current?.id) {
                     setIsTyping(e.isTyping);
                     clearTimeout(typingTimeoutRef.current);
@@ -251,7 +294,10 @@ export default function InboxPopup({ auth, users = [], onClose }) {
                 }
             });
 
-        return () => channel.stopListening('.MessageSent').stopListening('.MessagesRead');
+        return () =>
+            channel
+                .stopListening(".MessageSent")
+                .stopListening(".MessagesRead");
     };
 
     // Get messages for selected user
@@ -260,20 +306,22 @@ export default function InboxPopup({ auth, users = [], onClose }) {
 
         try {
             setLoading(true);
-            const { data } = await axios.get(`/message/${selectedUserRef.current.id}`);
+            const { data } = await axios.get(
+                `/message/${selectedUserRef.current.id}`,
+            );
 
             setCurrentMessages(data);
-            setLastMessages(prev => ({
+            setLastMessages((prev) => ({
                 ...prev,
-                [selectedUserRef.current.id]: data[data.length - 1] || null
+                [selectedUserRef.current.id]: data[data.length - 1] || null,
             }));
 
             if (selectedUserRef.current.id !== userId) {
                 await markMessagesAsRead();
             }
         } catch (err) {
-            setError('Failed to load messages');
-            console.error('Error:', err);
+            setError("Failed to load messages");
+            console.error("Error:", err);
         } finally {
             setLoading(false);
             scrollToBottom();
@@ -288,27 +336,31 @@ export default function InboxPopup({ auth, users = [], onClose }) {
             setLoading(true);
             setError(null);
 
-            const response = await axios.post(`/message/${selectedUserRef.current.id}`, {
-                message: messageInput
-            }, {
-                headers: {
-                    'X-Socket-ID': window.Echo.socketId()
-                }
-            });
+            const response = await axios.post(
+                `/message/${selectedUserRef.current.id}`,
+                {
+                    message: messageInput,
+                },
+                {
+                    headers: {
+                        "X-Socket-ID": window.Echo.socketId(),
+                    },
+                },
+            );
 
-            setMessageInput('');
+            setMessageInput("");
             const newMessage = response.data.message;
 
-            setCurrentMessages(prev => [...prev, newMessage]);
-            setLastMessages(prev => ({
+            setCurrentMessages((prev) => [...prev, newMessage]);
+            setLastMessages((prev) => ({
                 ...prev,
-                [selectedUserRef.current.id]: newMessage
+                [selectedUserRef.current.id]: newMessage,
             }));
 
             scrollToBottom();
         } catch (err) {
-            setError(err.response?.data?.message || 'Failed to send message');
-            console.error('Error:', err);
+            setError(err.response?.data?.message || "Failed to send message");
+            console.error("Error:", err);
         } finally {
             setLoading(false);
         }
@@ -322,45 +374,48 @@ export default function InboxPopup({ auth, users = [], onClose }) {
             const params = forceAll ? {} : { is_read: false };
             const { data: messages } = await axios.get(
                 `/message/${selectedUserRef.current.id}`,
-                { params }
+                { params },
             );
 
             const messagesToMark = forceAll
                 ? messages
-                : messages.filter(msg => !msg.is_read && msg.sender_id !== userId);
+                : messages.filter(
+                      (msg) => !msg.is_read && msg.sender_id !== userId,
+                  );
 
             if (messagesToMark.length === 0) return;
 
-            const messageIds = messagesToMark.map(msg => msg.id);
+            const messageIds = messagesToMark.map((msg) => msg.id);
 
             // Optimistic updates
-            setCurrentMessages(prev =>
-                prev.map(msg =>
-                    messageIds.includes(msg.id) ? { ...msg, is_read: true } : msg
-                )
+            setCurrentMessages((prev) =>
+                prev.map((msg) =>
+                    messageIds.includes(msg.id)
+                        ? { ...msg, is_read: true }
+                        : msg,
+                ),
             );
 
-            setLastMessages(prev => ({
+            setLastMessages((prev) => ({
                 ...prev,
                 [selectedUserRef.current.id]: {
                     ...(prev[selectedUserRef.current.id] || {}),
-                    is_read: true
-                }
+                    is_read: true,
+                },
             }));
 
             // Clear unread count for this contact
-            setUnreadMessages(prev => ({
+            setUnreadMessages((prev) => ({
                 ...prev,
-                [selectedUserRef.current.id]: 0
+                [selectedUserRef.current.id]: 0,
             }));
 
             await axios.post(`/message/${selectedUserRef.current.id}/read`, {
                 message_ids: messageIds,
-                force_all: forceAll
+                force_all: forceAll,
             });
-
         } catch (error) {
-            console.error('Failed to mark messages as read', error);
+            console.error("Failed to mark messages as read", error);
         }
     };
 
@@ -381,29 +436,29 @@ export default function InboxPopup({ auth, users = [], onClose }) {
         return new Date(bTime) - new Date(aTime);
     });
 
-    const filteredUsers = sortedUsers.filter(user =>
-        user.name.toLowerCase().includes(searchQuery.toLowerCase())
+    const filteredUsers = sortedUsers.filter((user) =>
+        user.name.toLowerCase().includes(searchQuery.toLowerCase()),
     );
 
     const handleTyping = () => {
         if (!selectedUserRef.current?.id) return;
         const channel = window.Echo.private(webSocketChannel);
-        channel.whisper('typing', {
+        channel.whisper("typing", {
             userId: auth.user.id,
-            isTyping: true
+            isTyping: true,
         });
         clearTimeout(typingTimeoutRef.current);
         typingTimeoutRef.current = setTimeout(() => {
-            channel.whisper('typing', {
+            channel.whisper("typing", {
                 userId: auth.user.id,
-                isTyping: false
+                isTyping: false,
             });
             setIsTyping(false);
         }, 2000);
     };
 
     const handleKeyDown = (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
+        if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             sendMessage();
         }
@@ -448,12 +503,23 @@ export default function InboxPopup({ auth, users = [], onClose }) {
                                 onClick={() => setShowContactList(true)}
                                 className="mr-2 p-1 rounded-full hover:bg-gray-100 text-gray-600 transition duration-150"
                             >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                    <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
+                                <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    className="h-5 w-5"
+                                    viewBox="0 0 20 20"
+                                    fill="currentColor"
+                                >
+                                    <path
+                                        fillRule="evenodd"
+                                        d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z"
+                                        clipRule="evenodd"
+                                    />
                                 </svg>
                             </button>
                         )}
-                        <h2 className="text-lg font-semibold text-gray-800">Messages</h2>
+                        <h2 className="text-lg font-semibold text-gray-800">
+                            Messages
+                        </h2>
                     </div>
                     <button
                         onClick={onClose}
@@ -466,7 +532,9 @@ export default function InboxPopup({ auth, users = [], onClose }) {
                 <div className="flex flex-1 overflow-hidden">
                     {/* Contact List */}
                     {(showContactList || !isMobileView) && (
-                        <div className={`${isMobileView ? 'absolute inset-0 z-10 bg-white' : 'w-1/3'} border-r border-gray-200 flex flex-col`}>
+                        <div
+                            className={`${isMobileView ? "absolute inset-0 z-10 bg-white" : "w-1/3"} border-r border-gray-200 flex flex-col`}
+                        >
                             <div className="p-4 border-b border-gray-200">
                                 <div className="relative">
                                     <input
@@ -474,7 +542,9 @@ export default function InboxPopup({ auth, users = [], onClose }) {
                                         placeholder="Search contacts..."
                                         className="w-full px-4 py-2 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 pl-10"
                                         value={searchQuery}
-                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        onChange={(e) =>
+                                            setSearchQuery(e.target.value)
+                                        }
                                     />
                                     <FiSearch className="absolute left-3 top-3 text-gray-500" />
                                 </div>
@@ -482,14 +552,22 @@ export default function InboxPopup({ auth, users = [], onClose }) {
                             <div className="overflow-y-auto flex-grow">
                                 <div className="divide-y divide-gray-200">
                                     {filteredUsers.length > 0 ? (
-                                        filteredUsers.map(user => (
+                                        filteredUsers.map((user) => (
                                             <ContactItem
                                                 key={user.id}
                                                 user={user}
-                                                isActive={selectedUser?.id === user.id}
-                                                onClick={() => setSelectedUser(user)}
-                                                unreadCount={unreadMessages[user.id] || 0}
-                                                lastMessage={lastMessages[user.id]}
+                                                isActive={
+                                                    selectedUser?.id === user.id
+                                                }
+                                                onClick={() =>
+                                                    setSelectedUser(user)
+                                                }
+                                                unreadCount={
+                                                    unreadMessages[user.id] || 0
+                                                }
+                                                lastMessage={
+                                                    lastMessages[user.id]
+                                                }
                                                 currentUserId={userId}
                                             />
                                         ))
@@ -504,18 +582,31 @@ export default function InboxPopup({ auth, users = [], onClose }) {
                     )}
 
                     {/* Chat Area */}
-                    <div className={`${isMobileView && showContactList ? 'hidden' : 'flex'} w-full md:w-2/3 flex flex-col`}>
+                    <div
+                        className={`${isMobileView && showContactList ? "hidden" : "flex"} w-full md:w-2/3 flex flex-col`}
+                    >
                         {selectedUser ? (
                             <>
                                 <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between bg-white">
                                     <div className="flex items-center">
                                         {isMobileView && (
                                             <button
-                                                onClick={() => setShowContactList(true)}
+                                                onClick={() =>
+                                                    setShowContactList(true)
+                                                }
                                                 className="mr-2 p-1 rounded-full hover:bg-gray-100 text-gray-600 transition duration-150"
                                             >
-                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                    <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
+                                                <svg
+                                                    xmlns="http://www.w3.org/2000/svg"
+                                                    className="h-5 w-5"
+                                                    viewBox="0 0 20 20"
+                                                    fill="currentColor"
+                                                >
+                                                    <path
+                                                        fillRule="evenodd"
+                                                        d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z"
+                                                        clipRule="evenodd"
+                                                    />
                                                 </svg>
                                             </button>
                                         )}
@@ -529,17 +620,28 @@ export default function InboxPopup({ auth, users = [], onClose }) {
                                             </p>
                                             <p className="text-xs text-gray-500">
                                                 {isTyping ? (
-                                                    <span className="text-blue-500">Typing...</span>
-                                                ) : selectedUser.status === "online" ? (
-                                                    <span className="text-green-500">Online</span>
+                                                    <span className="text-blue-500">
+                                                        Typing...
+                                                    </span>
+                                                ) : selectedUser.status ===
+                                                  "online" ? (
+                                                    <span className="text-green-500">
+                                                        Online
+                                                    </span>
                                                 ) : (
                                                     <span className="text-gray-500">
-                                                        Last seen {selectedUser.last_online ?
-                                                            new Date(selectedUser.last_online).toLocaleTimeString([], {
-                                                                hour: '2-digit',
-                                                                minute: '2-digit'
-                                                            }) :
-                                                            'unknown'}
+                                                        Last seen{" "}
+                                                        {selectedUser.last_online
+                                                            ? new Date(
+                                                                  selectedUser.last_online,
+                                                              ).toLocaleTimeString(
+                                                                  [],
+                                                                  {
+                                                                      hour: "2-digit",
+                                                                      minute: "2-digit",
+                                                                  },
+                                                              )
+                                                            : "unknown"}
                                                     </span>
                                                 )}
                                             </p>
@@ -557,20 +659,41 @@ export default function InboxPopup({ auth, users = [], onClose }) {
                                         </div>
                                     ) : currentMessages.length === 0 ? (
                                         <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                                            <svg
+                                                xmlns="http://www.w3.org/2000/svg"
+                                                className="h-12 w-12 mb-2"
+                                                fill="none"
+                                                viewBox="0 0 24 24"
+                                                stroke="currentColor"
+                                            >
+                                                <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    strokeWidth={1.5}
+                                                    d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+                                                />
                                             </svg>
                                             <p>No messages yet</p>
-                                            <p className="text-sm">Start the conversation</p>
+                                            <p className="text-sm">
+                                                Start the conversation
+                                            </p>
                                         </div>
                                     ) : (
-                                        [...currentMessages].map((message, index) => (
-                                            <ChatMessage
-                                                key={message.id || `msg-${index}`}
-                                                message={message}
-                                                isUser={message.sender_id === userId}
-                                            />
-                                        ))
+                                        [...currentMessages].map(
+                                            (message, index) => (
+                                                <ChatMessage
+                                                    key={
+                                                        message.id ||
+                                                        `msg-${index}`
+                                                    }
+                                                    message={message}
+                                                    isUser={
+                                                        message.sender_id ===
+                                                        userId
+                                                    }
+                                                />
+                                            ),
+                                        )
                                     )}
                                     <div ref={messagesEndRef} />
                                 </div>
@@ -581,25 +704,66 @@ export default function InboxPopup({ auth, users = [], onClose }) {
                                             <div className="grid grid-cols-4 gap-2">
                                                 <button className="p-3 rounded-lg hover:bg-gray-100 flex flex-col items-center">
                                                     <FiPaperclip className="h-5 w-5 mb-1" />
-                                                    <span className="text-xs">Document</span>
+                                                    <span className="text-xs">
+                                                        Document
+                                                    </span>
                                                 </button>
                                                 <button className="p-3 rounded-lg hover:bg-gray-100 flex flex-col items-center">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                                    <svg
+                                                        xmlns="http://www.w3.org/2000/svg"
+                                                        className="h-5 w-5 mb-1"
+                                                        fill="none"
+                                                        viewBox="0 0 24 24"
+                                                        stroke="currentColor"
+                                                    >
+                                                        <path
+                                                            strokeLinecap="round"
+                                                            strokeLinejoin="round"
+                                                            strokeWidth={2}
+                                                            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                                                        />
                                                     </svg>
-                                                    <span className="text-xs">Photo</span>
+                                                    <span className="text-xs">
+                                                        Photo
+                                                    </span>
                                                 </button>
                                                 <button className="p-3 rounded-lg hover:bg-gray-100 flex flex-col items-center">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                                    <svg
+                                                        xmlns="http://www.w3.org/2000/svg"
+                                                        className="h-5 w-5 mb-1"
+                                                        fill="none"
+                                                        viewBox="0 0 24 24"
+                                                        stroke="currentColor"
+                                                    >
+                                                        <path
+                                                            strokeLinecap="round"
+                                                            strokeLinejoin="round"
+                                                            strokeWidth={2}
+                                                            d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
+                                                        />
                                                     </svg>
-                                                    <span className="text-xs">Video</span>
+                                                    <span className="text-xs">
+                                                        Video
+                                                    </span>
                                                 </button>
                                                 <button className="p-3 rounded-lg hover:bg-gray-100 flex flex-col items-center">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                                                    <svg
+                                                        xmlns="http://www.w3.org/2000/svg"
+                                                        className="h-5 w-5 mb-1"
+                                                        fill="none"
+                                                        viewBox="0 0 24 24"
+                                                        stroke="currentColor"
+                                                    >
+                                                        <path
+                                                            strokeLinecap="round"
+                                                            strokeLinejoin="round"
+                                                            strokeWidth={2}
+                                                            d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+                                                        />
                                                     </svg>
-                                                    <span className="text-xs">Audio</span>
+                                                    <span className="text-xs">
+                                                        Audio
+                                                    </span>
                                                 </button>
                                             </div>
                                         </div>
@@ -623,7 +787,9 @@ export default function InboxPopup({ auth, users = [], onClose }) {
                                         <div className="relative hidden sm:block">
                                             <EmojiPicker
                                                 onSelect={(emoji) => {
-                                                    setMessageInput(prev => prev + emoji);
+                                                    setMessageInput(
+                                                        (prev) => prev + emoji,
+                                                    );
                                                     inputRef.current?.focus();
                                                 }}
                                             />
@@ -645,7 +811,9 @@ export default function InboxPopup({ auth, users = [], onClose }) {
 
                                         <button
                                             type="submit"
-                                            disabled={loading || !messageInput.trim()}
+                                            disabled={
+                                                loading || !messageInput.trim()
+                                            }
                                             className="p-2 bg-blue-600 rounded-full text-white hover:bg-blue-700 transition duration-150 disabled:opacity-50"
                                         >
                                             <FiSend className="h-5 w-5" />
@@ -661,11 +829,26 @@ export default function InboxPopup({ auth, users = [], onClose }) {
                         ) : (
                             <div className="flex-grow flex items-center justify-center bg-gray-50">
                                 <div className="text-center p-6">
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                                    <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        className="h-12 w-12 mx-auto text-gray-400"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth={1.5}
+                                            d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+                                        />
                                     </svg>
-                                    <h3 className="mt-2 text-lg font-medium text-gray-900">No conversation selected</h3>
-                                    <p className="mt-1 text-gray-500">Select a contact to start chatting</p>
+                                    <h3 className="mt-2 text-lg font-medium text-gray-900">
+                                        No conversation selected
+                                    </h3>
+                                    <p className="mt-1 text-gray-500">
+                                        Select a contact to start chatting
+                                    </p>
                                 </div>
                             </div>
                         )}

@@ -1,11 +1,14 @@
-import ApplicationLogo from '@/Components/ApplicationLogo';
-import { Link } from '@inertiajs/react';
+import ApplicationLogo from "@/Components/ApplicationLogo";
+import { Link } from "@inertiajs/react";
 
 export default function GuestLayout({ children }) {
     return (
         <div className="flex min-h-screen">
             {/* Left Section - Background Image */}
-            <div className="hidden lg:flex w-1/2 h-screen bg-cover bg-center" style={{ backgroundImage: "url('background-image.jpg')" }}>
+            <div
+                className="hidden lg:flex w-1/2 h-screen bg-cover bg-center"
+                style={{ backgroundImage: "url('background-image.jpg')" }}
+            >
                 {/* Overlay */}
                 <div className="w-full h-full bg-black/40"></div>
             </div>
