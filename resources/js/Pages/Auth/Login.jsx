@@ -5,7 +5,7 @@ import PrimaryButton from "@/Components/PrimaryButton";
 import TextInput from "@/Components/TextInput";
 import GuestLayout from "@/Layouts/GuestLayout";
 import { Head, Link, useForm } from "@inertiajs/react";
-import React from "react";
+import React, { useEffect } from "react";
 
 export default function Login({ status, canResetPassword }) {
     const { data, setData, post, processing, errors, reset } = useForm({
@@ -14,8 +14,24 @@ export default function Login({ status, canResetPassword }) {
         remember: false,
     });
 
+    // On mount, check localStorage for remembered email
+    useEffect(() => {
+        const rememberedEmail = localStorage.getItem("rememberedEmail");
+        if (rememberedEmail) {
+            setData("email", rememberedEmail);
+            setData("remember", true);
+        }
+    }, []);
+
     const submit = (e) => {
         e.preventDefault();
+
+        // Save or remove email in localStorage based on "remember" checkbox
+        if (data.remember) {
+            localStorage.setItem("rememberedEmail", data.email);
+        } else {
+            localStorage.removeItem("rememberedEmail");
+        }
 
         post(route("login"), {
             onFinish: () => reset("password"),
