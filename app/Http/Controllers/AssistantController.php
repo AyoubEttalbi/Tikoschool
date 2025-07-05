@@ -260,7 +260,27 @@ class AssistantController extends Controller
          try {
              // Get the assistant
              $assistant = Assistant::with(['schools'])->findOrFail($id);
-             
+
+             // Get the assistant's user (for user_id in transactions)
+             $assistantUser = \App\Models\User::where('email', $assistant->email)->first();
+             $transactions = collect();
+             if ($assistantUser) {
+                 $transactions = \App\Models\Transaction::where('user_id', $assistantUser->id)->get();
+                 // Mark recurring transactions as paid_this_month if a corresponding one-time payment exists
+                 $currentMonth = now()->format('Y-m');
+                 $startDate = \Carbon\Carbon::parse($currentMonth . '-01')->startOfMonth();
+                 $endDate = \Carbon\Carbon::parse($currentMonth . '-01')->endOfMonth();
+                 foreach ($transactions as $transaction) {
+                     if ($transaction->is_recurring) {
+                         $isPaidThisMonth = \App\Models\Transaction::where('is_recurring', 0)
+                             ->where('description', 'like', '%(Recurring payment from #' . $transaction->id . ')%')
+                             ->whereBetween('payment_date', [$startDate, $endDate])
+                             ->exists();
+                         $transaction->paid_this_month = $isPaidThisMonth;
+                     }
+                 }
+             }
+
              // Get selected school from session or default to first school
              $selectedSchoolId = session('school_id');
              if (!$selectedSchoolId && $assistant->schools->isNotEmpty()) {
@@ -699,7 +719,8 @@ class AssistantController extends Controller
              ]);
 
              return Inertia::render('Menu/SingleAssistantPage', [
-                 'assistant' => $assistant,
+                 'assistant' => $assistantUser ? array_merge($assistant->toArray(), ['user_id' => $assistantUser->id]) : $assistant,
+                 'transactions' => $transactions,
                  'announcements' => $announcements,
                  'classes' => $classes,
                  'subjects' => $subjects,

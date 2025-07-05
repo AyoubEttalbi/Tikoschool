@@ -16,6 +16,7 @@ const SingleTeacherPage = ({
     selectedSchool,
     teacherSchools = [],
     recurringTransactions = [],
+    transactions,
 }) => {
     const role = usePage().props.auth.user.role;
     const isAdmin = role === "admin";
@@ -219,7 +220,7 @@ const SingleTeacherPage = ({
                             paginate={
                                 invoices && invoices.links ? invoices.links : []
                             }
-                            recurringTransactions={recurringTransactions}
+                            transactions={transactions}
                             teacher={teacher}
                         />
                     </Suspense>

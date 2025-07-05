@@ -7,6 +7,7 @@ import { Link, usePage, router } from "@inertiajs/react";
 import Pagination from "@/Components/Pagination";
 import ActivityLogs from "@/Components/ActivityLogs";
 import InvoiceModal from "@/Components/InvoiceModal";
+import AssistantProfile from "@/Components/AssistantProfile";
 import {
     AlertCircle,
     AlertTriangle,
@@ -39,6 +40,7 @@ const SingleAssistantPage = ({
         students_count: 0,
         classes_count: 0,
     },
+    transactions,
 }) => {
     const role = usePage().props.auth.user.role;
     
@@ -313,8 +315,11 @@ const SingleAssistantPage = ({
                     </div>
                 </div>
 
+                
+
                 {/* FEATURE TABS */}
                 <div className="mt-4 bg-white rounded-md p-4">
+                    
                     <div className="border-b border-gray-200 mb-4">
                         <nav className="-mb-px flex overflow-x-auto pb-1">
                             <TabButton
@@ -608,7 +613,8 @@ const SingleAssistantPage = ({
                         )}
                     </div>
                 </div>
-
+                  {/* Assistant Profile */}
+                <AssistantProfile assistant={assistant} transactions={transactions} />      
                 {/* ACTIVITY LOGS */}
                 {role === "admin" && (
                     <div className="flex flex-col gap-4 mt-4">

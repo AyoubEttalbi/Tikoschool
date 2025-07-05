@@ -85,14 +85,14 @@ const formatDate = (dateString) => {
 
 const ITEMS_PER_PAGE = 10;
 
-const RecurringPaymentsCard = ({ transactions = [], userId }) => {
+const AssistantPaymentsCard = ({ transactions = [], userId }) => {
     const [isLoading, setIsLoading] = useState(true);
     const [currentPage, setCurrentPage] = useState(1);
-
+    console.log('userId', userId, 'transactions', transactions);
     // Memoize filtered transactions to avoid unnecessary updates
     const filteredTransactions = useMemo(() => {
-        if (!transactions) return [];
-        return transactions.filter((transaction) => transaction.user_id === userId);
+        if (!transactions || !userId) return [];
+        return transactions.filter((transaction) => String(transaction.user_id) === String(userId));
     }, [transactions, userId]);
 
     const totalPages = Math.ceil(filteredTransactions.length / ITEMS_PER_PAGE);
@@ -178,4 +178,4 @@ const RecurringPaymentsCard = ({ transactions = [], userId }) => {
     );
 };
 
-export default RecurringPaymentsCard;
+export default AssistantPaymentsCard;

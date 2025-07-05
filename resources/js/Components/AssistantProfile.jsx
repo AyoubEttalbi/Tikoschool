@@ -1,20 +1,22 @@
 import React, { Suspense, lazy } from "react";
 
-const RecurringPaymentsCard = lazy(() => import("./RecurringPaymentsCard"));
+const AssistantPaymentsCard = lazy(() => import("./AssistantPaymentsCard"));
 
 export default function AssistantProfile({
     assistant = {},
-    recurringTransactions = [],
+    transactions = [],
 }) {
+    console.log('transactions', transactions);
+    console.log('assistant.user_id', assistant.user_id);
     return (
         <div className="space-y-6">
-            {/* Section des paiements récurrents */}
-            {recurringTransactions && recurringTransactions.length > 0 && (
+            {/* Section des paiements */}
+            {transactions && transactions.length > 0 && (
                 <div className="mb-6">
                     <Suspense fallback={<span>Chargement...</span>}>
-                        <RecurringPaymentsCard
-                            recurringTransactions={recurringTransactions}
-                            userId={assistant.id}
+                        <AssistantPaymentsCard
+                            transactions={transactions}
+                            userId={assistant.user_id}
                         />
                     </Suspense>
                 </div>

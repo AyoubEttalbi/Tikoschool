@@ -7,7 +7,6 @@ import Select from "react-select";
 import { useState } from "react";
 import Register from "@/Pages/Auth/Register";
 import { ChevronDown, ChevronUp, Upload } from "lucide-react";
-import UserForm from "./UserForm";
 
 // Définir le schéma de validation
 const schema = z.object({
@@ -40,7 +39,6 @@ const AssistantForm = ({ type, data, schools, setOpen, selectedSchool }) => {
         watch,
         setValue,
         formState: { errors, isSubmitting },
-        getValues,
     } = useForm({
         resolver: zodResolver(schema),
         defaultValues: {
@@ -133,43 +131,12 @@ const AssistantForm = ({ type, data, schools, setOpen, selectedSchool }) => {
     const firstName = watch("first_name");
     const lastName = watch("last_name");
     const email = watch("email");
-    const phone = watch("phone_number");
-    const address = watch("address");
-    const status = watch("status");
-    const salary = watch("salary");
-    const schoolsVal = watch("schools_assistant");
 
-    const isAssistantFormComplete =
-        firstName?.trim() &&
-        lastName?.trim() &&
-        email?.trim() &&
-        /^\S+@\S+\.\S+$/.test(email) &&
-        phone?.trim() &&
-        address?.trim() &&
-        status &&
-        salary !== undefined && salary !== null && salary !== "" && !isNaN(salary) && Number(salary) >= 0 &&
-        Array.isArray(schoolsVal) && schoolsVal.length > 0;
-
-    function generateStrongPassword() {
-        const length = 18;
-        const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+~`|}{[]:;?><,./-=";
-        let password = "";
-        for (let i = 0, n = charset.length; i < length; ++i) {
-            password += charset.charAt(Math.floor(Math.random() * n));
-        }
-        return password;
-    }
-
-    const [userModalOpen, setUserModalOpen] = useState(false);
-    const [userFormData, setUserFormData] = useState({
-        name: `${data?.first_name || ""} ${data?.last_name || ""}`.trim(),
-        email: data?.email || "",
-        password: "",
-        password_confirmation: "",
-        role: "assistant",
-    });
-    const [userFormErrors, setUserFormErrors] = useState({});
-    const [userFormProcessing, setUserFormProcessing] = useState(false);
+    // Prepare user data for the Register component
+    const userData = {
+        name: `${firstName} ${lastName}`,
+        email: email,
+    };
 
     return (
         <div className="flex flex-col gap-4">
@@ -325,19 +292,14 @@ const AssistantForm = ({ type, data, schools, setOpen, selectedSchool }) => {
                     </div>
                     <button
                         type="button"
-                        onClick={() => {
-                            setUserFormData(prev => ({
-                                ...prev,
-                                name: `${firstName || ""} ${lastName || ""}`.trim(),
-                                email: email || "",
-                            }));
-                            setUserModalOpen(true);
-                        }}
-                        className={`items-center mt-7 h-10 inline-flex gap-2 px-4 py-2 rounded-md shadow-sm transition-all
-                            ${isAssistantFormComplete ? "bg-blue-500 hover:bg-blue-600 text-white cursor-pointer" : "bg-gray-300 text-gray-500 cursor-not-allowed"}`}
-                        disabled={!isAssistantFormComplete}
+                        onClick={() => setIsModalOpen(!isModalOpen)}
+                        className="items-center mt-7 h-10 inline-flex gap-2 bg-blue-500 hover:bg-blue-600 transition-all text-white px-4 py-2 rounded-md shadow-sm"
                     >
-                        <ChevronDown className="w-4 h-4" />
+                        {isModalOpen ? (
+                            <ChevronUp className="w-4 h-4" />
+                        ) : (
+                            <ChevronDown className="w-4 h-4" />
+                        )}
                         <span>Ajouter un utilisateur</span>
                     </button>
                 </div>
@@ -377,104 +339,14 @@ const AssistantForm = ({ type, data, schools, setOpen, selectedSchool }) => {
                     )}
                 </button>
             </form>
-            {userModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-                    <div className="bg-white rounded-lg shadow-lg w-full max-w-md relative">
-                        <button
-                            onClick={() => setUserModalOpen(false)}
-                            className="absolute top-3 right-3 text-gray-500 hover:text-gray-700"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        </button>
-                        <div className="p-6">
-                            <h2 className="text-2xl font-bold text-center mb-4">Créer un utilisateur</h2>
-                            <UserForm
-                                data={userFormData}
-                                setData={(key, value) => setUserFormData(prev => ({ ...prev, [key]: value }))}
-                                errors={userFormErrors}
-                                processing={userFormProcessing}
-                                onSubmit={async (e) => {
-                                    e.preventDefault();
-                                    setUserFormProcessing(true);
-                                    setUserFormErrors({});
-                                    // Validate assistant form
-                                    let assistantValid = false;
-                                    await handleSubmit((assistantData) => {
-                                        assistantValid = true;
-                                    })();
-                                    // Validate user form (simple front validation)
-                                    let userValid = true;
-                                    let userErrors = {};
-                                    if (!userFormData.name) { userErrors.name = "Le nom est requis"; userValid = false; }
-                                    if (!userFormData.email) { userErrors.email = "L'email est requis"; userValid = false; }
-                                    if (!userFormData.password) { userErrors.password = "Le mot de passe est requis"; userValid = false; }
-                                    if (userFormData.password !== userFormData.password_confirmation) { userErrors.password_confirmation = "Les mots de passe ne correspondent pas"; userValid = false; }
-                                    if (!userFormData.role) { userErrors.role = "Le rôle est requis"; userValid = false; }
-                                    setUserFormErrors(userErrors);
-                                    if (!assistantValid || !userValid) {
-                                        setUserFormProcessing(false);
-                                        return;
-                                    }
-                                    // Prepare combined data
-                                    const assistantData = getValues();
-                                    const formDataObj = new FormData();
-                                    formDataObj.append("user[name]", userFormData.name);
-                                    formDataObj.append("user[email]", userFormData.email);
-                                    formDataObj.append("user[password]", userFormData.password);
-                                    formDataObj.append("user[password_confirmation]", userFormData.password_confirmation);
-                                    formDataObj.append("user[role]", userFormData.role);
-                                    formDataObj.append("assistant[first_name]", assistantData.first_name);
-                                    formDataObj.append("assistant[last_name]", assistantData.last_name);
-                                    formDataObj.append("assistant[phone_number]", assistantData.phone_number);
-                                    formDataObj.append("assistant[email]", assistantData.email);
-                                    formDataObj.append("assistant[address]", assistantData.address);
-                                    formDataObj.append("assistant[status]", assistantData.status);
-                                    formDataObj.append("assistant[salary]", assistantData.salary);
-                                    if (assistantData.profile_image) {
-                                        formDataObj.append("assistant[profile_image]", assistantData.profile_image);
-                                    }
-                                    assistantData.schools_assistant?.forEach((school, index) => {
-                                        formDataObj.append(`assistant[schools][${index}]`, school.id);
-                                    });
-                                    router.post("/assistants-with-user", formDataObj, {
-                                        preserveScroll: true,
-                                        forceFormData: true,
-                                        onSuccess: (page) => {
-                                            setUserModalOpen(false);
-                                            setUserFormProcessing(false);
-                                            setOpen(false);
-                                            if (page?.props?.success || (typeof page === 'object' && page.success)) {
-                                                router.visit('/assistants');
-                                            }
-                                        },
-                                        onError: (errors) => {
-                                            const userErrs = {};
-                                            const assistantErrs = {};
-                                            Object.entries(errors).forEach(([key, val]) => {
-                                                if (key.startsWith("user.")) userErrs[key.replace("user.", "")] = val;
-                                                if (key.startsWith("assistant.")) assistantErrs[key.replace("assistant.", "")] = val;
-                                            });
-                                            setUserFormErrors(userErrs);
-                                            setUserFormProcessing(false);
-                                        },
-                                    });
-                                }}
-                                onPasswordAction={(field) => {
-                                    if (field === "password") {
-                                        const newPassword = generateStrongPassword();
-                                        setUserFormData(prev => ({
-                                            ...prev,
-                                            password: newPassword,
-                                            password_confirmation: newPassword,
-                                        }));
-                                    }
-                                }}
-                            />
-                        </div>
-                    </div>
-                </div>
+            {isModalOpen && (
+                <Register
+                    setIsModalOpen={setIsModalOpen}
+                    table="assistants"
+                    role={"assistant"}
+                    isModalOpen={isModalOpen}
+                    UserData={userData}
+                />
             )}
         </div>
     );

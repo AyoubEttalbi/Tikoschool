@@ -34,7 +34,9 @@ import {
 } from "@/Components/ui/popover";
 import { Badge } from "@/Components/ui/badge";
 import { Button } from "@/Components/ui/button";
+import Register from "@/Pages/Auth/Register";
 import UserForm from "./UserForm";
+import Modal from "@/Components/Modal";
 
 // Définir le schéma de validation
 const schema = z.object({
@@ -73,10 +75,10 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
         data?.profile_image || null,
     );
     const [loading, setLoading] = useState(false);
-    const [userModalOpen, setUserModalOpen] = useState(false);
+    const [isUserModalOpen, setIsUserModalOpen] = useState(false);
     const [userFormData, setUserFormData] = useState({
-        name: `${data?.first_name || ""} ${data?.last_name || ""}`.trim(),
-        email: data?.email || "",
+        name: "",
+        email: "",
         password: "",
         password_confirmation: "",
         role: "teacher",
@@ -90,8 +92,8 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
         control,
         setValue,
         watch,
+        trigger, // <-- add trigger for validation
         formState: { errors },
-        getValues,
     } = useForm({
         resolver: zodResolver(schema),
         defaultValues: {
@@ -113,23 +115,6 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
     const firstName = watch("firstName");
     const lastName = watch("lastName");
     const email = watch("email");
-    const status = watch("status");
-    const wallet = watch("wallet");
-    const subjectsVal = watch("subjects");
-    const classesVal = watch("classes");
-    const schoolsVal = watch("schools");
-
-    // Check if all required fields are filled
-    const isTeacherFormComplete =
-        firstName?.trim() &&
-        lastName?.trim() &&
-        email?.trim() &&
-        /^\S+@\S+\.\S+$/.test(email) &&
-        status &&
-        wallet !== undefined && wallet !== null && wallet !== "" && !isNaN(wallet) && Number(wallet) >= 0 &&
-        Array.isArray(subjectsVal) && subjectsVal.length > 0 &&
-        Array.isArray(classesVal) && classesVal.length > 0 &&
-        Array.isArray(schoolsVal) && schoolsVal.length > 0;
 
     // Prepare user data for the Register component
     const userData = {
@@ -251,17 +236,6 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
         setSelection(newSelection);
         setValue(fieldName, newSelection);
     };
-
-    // Add password generator
-    function generateStrongPassword() {
-        const length = 18;
-        const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+~`|}{[]:;?><,./-=";
-        let password = "";
-        for (let i = 0, n = charset.length; i < length; ++i) {
-            password += charset.charAt(Math.floor(Math.random() * n));
-        }
-        return password;
-    }
 
     return (
         <div className="flex flex-col gap-4">
@@ -677,19 +651,9 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
                     </div>
                     <button
                         type="button"
-                        onClick={() => {
-                            setUserFormData(prev => ({
-                                ...prev,
-                                name: `${getValues("firstName") || ""} ${getValues("lastName") || ""}`.trim(),
-                                email: getValues("email") || "",
-                            }));
-                            setUserModalOpen(true);
-                        }}
-                        className={`items-center mt-7 h-10 inline-flex gap-2 px-4 py-2 rounded-md shadow-sm transition-all
-                            ${isTeacherFormComplete ? "bg-blue-500 hover:bg-blue-600 text-white cursor-pointer" : "bg-gray-300 text-gray-500 cursor-not-allowed"}`}
-                        disabled={!isTeacherFormComplete}
+                        onClick={() => setIsUserModalOpen(true)}
+                        className="items-center mt-7 h-10 inline-flex gap-2 bg-blue-500 hover:bg-blue-600 transition-all text-white px-4 py-2 rounded-md shadow-sm"
                     >
-                        <ChevronDown className="w-4 h-4" />
                         <span>Ajouter un utilisateur</span>
                     </button>
                 </div>
@@ -729,114 +693,108 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
                     )}
                 </button>
             </form>
-            {userModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-                    <div className="bg-white rounded-lg shadow-lg w-full max-w-md relative">
-                        <button
-                            onClick={() => setUserModalOpen(false)}
-                            className="absolute top-3 right-3 text-gray-500 hover:text-gray-700"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        </button>
-                        <div className="p-6">
-                            <h2 className="text-2xl font-bold text-center mb-4">Créer un utilisateur</h2>
-                            <UserForm
-                                data={userFormData}
-                                setData={(key, value) => setUserFormData(prev => ({ ...prev, [key]: value }))}
-                                errors={userFormErrors}
-                                processing={userFormProcessing}
-                                onSubmit={async (e) => {
-                                    e.preventDefault();
-                                    setUserFormProcessing(true);
-                                    setUserFormErrors({});
-                                    // Validate teacher form
-                                    let teacherValid = false;
-                                    await handleSubmit((teacherData) => {
-                                        teacherValid = true;
-                                    })();
-                                    // Validate user form (simple front validation)
-                                    let userValid = true;
-                                    let userErrors = {};
-                                    if (!userFormData.name) { userErrors.name = "Le nom est requis"; userValid = false; }
-                                    if (!userFormData.email) { userErrors.email = "L'email est requis"; userValid = false; }
-                                    if (!userFormData.password) { userErrors.password = "Le mot de passe est requis"; userValid = false; }
-                                    if (userFormData.password !== userFormData.password_confirmation) { userErrors.password_confirmation = "Les mots de passe ne correspondent pas"; userValid = false; }
-                                    if (!userFormData.role) { userErrors.role = "Le rôle est requis"; userValid = false; }
-                                    setUserFormErrors(userErrors);
-                                    if (!teacherValid || !userValid) {
-                                        setUserFormProcessing(false);
-                                        return;
-                                    }
-                                    // Prepare combined data
-                                    const teacherData = getValues();
-                                    const formDataObj = new FormData();
-                                    formDataObj.append("user[name]", userFormData.name);
-                                    formDataObj.append("user[email]", userFormData.email);
-                                    formDataObj.append("user[password]", userFormData.password);
-                                    formDataObj.append("user[password_confirmation]", userFormData.password_confirmation);
-                                    formDataObj.append("user[role]", userFormData.role);
-                                    formDataObj.append("teacher[first_name]", teacherData.firstName);
-                                    formDataObj.append("teacher[last_name]", teacherData.lastName);
-                                    formDataObj.append("teacher[address]", teacherData.address || "");
-                                    formDataObj.append("teacher[phone_number]", teacherData.phoneNumber || "");
-                                    formDataObj.append("teacher[email]", teacherData.email);
-                                    formDataObj.append("teacher[status]", teacherData.status);
-                                    formDataObj.append("teacher[wallet]", teacherData.wallet);
-                                    if (teacherData.profile_image) {
-                                        formDataObj.append("teacher[profile_image]", teacherData.profile_image);
-                                    }
-                                    teacherData.subjects?.forEach((subject, index) => {
-                                        formDataObj.append(`teacher[subjects][${index}]`, subject.id);
-                                    });
-                                    teacherData.classes?.forEach((cls, index) => {
-                                        formDataObj.append(`teacher[classes][${index}]`, cls.id);
-                                    });
-                                    teacherData.schools?.forEach((school, index) => {
-                                        formDataObj.append(`teacher[schools][${index}]`, school.id);
-                                    });
-                                    router.post("/teachers-with-user", formDataObj, {
-                                        preserveScroll: true,
-                                        forceFormData: true,
-                                        onSuccess: (page) => {
-                                            setUserModalOpen(false);
-                                            setUserFormProcessing(false);
-                                            setOpen(false);
-                                            // If the backend returns JSON (AJAX), manually redirect to teachers list
-                                            if (page?.props?.success || (typeof page === 'object' && page.success)) {
-                                                router.visit('/teachers');
-                                            }
-                                        },
-                                        onError: (errors) => {
-                                            // Split errors between user and teacher
-                                            const userErrs = {};
-                                            const teacherErrs = {};
-                                            Object.entries(errors).forEach(([key, val]) => {
-                                                if (key.startsWith("user.")) userErrs[key.replace("user.", "")] = val;
-                                                if (key.startsWith("teacher.")) teacherErrs[key.replace("teacher.", "")] = val;
-                                            });
-                                            setUserFormErrors(userErrs);
-                                            setError && setError(teacherErrs);
-                                            setUserFormProcessing(false);
-                                        },
-                                    });
-                                }}
-                                onPasswordAction={(field) => {
-                                    if (field === "password") {
-                                        const newPassword = generateStrongPassword();
-                                        setUserFormData(prev => ({
-                                            ...prev,
-                                            password: newPassword,
-                                            password_confirmation: newPassword,
-                                        }));
-                                    }
-                                }}
-                            />
-                        </div>
-                    </div>
+            <Modal show={isUserModalOpen} onClose={() => setIsUserModalOpen(false)}>
+                <div className="p-4">
+                    <h2 className="text-lg font-semibold mb-4">
+                        Créer un utilisateur pour l'enseignant
+                    </h2>
+                    <UserForm
+                        data={userFormData}
+                        setData={(key, value) =>
+                            setUserFormData((prev) => ({ ...prev, [key]: value }))
+                        }
+                        errors={userFormErrors}
+                        processing={userFormProcessing}
+                        onSubmit={async (e) => {
+                            e.preventDefault();
+                            setUserFormProcessing(true);
+                            setUserFormErrors({});
+                            // Validate both forms (user and teacher)
+                            const teacherValid = await trigger();
+                            // Simple user validation (add more as needed)
+                            let userValid = true;
+                            let errors = {};
+                            if (!userFormData.name) {
+                                errors.name = "Nom requis";
+                                userValid = false;
+                            }
+                            if (!userFormData.email) {
+                                errors.email = "Email requis";
+                                userValid = false;
+                            }
+                            if (!userFormData.password) {
+                                errors.password = "Mot de passe requis";
+                                userValid = false;
+                            }
+                            if (
+                                userFormData.password !==
+                                userFormData.password_confirmation
+                            ) {
+                                errors.password_confirmation =
+                                    "Les mots de passe ne correspondent pas";
+                                userValid = false;
+                            }
+                            if (!userFormData.role) {
+                                errors.role = "Rôle requis";
+                                userValid = false;
+                            }
+                            setUserFormErrors(errors);
+                            if (!teacherValid || !userValid) {
+                                setUserFormProcessing(false);
+                                return;
+                            }
+                            // Prepare combined data
+                            const formDataObj = new FormData();
+                            // Teacher fields
+                            formDataObj.append("first_name", firstName);
+                            formDataObj.append("last_name", lastName);
+                            formDataObj.append("address", watch("address") || "");
+                            formDataObj.append("phone_number", watch("phoneNumber") || "");
+                            formDataObj.append("email", watch("email"));
+                            formDataObj.append("status", selectedStatus);
+                            formDataObj.append("wallet", watch("wallet"));
+                            // Use the actual file for profile_image
+                            const fileInput = document.getElementById("profile_image");
+                            if (fileInput && fileInput.files && fileInput.files[0]) {
+                                formDataObj.append("profile_image", fileInput.files[0]);
+                            }
+                            selectedSubjects.forEach((subject, index) =>
+                                formDataObj.append(`subjects[${index}]`, subject.id),
+                            );
+                            selectedClasses.forEach((cls, index) =>
+                                formDataObj.append(`classes[${index}]`, cls.id),
+                            );
+                            selectedSchools.forEach((school, index) =>
+                                formDataObj.append(`schools[${index}]`, school.id),
+                            );
+                            // User fields
+                            formDataObj.append("user_name", userFormData.name);
+                            formDataObj.append("user_email", userFormData.email);
+                            formDataObj.append("user_password", userFormData.password);
+                            formDataObj.append(
+                                "user_password_confirmation",
+                                userFormData.password_confirmation,
+                            );
+                            formDataObj.append("user_role", userFormData.role);
+                            setUserFormProcessing(true);
+                            router.post("/teachers/create-with-user", formDataObj, {
+                                preserveScroll: true,
+                                forceFormData: true,
+                                onSuccess: () => {
+                                    setIsUserModalOpen(false);
+                                    setOpen && setOpen(false);
+                                    setUserFormProcessing(false);
+                                },
+                                onError: (errors) => {
+                                    setUserFormErrors(errors);
+                                    setUserFormProcessing(false);
+                                },
+                            });
+                        }}
+                        onPasswordAction={() => {}}
+                    />
                 </div>
-            )}
+            </Modal>
         </div>
     );
 };

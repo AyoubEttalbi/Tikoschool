@@ -34,6 +34,8 @@ public function user()
     return $this->belongsTo(User::class, 'email', 'email');
 }
 
-  
-   
+    public function transactions()
+    {
+        return $this->hasMany(AssistantTransaction::class);
+    }
 }

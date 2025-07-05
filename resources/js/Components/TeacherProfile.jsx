@@ -8,21 +8,11 @@ export default function TeacherProfile({
     invoices = [],
     paginate = [],
     teacher = {},
-    recurringTransactions = [],
+    transactions = [],
 }) {
     return (
         <div className="space-y-6">
-            {/* Section des paiements récurrents */}
-            {recurringTransactions && recurringTransactions.length > 0 && (
-                <div className="mb-6">
-                    <Suspense fallback={<span>Chargement...</span>}>
-                        <RecurringPaymentsCard
-                            recurringTransactions={recurringTransactions}
-                            userId={teacher.id}
-                        />
-                    </Suspense>
-                </div>
-            )}
+            
 
             {/* Tableau des factures */}
             <Suspense fallback={<span>Chargement...</span>}>
@@ -31,6 +21,17 @@ export default function TeacherProfile({
                     invoiceslinks={paginate}
                 />
             </Suspense>
+            {/* Section des paiements */}
+            {transactions && transactions.length > 0 && (
+                <div className="mb-6">
+                    <Suspense fallback={<span>Chargement...</span>}>
+                        <RecurringPaymentsCard
+                            transactions={transactions}
+                            userId={teacher.id}
+                        />
+                    </Suspense>
+                </div>
+            )}
         </div>
     );
 }
