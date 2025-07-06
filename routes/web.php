@@ -248,6 +248,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/students/{student}/performance', [PerformanceController::class, 'show'])
         ->name('performance.student')
         ->middleware('auth');
+
+    // New route for UserController@index
+    Route::get('/users', [\App\Http\Controllers\UserController::class, 'index'])->name('users.index');
 });
 
 // Authentication routes

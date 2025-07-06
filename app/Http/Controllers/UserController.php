@@ -77,4 +77,38 @@ class UserController extends Controller
                 ->withErrors(['general' => 'An unexpected error occurred while deleting the user. Please try again later.']);
         }
     }
+
+    /**
+     * Display a listing of the users with search and filter.
+     */
+    public function index(Request $request)
+    {
+        $query = User::query();
+
+        // Apply search filter
+        if ($request->has('search') && !empty($request->search)) {
+            $searchTerm = $request->search;
+            $query->where(function ($q) use ($searchTerm) {
+                $q->where('name', 'LIKE', "%{$searchTerm}%")
+                  ->orWhere('email', 'LIKE', "%{$searchTerm}%");
+            });
+        }
+
+        // Apply role filter
+        if ($request->has('role') && !empty($request->role) && $request->role !== 'all') {
+            $query->where('role', $request->role);
+        }
+
+        // Get users as simple array, newest first
+        $users = $query->orderBy('created_at', 'desc')->get();
+
+        // Get all roles for filter dropdown
+        $roles = ['admin', 'assistant', 'teacher', 'student'];
+
+        return \Inertia\Inertia::render('Menu/UserListPage', [
+            'users' => $users,
+            'filters' => $request->only(['search', 'role']),
+            'roles' => $roles,
+        ]);
+    }
 }

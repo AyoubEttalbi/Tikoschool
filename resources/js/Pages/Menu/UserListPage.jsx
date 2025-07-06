@@ -5,10 +5,11 @@ import Pagination from "../../Components/Pagination";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import FormModal from "../../Components/FormModal";
 import Register from "../Auth/Register";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
-import { Edit, Eye, Plus, PlusIcon } from "lucide-react";
+import { Edit, Eye, Plus, PlusIcon, RotateCcw } from "lucide-react";
 import UpdateUser from "../Auth/UpdateUser";
+import UserFilterForm from "../../Components/UserFilterForm";
 // Define table columns for users
 const columns = [
     {
@@ -36,17 +37,43 @@ const columns = [
     },
 ];
 
-const UserListPage = ({ users }) => {
+const UserListPage = ({ users, filters: initialFilters = {}, roles = [] }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isUpdateOpen, setIsUpdateOpen] = useState({
         isOpen: false,
         id: null,
     });
     const role = usePage().props.auth.user.role;
-    const { url } = usePage();
+    // Filter/search state
+    const [filters, setFilters] = useState({
+        search: initialFilters.search || "",
+        role: initialFilters.role || "all",
+    });
+    const [showFilters, setShowFilters] = useState(false);
 
-    const data = new URLSearchParams(url.split("?")[1]).get("data");
-    const parsedData = JSON.parse(decodeURIComponent(data));
+    // Debounced filter/search
+    useEffect(() => {
+        const timeoutId = setTimeout(() => {
+            router.get(route("users.index"), { ...filters }, { preserveState: true, replace: true, preserveScroll: true });
+        }, 300);
+        return () => clearTimeout(timeoutId);
+    }, [filters]);
+
+    const handleFilterChange = (e) => {
+        const { name, value } = e.target;
+        const newFilters = { ...filters, [name]: value };
+        setFilters(newFilters);
+        router.get(route("users.index"), { ...newFilters, page: 1 }, { preserveState: true, replace: true });
+    };
+
+    const clearFilters = () => {
+        setFilters({ search: "", role: "all" });
+        router.get(route("users.index"), {}, { preserveState: false, replace: true, preserveScroll: true });
+    };
+
+    const toggleFilters = () => {
+        setShowFilters(!showFilters);
+    };
 
     const handleViewAs = (userId) => {
         router.post(
@@ -56,8 +83,7 @@ const UserListPage = ({ users }) => {
                 onSuccess: () => {
                     router.visit("/dashboard");
                 },
-                onError: (errors) => {
-                },
+                onError: (errors) => {},
             },
         );
     };
@@ -149,38 +175,57 @@ const UserListPage = ({ users }) => {
 
     return (
         <div className="bg-white p-4 rounded-md flex-1 m-4 mt-0">
+            {/* TOP */}
             <div className="flex items-center justify-between">
                 <h1 className="hidden md:block text-lg font-semibold">
                     Tous les utilisateurs
                 </h1>
                 <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
-                    <TableSearch />
+                    <TableSearch
+                        routeName="users.index"
+                        value={filters.search}
+                        onChange={(value) =>
+                            setFilters((prev) => ({ ...prev, search: value }))
+                        }
+                    />
+
                     <div className="flex items-center gap-4 self-end">
-                        <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
+                        <button
+                            onClick={clearFilters}
+                            className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow"
+                        >
+                            <RotateCcw className="w-4 h-4 text-black" />
+                        </button>
+                        <button
+                            onClick={toggleFilters}
+                            className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow"
+                        >
                             <img
                                 src="/filter.png"
-                                alt="Filtrer"
-                                width={14}
-                                height={14}
-                            />
-                        </button>
-                        <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
-                            <img
-                                src="/sort.png"
-                                alt="Trier"
+                                alt="Filter"
                                 width={14}
                                 height={14}
                             />
                         </button>
                         <button
                             onClick={() => setIsModalOpen(true)}
-                            className="p-2 bg-lamaYellow  text-black rounded-full hover:bg-yellow-500 transition duration-200"
+                            className="p-2 bg-lamaYellow text-black rounded-full hover:bg-yellow-500 transition duration-200"
                         >
                             <PlusIcon className="w-4 h-4" />
                         </button>
                     </div>
                 </div>
             </div>
+
+            {/* FILTER FORM */}
+            {showFilters && (
+                <UserFilterForm
+                    roles={roles}
+                    filters={filters}
+                    onFilterChange={handleFilterChange}
+                />
+            )}
+
             {isModalOpen && (
                 <Register
                     isModalOpen={isModalOpen}
@@ -196,7 +241,13 @@ const UserListPage = ({ users }) => {
                     setIsUpdateOpen={setIsUpdateOpen}
                 />
             )}
-            <Table columns={columns} renderRow={renderRow} data={users} />
+            <Table
+                columns={columns}
+                data={users}
+                renderRow={renderRow}
+                filters={filters}
+                emptyText="Aucun utilisateur trouvé."
+            />
         </div>
     );
 };
