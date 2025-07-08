@@ -15,10 +15,10 @@ return new class extends Migration
             $table->date('billingDate'); // Updated
             $table->text('address')->nullable();
             $table->string('guardianNumber', 255)->nullable(); // Updated
-            $table->string('CIN', 50)->unique();
+            $table->string('CIN', 50)->unique()->nullable(); // Updated
             $table->string('phoneNumber', 20)->nullable(); // Updated
-            $table->string('email', 255)->unique();
-            $table->string('massarCode', 50)->unique(); // Updated
+            $table->string('email', 255)->unique()->nullable(); // Updated
+            $table->string('massarCode', 50)->unique()->nullable() ; // Updated
             $table->unsignedBigInteger('levelId')->nullable(); // Updated
             $table->unsignedBigInteger('classId')->nullable();
             $table->unsignedBigInteger('schoolId')->nullable();
