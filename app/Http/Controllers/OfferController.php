@@ -37,6 +37,12 @@ class OfferController extends Controller
         });
     }
 
+    // Apply subject filter if provided
+    if ($request->has('subject') && !empty($request->subject)) {
+        $subject = $request->subject;
+        $query->whereJsonContains('subjects', $subject);
+    }
+
     // Fetch paginated and filtered offers, newest first
     $offers = $query->orderBy('created_at', 'desc')->paginate(8)->withQueryString()->through(function ($offer) {
         return [

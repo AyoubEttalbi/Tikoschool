@@ -1,10 +1,10 @@
 import { router, usePage } from "@inertiajs/react";
 import { useState } from "react";
 
-const TableSearch = ({ routeName, filters }) => {
+const TableSearch = ({ routeName, filters, value, onChange }) => {
     const pageProps = usePage().props;
     const [searchTerm, setSearchTerm] = useState(
-        pageProps.filters?.search || "",
+        value !== undefined ? value : pageProps.filters?.search || ""
     );
 
     // Get today's date in YYYY-MM-DD format
@@ -13,16 +13,25 @@ const TableSearch = ({ routeName, filters }) => {
     const handleSearch = (e) => {
         const value = e.target.value;
         setSearchTerm(value);
-
-        router.get(
-            route(routeName),
-            {
+        if (onChange) {
+            onChange(value);
+        } else {
+            // Only include date for attendances.index
+            const params = {
                 ...pageProps.filters,
                 search: value,
-                date: pageProps.filters?.date || today,
-            },
-            { preserveState: true, replace: true, preserveScroll: true },
-        );
+            };
+            if (routeName === "attendances.index") {
+                params.date = pageProps.filters?.date || today;
+            } else {
+                delete params.date;
+            }
+            router.get(
+                route(routeName),
+                params,
+                { preserveState: true, replace: true, preserveScroll: true },
+            );
+        }
     };
 
     const handleDateChange = (selectedDate) => {

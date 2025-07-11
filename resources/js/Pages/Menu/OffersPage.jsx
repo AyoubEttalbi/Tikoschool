@@ -17,6 +17,11 @@ export default function OffersPage({
     const [editMode, setEditMode] = useState({});
     const [editData, setEditData] = useState({});
     const [dropdownStates, setDropdownStates] = useState({});
+    const [filters, setFilters] = useState({
+        search: "",
+        subject: "",
+    });
+    const [showFilters, setShowFilters] = useState(false);
 
     // Initialize edit data for each offer
     // Sort offers by created_at descending (latest first)
@@ -162,6 +167,30 @@ export default function OffersPage({
         router.put(`/offers/${offerId}`, editData[offerId]);
     };
 
+    const handleSearchChange = (value) => {
+        const newFilters = { ...filters, search: value };
+        setFilters(newFilters);
+        router.get(
+            route("offers.index"),
+            newFilters,
+            { preserveState: true, replace: true, preserveScroll: true }
+        );
+    };
+
+    const handleSubjectFilterChange = (e) => {
+        const newFilters = { ...filters, subject: e.target.value };
+        setFilters(newFilters);
+        router.get(
+            route("offers.index"),
+            newFilters,
+            { preserveState: true, replace: true, preserveScroll: true }
+        );
+    };
+
+    const toggleFilters = () => {
+        setShowFilters((prev) => !prev);
+    };
+
     return (
         <div className="p-6 bg-gray-50 min-h-screen">
             <div className="mx-auto ">
@@ -170,9 +199,17 @@ export default function OffersPage({
                         Toutes les offres
                     </h1>
                     <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
-                        <TableSearch routeName="offers.index" />
+                        <TableSearch
+                            routeName="offers.index"
+                            value={filters.search}
+                            onChange={handleSearchChange}
+                        />
                         <div className="flex items-center gap-4 self-end">
-                            <button className="w-10 h-10 flex items-center justify-center rounded-full bg-lamaYellowLight hover:bg-lamaYellow transition-all duration-200 text-gray-700">
+                            <button
+                                className="w-10 h-10 flex items-center justify-center rounded-full bg-lamaYellowLight hover:bg-lamaYellow transition-all duration-200 text-gray-700"
+                                onClick={toggleFilters}
+                                title="Filtres"
+                            >
                                 <Filter className="w-5 h-5" />
                             </button>
                             <button className="w-10 h-10 flex items-center justify-center rounded-full bg-lamaYellowLight hover:bg-lamaYellow transition-all duration-200 text-gray-700">
@@ -189,6 +226,27 @@ export default function OffersPage({
                         </div>
                     </div>
                 </div>
+
+                {/* Subject Filter Dropdown */}
+                {showFilters && (
+                    <div className="mb-4 max-w-xs">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Filtrer par matière
+                        </label>
+                        <select
+                            value={filters.subject}
+                            onChange={handleSubjectFilterChange}
+                            className="w-full rounded-md border-gray-300 shadow-sm focus:border-lamaPurple focus:ring-lamaPurple"
+                        >
+                            <option value="">Toutes les matières</option>
+                            {Allsubjects.map((subject) => (
+                                <option key={subject.id} value={subject.name}>
+                                    {subject.name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 lg:gap-6 mt-4 gap-4">
                     {offers.data.map((offer) => {
