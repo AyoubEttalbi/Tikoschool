@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bulk Invoices</title>
+    <title>Factures groupées</title>
     <style>
         body { 
             font-family: 'Arial', sans-serif; 
@@ -74,23 +74,23 @@
 </head>
 <body>
     <div class="invoice-container">
-        <!-- Header with Logo -->
+        <!-- En-tête avec logo -->
         <div class="invoice-header">
-            <img src="{{ public_path('logo.png') }}" alt="Company Logo">
-            <h1>Bulk Invoices</h1>
-            <p>Generated on: {{ now()->format('Y-m-d') }}</p>
+            <img src="{{ public_path('logo.png') }}" alt="Logo de l'entreprise">
+            <h1>Factures groupées</h1>
+            <p>Généré le : {{ now()->format('Y-m-d') }}</p>
         </div>
 
-        <!-- Invoices Table -->
+        <!-- Tableau des factures -->
         <table>
             <thead>
                 <tr>
-                    <th>Invoice ID</th>
-                    <th>Student Name</th>
-                    <th>Class</th>
-                    <th>Offer</th>
-                    <th>Bill Date</th>
-                    <th>Total Amount</th>
+                    <th>ID Facture</th>
+                    <th>Nom de l'élève</th>
+                    <th>Classe</th>
+                    <th>Offre</th>
+                    <th>Date de facturation</th>
+                    <th>Montant total</th>
                 </tr>
             </thead>
             <tbody>
@@ -107,10 +107,10 @@
             </tbody>
         </table>
 
-        <!-- Footer -->
+        <!-- Pied de page -->
         <div class="footer">
-            <p>Thank you for your business!</p>
-            <p>Company Name | Address | Phone | Email</p>
+            <p>Merci pour votre confiance !</p>
+            <p>Nom de l'entreprise | Adresse | Téléphone | Email</p>
         </div>
     </div>
 </body>

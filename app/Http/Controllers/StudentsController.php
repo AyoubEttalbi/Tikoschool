@@ -211,15 +211,15 @@ protected function applyRelationshipSearch($query, $searchTerm)
 protected function applyFilters($query, $filters)
 {
     if (!empty($filters['school'])) {
-        $query->where(DB::raw('"schoolId"'), $filters['school']);
+        $query->where('schoolId', $filters['school']);
     }
 
     if (!empty($filters['class'])) {
-        $query->where(DB::raw('"classId"'), $filters['class']);
+        $query->where('classId', $filters['class']);
     }
 
     if (!empty($filters['level'])) {
-        $query->where(DB::raw('"levelId"'), $filters['level']);
+        $query->where('levelId', $filters['level']);
     }
 }
 

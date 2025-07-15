@@ -324,7 +324,8 @@ class TeacherController extends Controller
         $announcements = $announcementQuery->get();
 
         // Fetch the teacher with related data
-        $teacher = Teacher::with(['subjects', 'classes', 'schools'])->find($id);
+        $teacher = Teacher::with(['subjects', 'classes', 'schools'])->findOrFail($id);
+        $teacherUser = \App\Models\User::where('email', $teacher->email)->first();
         
         if (!$teacher) {
             abort(404);
@@ -469,22 +470,7 @@ class TeacherController extends Controller
         }
         
         return Inertia::render('Menu/SingleTeacherPage', [
-            'teacher' => [
-                'id' => $teacher->id,
-                'first_name' => $teacher->first_name,
-                'last_name' => $teacher->last_name,
-                'address' => $teacher->address,
-                'phone_number' => $teacher->phone_number,
-                'email' => $teacher->email,
-                'status' => $teacher->status,
-                'wallet' => $teacher->wallet,
-                'profile_image' => $teacher->profile_image ?? null, 
-                'subjects' => $teacher->subjects,
-                'classes' => $teacher->classes,
-                'schools' => $teacher->schools,
-                'created_at' => $teacher->created_at,
-                'totalStudents' => $teacher->classes->sum('number_of_students')
-            ],
+            'teacher' => $teacherUser ? array_merge($teacher->toArray(), ['user_id' => $teacherUser->id]) : $teacher,
             'invoices' => $paginatedInvoices,
             'schools' => $schools,
             'subjects' => $subjects,
@@ -507,27 +493,39 @@ class TeacherController extends Controller
     {
         $subjects = Subject::all();
         $classes = Classes::all(); // ✅ Changed from 'groups' to 'classes'
-
+        $schools = School::all();
+        $teacherUser = \App\Models\User::where('email', $teacher->email)->first();
         return Inertia::render('Teachers/Edit', [
-            'teacher' => $teacher,
+            'teacher' => $teacherUser ? array_merge($teacher->toArray(), ['user_id' => $teacherUser->id]) : $teacher,
             'subjects' => $subjects,
             'classes' => $classes, // ✅ Changed from 'groups' to 'classes'
+            'schools' => $schools,
         ]);
     }
 
     public function update(Request $request, Teacher $teacher)
     {
         try {
-            // Store the current school_id and school_name from session
             $currentSchoolId = session('school_id');
             $currentSchoolName = session('school_name');
 
+            // Store the old email before updating
+            $oldEmail = $teacher->email;
+
+            // Validate input, but do not allow duplicate emails in users or teachers (except for this teacher/user)
             $validatedData = $request->validate([
                 'first_name' => 'required|string|max:100',
                 'last_name' => 'required|string|max:100',
                 'address' => 'nullable|string|max:255',
                 'phone_number' => 'nullable|string|max:20',
-                'email' => 'required|string|email|max:255|unique:teachers,email,' . $teacher->id,
+                'email' => [
+                    'required',
+                    'string',
+                    'email',
+                    'max:255',
+                    // Unique in teachers, except for this teacher
+                    'unique:teachers,email,' . $teacher->id,
+                ],
                 'status' => 'required|in:active,inactive',
                 'wallet' => 'required|numeric|min:0',
                 'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120',
@@ -539,24 +537,33 @@ class TeacherController extends Controller
                 'schools.*' => 'exists:schools,id',
             ]);
 
+            // Check for duplicate email in users table (except for the user with the old email)
+            $userWithEmail = \App\Models\User::where('email', $validatedData['email'])
+                ->where('email', '!=', $oldEmail)
+                ->first();
+            $teacherWithEmail = \App\Models\Teacher::where('email', $validatedData['email'])
+                ->where('id', '!=', $teacher->id)
+                ->first();
+            if ($userWithEmail || $teacherWithEmail) {
+                return redirect()->back()
+                    ->withErrors(['email' => 'Cette adresse e-mail est déjà utilisée par un autre utilisateur ou enseignant.'])
+                    ->withInput();
+            }
+
             // Handle profile image update
             if ($request->hasFile('profile_image')) {
-                // Delete old image if exists
                 if ($teacher->profile_image) {
                     $publicId = $teacher->profile_image_public_id ?? null;
                     if ($publicId) {
                         $this->getCloudinary()->uploadApi()->destroy($publicId);
                     }
                 }
-                
                 $uploadResult = $this->uploadToCloudinary($request->file('profile_image'));
                 $validatedData['profile_image'] = $uploadResult['secure_url'];
-                // If you want to store public_id:
-                // $validatedData['profile_image_public_id'] = $uploadResult['public_id'];
             }
 
             event(new CheckEmailUnique($request->email, $teacher->id));
-            
+
             // Update teacher attributes
             $teacher->update($validatedData);
 
@@ -564,8 +571,15 @@ class TeacherController extends Controller
             $teacher->subjects()->sync($request->subjects ?? []);
             $teacher->classes()->sync($request->classes ?? []);
             $teacher->schools()->sync($request->schools ?? []);
-            
-            // Restore the session variables if they existed
+
+            // Update the corresponding user (if exists)
+            $user = \App\Models\User::where('email', $oldEmail)->first();
+            if ($user) {
+                $user->name = $validatedData['first_name'] . ' ' . $validatedData['last_name'];
+                $user->email = $validatedData['email'];
+                $user->save();
+            }
+
             if ($currentSchoolId) {
                 session([
                     'school_id' => $currentSchoolId,
@@ -573,23 +587,14 @@ class TeacherController extends Controller
                 ]);
             }
 
-            // Check if this is a form update
             $isFormUpdate = $request->has('is_form_update');
-            
-            // For form updates, always stay on the teacher's profile page
             if ($isFormUpdate) {
                 return redirect()->route('teachers.show', $teacher->id)->with('success', 'Teacher updated successfully.');
             }
-            
-            // Check if this is an admin viewing as another user
             $isViewingAs = session()->has('admin_user_id');
-            
-            // For other types of updates, apply the admin view logic
             if ($isViewingAs) {
-                // If admin is viewing as teacher, redirect to dashboard
                 return redirect()->route('dashboard')->with('success', 'Teacher updated successfully.');
             } else {
-                // For normal updates, redirect to teacher's show page
                 return redirect()->route('teachers.show', $teacher->id)->with('success', 'Teacher updated successfully.');
             }
         } catch (\Exception $e) {

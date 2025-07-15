@@ -35,6 +35,7 @@ import {
 import { Badge } from "@/Components/ui/badge";
 import { Button } from "@/Components/ui/button";
 import UserForm from "./UserForm";
+import UpdateUser from "@/Pages/Auth/UpdateUser";
 
 // Définir le schéma de validation
 const schema = z.object({
@@ -83,6 +84,7 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
     });
     const [userFormErrors, setUserFormErrors] = useState({});
     const [userFormProcessing, setUserFormProcessing] = useState(false);
+    const [updateUserModalOpen, setUpdateUserModalOpen] = useState(false);
 
     const {
         register,
@@ -675,23 +677,35 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
                             </p>
                         )}
                     </div>
-                    <button
-                        type="button"
-                        onClick={() => {
-                            setUserFormData(prev => ({
-                                ...prev,
-                                name: `${getValues("firstName") || ""} ${getValues("lastName") || ""}`.trim(),
-                                email: getValues("email") || "",
-                            }));
-                            setUserModalOpen(true);
-                        }}
-                        className={`items-center mt-7 h-10 inline-flex gap-2 px-4 py-2 rounded-md shadow-sm transition-all
-                            ${isTeacherFormComplete ? "bg-blue-500 hover:bg-blue-600 text-white cursor-pointer" : "bg-gray-300 text-gray-500 cursor-not-allowed"}`}
-                        disabled={!isTeacherFormComplete}
-                    >
-                        <ChevronDown className="w-4 h-4" />
-                        <span>Ajouter un utilisateur</span>
-                    </button>
+                    {type === "create" ? (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setUserFormData(prev => ({
+                                    ...prev,
+                                    name: `${firstName || ""} ${lastName || ""}`.trim(),
+                                    email: email || "",
+                                }));
+                                setUserModalOpen(true);
+                            }}
+                            className={`items-center mt-7 h-10 inline-flex gap-2 px-4 py-2 rounded-md shadow-sm transition-all
+                                ${isTeacherFormComplete ? "bg-blue-500 hover:bg-blue-600 text-white cursor-pointer" : "bg-gray-300 text-gray-500 cursor-not-allowed"}`}
+                            disabled={!isTeacherFormComplete}
+                        >
+                            <ChevronDown className="w-4 h-4" />
+                            <span>Ajouter un utilisateur</span>
+                        </button>
+                    ) : (
+                        <button
+                            type="button"
+                            onClick={() => setUpdateUserModalOpen(true)}
+                            className={`items-center mt-7 h-10 inline-flex gap-2 px-4 py-2 rounded-md shadow-sm transition-all
+                                bg-blue-500 hover:bg-blue-600 text-white cursor-pointer`}
+                        >
+                            <ChevronDown className="w-4 h-4" />
+                            <span>Mettre à jour l'utilisateur</span>
+                        </button>
+                    )}
                 </div>
                 <button
                     type="submit"
@@ -729,7 +743,7 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
                     )}
                 </button>
             </form>
-            {userModalOpen && (
+            {userModalOpen && type === "create" && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
                     <div className="bg-white rounded-lg shadow-lg w-full max-w-md relative">
                         <button
@@ -836,6 +850,13 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
                         </div>
                     </div>
                 </div>
+            )}
+            {updateUserModalOpen && type === "update" && (
+                <UpdateUser
+                    userData={[{ id: data?.user_id, name: `${data?.first_name} ${data?.last_name}`, email: data?.email, role: "teacher" }]}
+                    isUpdateOpen={{ isOpen: updateUserModalOpen, id: data?.user_id }}
+                    setIsUpdateOpen={({ isOpen }) => setUpdateUserModalOpen(isOpen)}
+                />
             )}
         </div>
     );

@@ -22,12 +22,13 @@ const FinanceChart = () => {
     const [school, setSchool] = useState("all");
     const [open, setOpen] = useState(false);
     const { props } = usePage();
-
+    console.log("props", props.schools);
+    // Filter data by school_id
     const filteredData =
         school === "all"
             ? props.monthlyIncomes
             : props.monthlyIncomes.filter(
-                  (income) => income.school_id == school,
+                  (income) => String(income.school_id) === String(school)
               );
 
     return (
@@ -42,11 +43,15 @@ const FinanceChart = () => {
                                 value={school}
                                 onValueChange={(value) => {
                                     setSchool(value);
-                                    setOpen(false); // Fermer le menu déroulant après la sélection
+                                    setOpen(false); // Close dropdown after selection
                                 }}
                             >
                                 <SelectTrigger className="w-full bg-white border-none shadow-none">
-                                    <SelectValue placeholder="Sélectionnez l'école" />
+                                    <SelectValue>
+                                        {school === "all"
+                                            ? "Toutes les écoles"
+                                            : props.schools.find((s) => String(s.id) === String(school))?.name || ""}
+                                    </SelectValue>
                                 </SelectTrigger>
                                 <SelectContent className="bg-white rounded-lg shadow-md">
                                     <SelectItem
@@ -55,13 +60,13 @@ const FinanceChart = () => {
                                     >
                                         Toutes les écoles
                                     </SelectItem>
-                                    {props.schools.map((school) => (
+                                    {props.schools.map((schoolObj) => (
                                         <SelectItem
-                                            key={school.id}
-                                            value={school.id}
+                                            key={schoolObj.id}
+                                            value={String(schoolObj.id)}
                                             className="cursor-pointer hover:bg-gray-100 p-2"
                                         >
-                                            {school.name}
+                                            {schoolObj.name}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>

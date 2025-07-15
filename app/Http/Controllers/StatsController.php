@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Redirect;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use App\Models\Membership;
+use App\Models\Transaction;
 
 class StatsController extends Controller
 {
@@ -42,10 +43,10 @@ class StatsController extends Controller
         ->first()
         ->count;
 
-    $studentCounts = Student::select(DB::raw('`schoolId`'), DB::raw('COUNT(*) as count'))
-        ->groupBy(DB::raw('`schoolId`'))
+    $studentCounts = Student::select('schoolId', DB::raw('COUNT(*) as count'))
+        ->groupBy('schoolId')
         ->get()
-        ->keyBy('schoolid');
+        ->keyBy('schoolId');
 
     $totalStudentCount = Student::count();
 
@@ -60,29 +61,122 @@ class StatsController extends Controller
         ->first()
         ->count;
 
-    // Fetch all schools
-    $schools = School::all();
+    // Fetch all schools (id and name only for dropdown)
+    $schoolsList = School::select('id', 'name')->get();
 
-    // Fetch monthly incomes (existing logic)
-    $monthlyIncomes = Invoice::join('students', 'invoices.student_id', '=', 'students.id')
+    // Fetch monthly incomes (paid invoices) and expenses efficiently
+    $now = Carbon::now();
+    $start = $now->copy()->subMonths(11)->startOfMonth();
+    $end = $now->copy()->endOfMonth();
+
+    // INCOME: Join invoices to students to get school_id
+    $incomeQuery = DB::table('invoices')
+        ->join('students', 'invoices.student_id', '=', 'students.id')
         ->select(
-            DB::raw('SUM(invoices.`totalAmount`) as income'),
-            DB::raw('SUM(invoices.`amountPaid`) as expense'),
-            DB::raw('MONTH(invoices.created_at) as month'),
-            DB::raw('students.`schoolId`')
+            DB::raw('YEAR(billDate) as year'),
+            DB::raw('MONTH(billDate) as month'),
+            'students.schoolId as school_id',
+            DB::raw('SUM(amountPaid) as income')
         )
-        ->whereNotNull('students.schoolId')
         ->whereNull('invoices.deleted_at')
-        ->groupBy('month', 'students.schoolId')
-        ->get()
-        ->map(function ($item) {
-            return [
-                'name' => date('M', mktime(0, 0, 0, $item->month, 10)),
-                'income' => $item->income,
-                'expense' => $item->expense,
-                'school_id' => $item->schoolId, // Changed from lowercase schoolid to match the correct column name
+        ->whereColumn('invoices.amountPaid', '>=', 'invoices.totalAmount')
+        ->whereBetween('billDate', [$start, $end])
+        ->groupBy('year', 'month', 'students.schoolId')
+        ->orderBy('year')
+        ->orderBy('month')
+        ->get();
+
+    // EXPENSE: For each transaction, attribute to all schools for teacher/assistant, none for 'expense' type
+    $expenseRaw = DB::table('transactions')
+        ->whereBetween('payment_date', [$start, $end])
+        ->get();
+
+    $expenseRows = [];
+    foreach ($expenseRaw as $tx) {
+        if ($tx->type === 'payment') {
+            // Teacher: get all schools
+            $user = \App\Models\User::find($tx->user_id);
+            if ($user && $user->role === 'teacher' && $user->teacher) {
+                $schools = $user->teacher->schools()->pluck('schools.id');
+                foreach ($schools as $schoolId) {
+                    $expenseRows[] = [
+                        'year' => (int)date('Y', strtotime($tx->payment_date)),
+                        'month' => (int)date('m', strtotime($tx->payment_date)),
+                        'school_id' => $schoolId,
+                        'expense' => (float)$tx->amount
+                    ];
+                }
+            }
+        } elseif ($tx->type === 'salary') {
+            // Assistant: get all schools
+            $user = \App\Models\User::find($tx->user_id);
+            if ($user && $user->role === 'assistant' && $user->assistant) {
+                $schools = $user->assistant->schools()->pluck('schools.id');
+                foreach ($schools as $schoolId) {
+                    $expenseRows[] = [
+                        'year' => (int)date('Y', strtotime($tx->payment_date)),
+                        'month' => (int)date('m', strtotime($tx->payment_date)),
+                        'school_id' => $schoolId,
+                        'expense' => (float)$tx->amount
+                    ];
+                }
+            }
+        } elseif ($tx->type === 'expense') {
+            // General expense, not attributed to a school
+            $expenseRows[] = [
+                'year' => (int)date('Y', strtotime($tx->payment_date)),
+                'month' => (int)date('m', strtotime($tx->payment_date)),
+                'school_id' => null,
+                'expense' => (float)$tx->amount
             ];
-        });
+        }
+    }
+
+    // Group expenseRows by year, month, school_id
+    $expenseGrouped = [];
+    foreach ($expenseRows as $row) {
+        $key = $row['year'] . '-' . str_pad($row['month'], 2, '0', STR_PAD_LEFT) . '-' . ($row['school_id'] ?? 'none');
+        if (!isset($expenseGrouped[$key])) {
+            $expenseGrouped[$key] = [
+                'year' => $row['year'],
+                'month' => $row['month'],
+                'school_id' => $row['school_id'],
+                'expense' => 0
+            ];
+        }
+        $expenseGrouped[$key]['expense'] += $row['expense'];
+    }
+
+    // Merge income and expense by year, month, school_id
+    $merged = [];
+    foreach ($incomeQuery as $item) {
+        $key = $item->year . '-' . str_pad($item->month, 2, '0', STR_PAD_LEFT) . '-' . $item->school_id;
+        $merged[$key] = [
+            'name' => date('F Y', mktime(0,0,0,$item->month,1,$item->year)),
+            'income' => (float)$item->income,
+            'expense' => 0,
+            'school_id' => $item->school_id,
+            'year' => $item->year,
+            'month' => $item->month
+        ];
+    }
+    foreach ($expenseGrouped as $key => $item) {
+        if (!isset($merged[$key])) {
+            $merged[$key] = [
+                'name' => date('F Y', mktime(0,0,0,$item['month'],1,$item['year'])),
+                'income' => 0,
+                'expense' => (float)$item['expense'],
+                'school_id' => $item['school_id'],
+                'year' => $item['year'],
+                'month' => $item['month']
+            ];
+        } else {
+            $merged[$key]['expense'] = (float)$item['expense'];
+        }
+    }
+
+    // Return as array sorted by date ascending
+    $result = array_reverse(array_values($merged));
 
     // Fetch most selling offers, students count, and total price
     $mostSellingOffers = DB::table('invoices')
@@ -151,8 +245,8 @@ class StatsController extends Controller
         'totalStudentCount' => $totalStudentCount,
         'assistantCounts' => $assistantCounts,
         'totalAssistantCount' => $totalAssistantCount,
-        'schools' => $schools,
-        'monthlyIncomes' => $monthlyIncomes,
+        'schools' => $schoolsList,
+        'monthlyIncomes' => $result,
         'mostSellingOffers' => $mostSellingOffers,
         'announcements' => $announcements,
         'filters' => [

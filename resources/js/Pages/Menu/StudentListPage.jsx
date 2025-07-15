@@ -333,12 +333,11 @@ const StudentListPage = ({
             {/* LIST */}
             <Table
                 columns={columns}
-                data={sortedStudents}
+                data={students.data}
                 renderRow={renderRow}
-                filters={filters}
-                pagination={students.links}
                 emptyText="Aucun étudiant trouvé."
             />
+            <Pagination links={students.links} filters={filters} />
         </div>
     );
 };

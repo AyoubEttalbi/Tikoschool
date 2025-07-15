@@ -8,6 +8,7 @@ import { useState } from "react";
 import Register from "@/Pages/Auth/Register";
 import { ChevronDown, ChevronUp, Upload } from "lucide-react";
 import UserForm from "./UserForm";
+import UpdateUser from "@/Pages/Auth/UpdateUser";
 
 // Définir le schéma de validation
 const schema = z.object({
@@ -27,6 +28,7 @@ const schema = z.object({
 });
 
 const AssistantForm = ({ type, data, schools, setOpen, selectedSchool }) => {
+    console.log(data);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [imagePreview, setImagePreview] = useState(
         data?.profile_image || null,
@@ -170,6 +172,8 @@ const AssistantForm = ({ type, data, schools, setOpen, selectedSchool }) => {
     });
     const [userFormErrors, setUserFormErrors] = useState({});
     const [userFormProcessing, setUserFormProcessing] = useState(false);
+
+    const [updateUserModalOpen, setUpdateUserModalOpen] = useState(false);
 
     return (
         <div className="flex flex-col gap-4">
@@ -323,23 +327,35 @@ const AssistantForm = ({ type, data, schools, setOpen, selectedSchool }) => {
                             )}
                         </div>
                     </div>
-                    <button
-                        type="button"
-                        onClick={() => {
-                            setUserFormData(prev => ({
-                                ...prev,
-                                name: `${firstName || ""} ${lastName || ""}`.trim(),
-                                email: email || "",
-                            }));
-                            setUserModalOpen(true);
-                        }}
-                        className={`items-center mt-7 h-10 inline-flex gap-2 px-4 py-2 rounded-md shadow-sm transition-all
-                            ${isAssistantFormComplete ? "bg-blue-500 hover:bg-blue-600 text-white cursor-pointer" : "bg-gray-300 text-gray-500 cursor-not-allowed"}`}
-                        disabled={!isAssistantFormComplete}
-                    >
-                        <ChevronDown className="w-4 h-4" />
-                        <span>Ajouter un utilisateur</span>
-                    </button>
+                    {type === "create" ? (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setUserFormData(prev => ({
+                                    ...prev,
+                                    name: `${firstName || ""} ${lastName || ""}`.trim(),
+                                    email: email || "",
+                                }));
+                                setUserModalOpen(true);
+                            }}
+                            className={`items-center mt-7 h-10 inline-flex gap-2 px-4 py-2 rounded-md shadow-sm transition-all
+                                ${isAssistantFormComplete ? "bg-blue-500 hover:bg-blue-600 text-white cursor-pointer" : "bg-gray-300 text-gray-500 cursor-not-allowed"}`}
+                            disabled={!isAssistantFormComplete}
+                        >
+                            <ChevronDown className="w-4 h-4" />
+                            <span>Ajouter un utilisateur</span>
+                        </button>
+                    ) : (
+                        <button
+                            type="button"
+                            onClick={() => setUpdateUserModalOpen(true)}
+                            className={`items-center mt-7 h-10 inline-flex gap-2 px-4 py-2 rounded-md shadow-sm transition-all
+                                bg-blue-500 hover:bg-blue-600 text-white cursor-pointer`}
+                        >
+                            <ChevronDown className="w-4 h-4" />
+                            <span>Mettre à jour l'utilisateur</span>
+                        </button>
+                    )}
                 </div>
                 <button
                     type="submit"
@@ -377,7 +393,7 @@ const AssistantForm = ({ type, data, schools, setOpen, selectedSchool }) => {
                     )}
                 </button>
             </form>
-            {userModalOpen && (
+            {userModalOpen && type === "create" && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
                     <div className="bg-white rounded-lg shadow-lg w-full max-w-md relative">
                         <button
@@ -475,6 +491,13 @@ const AssistantForm = ({ type, data, schools, setOpen, selectedSchool }) => {
                         </div>
                     </div>
                 </div>
+            )}
+            {updateUserModalOpen && type === "update" && (
+                <UpdateUser
+                    userData={[{ id: data?.user_id, name: `${data?.first_name} ${data?.last_name}`, email: data?.email, role: "assistant" }]}
+                    isUpdateOpen={{ isOpen: updateUserModalOpen, id: data?.user_id }}
+                    setIsUpdateOpen={({ isOpen }) => setUpdateUserModalOpen(isOpen)}
+                />
             )}
         </div>
     );

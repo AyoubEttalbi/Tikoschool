@@ -3,31 +3,45 @@ import InputError from "@/Components/InputError";
 import InputLabel from "@/Components/InputLabel";
 import PrimaryButton from "@/Components/PrimaryButton";
 import TextInput from "@/Components/TextInput";
-import { useForm } from "@inertiajs/react";
+import { useForm, usePage } from "@inertiajs/react";
+import { Eye, EyeOff } from "lucide-react";
 
 export default function UpdateUser({
     userData,
     isUpdateOpen,
     setIsUpdateOpen,
 }) {
+    const { auth } = usePage().props;
+    const isAdmin = auth?.user?.role === "admin";
     const updateUserData = userData.find((user) => user.id === isUpdateOpen.id);
+    const [showPassword, setShowPassword] = React.useState(false);
     const { data, setData, put, processing, errors, reset } = useForm({
         name: updateUserData?.name || "",
         email: updateUserData?.email || "",
         role: updateUserData?.role || "",
+        password: "",
     });
-    useEffect(() => {
+    React.useEffect(() => {
         if (updateUserData) {
             setData({
                 name: updateUserData.name,
                 email: updateUserData.email,
                 role: updateUserData.role,
+                password: "",
             });
         }
     }, [updateUserData]);
     const submit = (e) => {
         e.preventDefault();
+        if (!updateUserData || !updateUserData.id) {
+            alert("Erreur: l'identifiant de l'utilisateur est manquant pour la mise à jour.");
+            return;
+        }
+        // Only send password if filled
+        const payload = { ...data };
+        if (!data.password) delete payload.password;
         put(route("users.update", { user: updateUserData.id }), {
+            ...payload,
             onSuccess: () => {
                 reset();
                 setIsUpdateOpen({ isOpen: false, id: null });
@@ -81,6 +95,7 @@ export default function UpdateUser({
                                         isFocused={true}
                                         onChange={(e) => setData("name", e.target.value)}
                                         required
+                                        readOnly
                                     />
                                     <InputError message={errors.name} className="mt-1 text-sm text-red-500" />
                                 </div>
@@ -109,6 +124,7 @@ export default function UpdateUser({
                                         className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black"
                                         onChange={(e) => setData("role", e.target.value)}
                                         required
+                                        disabled    
                                     >
                                         <option value="">Sélectionner un rôle</option>
                                         <option value="admin">Administrateur</option>
@@ -117,6 +133,32 @@ export default function UpdateUser({
                                     </select>
                                     <InputError message={errors.role} className="mt-1 text-sm text-red-500" />
                                 </div>
+                                {/* Champ Mot de passe (admin only) */}
+                                {isAdmin && (
+                                    <div>
+                                        <InputLabel htmlFor="password" value="Nouveau mot de passe" />
+                                        <div className="relative">
+                                            <TextInput
+                                                id="password"
+                                                type={showPassword ? "text" : "password"}
+                                                name="password"
+                                                value={data.password}
+                                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black pr-10"
+                                                autoComplete="new-password"
+                                                onChange={(e) => setData("password", e.target.value)}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowPassword((v) => !v)}
+                                                className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500 focus:outline-none"
+                                                tabIndex={-1}
+                                            >
+                                                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                                            </button>
+                                        </div>
+                                        <InputError message={errors.password} className="mt-1 text-sm text-red-500" />
+                                    </div>
+                                )}
                                 {/* Bouton Soumettre */}
                                 <div className="flex items-center justify-center mt-6">
                                     <PrimaryButton

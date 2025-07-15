@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Invoice</title>
+    <title>Facture</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -74,113 +74,97 @@
     </style>
 </head>
 <body>
-    <!-- School Copy -->
+    <!-- Copie École -->
     <div class="copy">
         <div class="logo">
-            <img src="{{ public_path('logo.png') }}" alt="School Logo">
+            <img src="{{ public_path('logo.png') }}" alt="Logo de l'école">
         </div>
         <div class="invoice-header">
-            <p>Invoice ID: {{ $invoice->id }}</p>
-            <p>Date: {{ $invoice->creationDate->format('Y-m-d') }}</p>
+            <p>ID Facture : {{ $invoice->id }}</p>
+            <p>Date : {{ $invoice->creationDate->format('Y-m-d') }}</p>
         </div>
         <div class="invoice-details">
             <table>
                 <tr>
-                    <th>Student Name</th>
+                    <th>Nom de l'élève</th>
                     <td>{{ $student->firstName }} {{ $student->lastName }}</td>
                 </tr>
                 <tr>
-                    <th>Address</th>
+                    <th>Adresse</th>
                     <td>{{ $student->address }}</td>
                 </tr>
                 <tr>
-                    <th>Phone Number</th>
-                    <td>{{ $student->phoneNumber }}</td>
-                </tr>
-                <tr>
-                    <th>Email</th>
-                    <td>{{ $student->email }}</td>
-                </tr>
-                <tr>
-                    <th>Offer Name</th>
+                    <th>Nom de l'offre</th>
                     <td>{{ $offerName }}</td>
                 </tr>
                 <tr>
-                    <th>Bill Date</th>
+                    <th>Date de facturation</th>
                     <td>{{ $invoice->billDate->format('Y-m') }}</td>
                 </tr>
                 <tr>
-                    <th>Months</th>
+                    <th>Mois</th>
                     <td>{{ $invoice->months }}</td>
                 </tr>
                 <tr>
-                    <th>Total Amount</th>
+                    <th>Montant total</th>
                     <td><span class="currency">{{ number_format($invoice->totalAmount, 2) }} DH</span></td>
                 </tr>
                 <tr>
-                    <th>Amount Paid</th>
+                    <th>Montant payé</th>
                     <td><span class="currency">{{ number_format($invoice->amountPaid, 2) }} DH</span></td>
                 </tr>
                 <tr>
-                    <th>Rest</th>
+                    <th>Reste</th>
                     <td><span class="currency">{{ number_format($invoice->rest, 2) }} DH</span></td>
                 </tr>
             </table>
         </div>
     </div>
 
-    <!-- Separator Line -->
+    <!-- Ligne de séparation -->
     <div class="separator"></div>
 
-    <!-- Student Copy -->
+    <!-- Copie Élève -->
     <div class="copy">
         <div class="logo">
-            <img src="{{ public_path('logo.png') }}" alt="School Logo">
+            <img src="{{ public_path('logo.png') }}" alt="Logo de l'école">
         </div>
         <div class="invoice-header">
-            <p>Invoice ID: {{ $invoice->id }}</p>
-            <p>Date: {{ $invoice->creationDate->format('Y-m-d') }}</p>
+            <p>ID Facture : {{ $invoice->id }}</p>
+            <p>Date : {{ $invoice->creationDate->format('Y-m-d') }}</p>
         </div>
         <div class="invoice-details">
             <table>
                 <tr>
-                    <th>Student Name</th>
+                    <th>Nom de l'élève</th>
                     <td>{{ $student->firstName }} {{ $student->lastName }}</td>
                 </tr>
                 <tr>
-                    <th>Address</th>
+                    <th>Adresse</th>
                     <td>{{ $student->address }}</td>
                 </tr>
                 <tr>
-                    <th>Phone Number</th>
-                    <td>{{ $student->phoneNumber }}</td>
-                </tr>
-                <tr>
-                    <th>Email</th>
-                    <td>{{ $student->email }}</td>
-                </tr>
-                <tr>
-                    <th>Offer Name</th>
+                    <th>Nom de l'offre</th>
                     <td>{{ $offerName }}</td>
                 </tr>
                 <tr>
-                    <th>Bill Date</th>
+                    <th>Date de facturation</th>
                     <td>{{ $invoice->billDate->format('Y-m') }}</td>
                 </tr>
                 <tr>
-                    <th>Months</th>
+                    <th>Mois</th>
                     <td>{{ $invoice->months }}</td>
                 </tr>
                 <tr>
-                    <th>Total Amount</th>
+                    <th>Montant total</th>
                     <td><span class="currency">{{ number_format($invoice->totalAmount, 2) }} DH</span></td>
                 </tr>
                 <tr>
-                    <th>Amount Paid</th>
+                    <th>Montant payé</th>
                     <td><span class="currency">{{ number_format($invoice->amountPaid, 2) }} DH</span></td>
                 </tr>
                 <tr>
-                    <th>Rest</th>
+                    <th>Reste</th>
                     <td><span class="currency">{{ number_format($invoice->rest, 2) }} DH</span></td>
                 </tr>
             </table>
@@ -188,7 +172,7 @@
     </div>
 
     <div class="footer">
-        Thank you for your business!
+        Merci pour votre confiance !
     </div>
 </body>
 </html>
