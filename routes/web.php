@@ -1,9 +1,11 @@
+
+
 <?php
 
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Auth;
-
+use Carbon\Carbon;
 // Controllers
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AnnouncementController;
@@ -27,6 +29,7 @@ use App\Http\Controllers\TeacherController;
 use App\Http\Controllers\TeacherClassController;
 use App\Http\Controllers\TransactionController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\CashierController;
 use App\Http\Controllers\PerformanceController;
 
 // Middleware
@@ -117,6 +120,8 @@ Route::middleware('auth')->group(function () {
         Route::get('/{id}/download', 'download')->name('invoices.download');
         Route::post('/bulk-download', 'bulkDownload')->name('invoices.bulk.download');
     });
+    // Custom route for deleting an invoice from the student context
+    Route::delete('/students/invoices/{id}', [InvoiceController::class, 'destroy'])->name('students.invoices.destroy');
     
     // Results API routes
     Route::controller(ResultsController::class)->prefix('results')->group(function () {
@@ -252,6 +257,19 @@ Route::middleware('auth')->group(function () {
     // New route for UserController@index
     Route::get('/users', [\App\Http\Controllers\UserController::class, 'index'])->name('users.index');
 });
+// Route::get('/cashier/daily', [CashierController::class, 'daily'])->name('cashier.daily');
+// Route::post('/cashier/daily', [CashierController::class, 'daily']); // For filtering
+// Data route
+Route::get('/cashier/daily', [CashierController::class, 'daily'])->name('cashier.daily');
+
+// Redirect /cashier to today's view
+Route::get('/cashier', function () {
+    $today = Carbon::today()->toDateString();
+    return redirect()->route('cashier.daily', ['date' => $today]);
+})->name('cashier');
+    
+// Custom route for deleting invoices from the student context (must be outside local-only block)
+Route::delete('/students/invoices/{id}', [InvoiceController::class, 'destroy']);
 
 // Authentication routes
 require __DIR__ . '/auth.php';

@@ -53,6 +53,12 @@ const menuItems = [
                 visible: ["admin"],
             },
             {
+                icon: "/cashier.png",
+                label: "Caisse",
+                href: "/cashier",
+                visible: ["admin", "assistant"],
+            },
+            {
                 icon: "/result.png",
                 label: "Résultats",
                 href: "/results",

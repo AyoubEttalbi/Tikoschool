@@ -16,7 +16,6 @@ const columns = [
     { header: "Statut", accessor: "status" },
     { header: "Raison", accessor: "reason", className: "hidden lg:table-cell" },
     { header: "Enregistré par", accessor: "teacher" },
-    { header: "Actions", accessor: "action" },
 ];
 
 const AttendancePage = ({
@@ -68,7 +67,7 @@ const AttendancePage = ({
 
     const handleSubmit = (e) => {
         e.preventDefault();
-
+        console.log('attendence data', attendanceData)
         if (
             !attendanceData ||
             attendanceData.length === 0 ||
@@ -91,6 +90,7 @@ const AttendancePage = ({
                     date: formDate,
                     _timestamp: new Date().getTime(),
                 });
+                
             },
             onError: (errors) => {
                 console.log("errors", errors);
@@ -176,7 +176,7 @@ const AttendancePage = ({
                             value={att.reason || ""}
                             onChange={(e) => handleReasonChange(student.student_id || student.id, e.target.value)}
                             className="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
-                            required
+                            
                         />
                     ) : (
                         <span>-</span>
@@ -185,7 +185,6 @@ const AttendancePage = ({
                 <td className="text-gray-600">
                     {auth.user.name} ({auth.user.role})
                 </td>
-                <td>{/* No extra actions needed, all handled inline */}</td>
             </tr>
         );
     };

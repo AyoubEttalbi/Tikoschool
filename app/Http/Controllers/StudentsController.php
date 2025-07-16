@@ -405,6 +405,18 @@ protected function transformStudentData($student)
             ->with(['offer'])
             ->get()
             ->map(function ($invoice) {
+                // Always send selectedMonths as array if present
+                $selectedMonths = [];
+                if (isset($invoice->selected_months)) {
+                    if (is_string($invoice->selected_months)) {
+                        $decoded = json_decode($invoice->selected_months, true);
+                        if (is_array($decoded)) {
+                            $selectedMonths = $decoded;
+                        }
+                    } elseif (is_array($invoice->selected_months)) {
+                        $selectedMonths = $invoice->selected_months;
+                    }
+                }
                 return [
                     'id' => $invoice->id,
                     'membership_id' => $invoice->membership_id,
@@ -419,6 +431,7 @@ protected function transformStudentData($student)
                     'partialMonthAmount' => $invoice->partialMonthAmount,
                     'last_payment' => $invoice->updated_at,
                     'created_at' => $invoice->created_at,
+                    'selectedMonths' => $selectedMonths,
                 ];
             });
 

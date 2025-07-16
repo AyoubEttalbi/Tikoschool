@@ -23,6 +23,28 @@ class InvoiceController extends Controller
     {
         $invoices = Invoice::with(['membership', 'membership.student', 'membership.offer'])->paginate(10);
 
+        // Always decode selected_months and add selectedMonths as array for each invoice
+        $invoices->getCollection()->transform(function ($invoice) {
+            if (isset($invoice->selected_months)) {
+                $selectedMonths = $invoice->selected_months;
+                if (is_string($selectedMonths)) {
+                    $decoded = json_decode($selectedMonths, true);
+                    if (is_array($decoded)) {
+                        $invoice->selectedMonths = $decoded;
+                    } else {
+                        $invoice->selectedMonths = [];
+                    }
+                } elseif (is_array($selectedMonths)) {
+                    $invoice->selectedMonths = $selectedMonths;
+                } else {
+                    $invoice->selectedMonths = [];
+                }
+            } else {
+                $invoice->selectedMonths = [];
+            }
+            return $invoice;
+        });
+
         return Inertia::render('Menu/SingleStudentPage', [
             'invoices' => $invoices,
         ]);
@@ -67,10 +89,21 @@ class InvoiceController extends Controller
 
         try {
             // Validate the incoming request
+
+
             $validated = $request->validate([
                 'membership_id' => 'required|integer',
                 'student_id' => 'required|integer',
-                'months' => 'required|integer',
+                'months' => [
+                    'required',
+                    'integer',
+                    function ($attribute, $value, $fail) use ($request) {
+                        if ($value === 0 && !$request->input('includePartialMonth')) {
+                            $fail('Le champ mois doit être supérieur à 0 si le mois partiel n\'est pas sélectionné.');
+                        }
+                    }
+                ],
+                'selected_months' => 'nullable', // Accept array or stringified JSON
                 'billDate' => 'required|date',
                 'creationDate' => 'nullable|date',
                 'totalAmount' => 'required|numeric',
@@ -84,9 +117,32 @@ class InvoiceController extends Controller
                 'last_payment_date' => 'nullable|date',
             ]);
 
+
+
+            // Always accept both selectedMonths and selected_months from frontend
+            $selectedMonths = $request->input('selectedMonths');
+            if (is_null($selectedMonths)) {
+                $selectedMonths = $request->input('selected_months');
+            }
+            if (is_string($selectedMonths)) {
+                $decoded = json_decode($selectedMonths, true);
+                if (is_array($decoded)) {
+                    $selectedMonths = $decoded;
+                } else {
+                    $selectedMonths = [];
+                }
+            }
+            if (!is_array($selectedMonths)) {
+                $selectedMonths = [];
+            }
+
+            $validated['selected_months'] = json_encode($selectedMonths);
+            // Set the creator
+            $validated['created_by'] = auth()->email ?? auth()->id(); // Fallback to ID if email is not available
+
             // Create the invoice
             $invoice = Invoice::create($validated);
-
+            Log::info('Invoice created successfully', ['invoice_id' => $invoice->id, 'data' => $validated]);
             // Log the activity
             $this->logActivity('created', $invoice, null, $invoice->toArray());
 
@@ -139,143 +195,40 @@ class InvoiceController extends Controller
      */
     public function show($id)
     {
-        try {
-            // Load all relevant relationships with explicit column names
-            $invoice = Invoice::with([
-                'membership',
-                'membership.student',
-                'membership.student.class',
-                'membership.student.school',
-                'student',
-                'student.class',
-                'student.school',
-                'offer'
-            ])->findOrFail($id);
-            
-            // Log detailed information about the loaded invoice
-            Log::info('Invoice data', [
-                'invoice_id' => $id,
-                'invoice_data' => $invoice->toArray(),
-                'has_membership' => $invoice->membership ? true : false,
-                'has_student_direct' => $invoice->student ? true : false
-            ]);
-            
-            // Get student either directly or through membership
-            $student = $invoice->student ?? ($invoice->membership ? $invoice->membership->student : null);
-            
-            // If student exists, make sure we fetch class and school data
-            if ($student) {
-                Log::info('Student data', [
-                    'student_id' => $student->id,
-                    'classId' => $student->classId,
-                    'schoolId' => $student->schoolId,
-                    'has_class_relation' => $student->class ? true : false,
-                    'has_school_relation' => $student->school ? true : false
-                ]);
-                
-                if ($student->classId && !$student->class) {
-                    $class = Classes::find($student->classId);
-                    $className = $class ? $class->name : 'N/A';
+        $invoice = Invoice::with([
+            'membership',
+            'membership.student',
+            'membership.student.class',
+            'membership.student.school',
+            'student',
+            'student.class',
+            'student.school',
+            'offer'
+        ])->findOrFail($id);
+
+        $invoiceData = $invoice->toArray();
+        // Always send selectedMonths as array if present
+        if (isset($invoiceData['selected_months'])) {
+            $selectedMonths = $invoiceData['selected_months'];
+            if (is_string($selectedMonths)) {
+                $decoded = json_decode($selectedMonths, true);
+                if (is_array($decoded)) {
+                    $invoiceData['selectedMonths'] = $decoded;
                 } else {
-                    $className = $student->class ? $student->class->name : 'N/A';
+                    $invoiceData['selectedMonths'] = [];
                 }
-                
-                if ($student->schoolId && !$student->school) {
-                    $school = School::find($student->schoolId);
-                    $schoolName = $school ? $school->name : 'N/A';
-                } else {
-                    $schoolName = $student->school ? $student->school->name : 'N/A';
-                }
+            } elseif (is_array($selectedMonths)) {
+                $invoiceData['selectedMonths'] = $selectedMonths;
             } else {
-                $className = 'N/A';
-                $schoolName = 'N/A';
+                $invoiceData['selectedMonths'] = [];
             }
-            
-            // Ensure numeric values are properly formatted
-            $totalAmount = is_numeric($invoice->totalAmount) ? floatval($invoice->totalAmount) : 0;
-            $amountPaid = is_numeric($invoice->amountPaid) ? floatval($invoice->amountPaid) : 0;
-            $rest = is_numeric($invoice->rest) ? floatval($invoice->rest) : ($totalAmount - $amountPaid);
-            
-            // Get offer name from the relationship
-            $offerName = 'N/A';
-            if ($invoice->offer && isset($invoice->offer->offer_name)) {
-                $offerName = $invoice->offer->offer_name;
-            } elseif ($invoice->membership && $invoice->membership->offer) {
-                $offerName = $invoice->membership->offer->offer_name;
-            }
-            
-            $formattedInvoice = [
-                'id' => $invoice->id,
-                'student_id' => $student ? $student->id : null,
-                'student_name' => $student ? $student->firstName . ' ' . $student->lastName : 'Unknown',
-                'student_class' => $className,
-                'student_school' => $schoolName,
-                'billDate' => $invoice->billDate ? $invoice->billDate->format('Y-m-d') : null,
-                'creationDate' => $invoice->creationDate ? $invoice->creationDate->format('Y-m-d') : null,
-                'endDate' => $invoice->endDate ? $invoice->endDate->format('Y-m-d') : null,
-                'totalAmount' => $totalAmount,
-                'amountPaid' => $amountPaid,
-                'rest' => $rest,
-                'months' => $invoice->months ?? 1,
-                'includePartialMonth' => $invoice->includePartialMonth ?? false,
-                'partialMonthAmount' => is_numeric($invoice->partialMonthAmount) ? floatval($invoice->partialMonthAmount) : 0,
-                'offer_name' => $offerName,
-                'offer_id' => $invoice->offer_id,
-                'membership_id' => $invoice->membership_id,
-            ];
-            
-            // Get teachers associated with this invoice's membership
-            if ($invoice->membership && isset($invoice->membership->teachers) && is_array($invoice->membership->teachers)) {
-                $teachers = [];
-                
-                foreach ($invoice->membership->teachers as $teacherData) {
-                    $teacherId = $teacherData['teacherId'] ?? null;
-                    $teacherAmount = isset($teacherData['amount']) && is_numeric($teacherData['amount']) ? floatval($teacherData['amount']) : 0;
-                    
-                    if ($teacherId) {
-                        $teacher = Teacher::find($teacherId);
-                        $teacherName = $teacher ? $teacher->first_name . ' ' . $teacher->last_name : 'Unknown Teacher';
-                        
-                        $teachers[] = [
-                            'teacherId' => $teacherId,
-                            'name' => $teacherName,
-                            'amount' => $teacherAmount
-                        ];
-                    }
-                }
-                
-                $formattedInvoice['teachers'] = $teachers;
-            }
-
-            // Add payment data
-            if ($invoice->amountPaid > 0) {
-                $formattedInvoice['payments'] = [
-                    [
-                        'date' => $invoice->last_payment_date ? $invoice->last_payment_date->format('Y-m-d') : ($invoice->creationDate ? $invoice->creationDate->format('Y-m-d') : now()->format('Y-m-d')),
-                        'amount' => $amountPaid,
-                        'method' => 'Cash'
-                    ]
-                ];
-            } else {
-                $formattedInvoice['payments'] = [];
-            }
-
-            // Log the final formatted data before rendering
-            Log::info('Final formatted invoice data being sent to view', [
-                'invoice_id' => $id,
-                'formatted_data' => $formattedInvoice
-            ]);
-
-            return Inertia::render('Invoices/InvoiceViewer', [
-                'invoice' => $formattedInvoice
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Error fetching invoice details: ' . $e->getMessage(), [
-                'invoice_id' => $id,
-                'trace' => $e->getTraceAsString()
-            ]);
-            return redirect()->route('dashboard')->with('error', 'Could not find invoice details: ' . $e->getMessage());
+        } else {
+            $invoiceData['selectedMonths'] = [];
         }
+
+        return Inertia::render('Invoices/InvoiceViewer', [
+            'invoice' => $invoiceData
+        ]);
     }
 
     /**
@@ -295,8 +248,28 @@ class InvoiceController extends Controller
                 ];
             });
 
+        // Always send selected_months as an array if present
+        $invoiceData = $invoice->toArray();
+        if (isset($invoiceData['selected_months'])) {
+            $selectedMonths = $invoiceData['selected_months'];
+            if (is_string($selectedMonths)) {
+                $decoded = json_decode($selectedMonths, true);
+                if (is_array($decoded)) {
+                    $invoiceData['selectedMonths'] = $decoded;
+                } else {
+                    $invoiceData['selectedMonths'] = [];
+                }
+            } elseif (is_array($selectedMonths)) {
+                $invoiceData['selectedMonths'] = $selectedMonths;
+            } else {
+                $invoiceData['selectedMonths'] = [];
+            }
+        } else {
+            $invoiceData['selectedMonths'] = [];
+        }
+
         return Inertia::render('Menu/SingleStudentPage', [
-            'invoice' => $invoice,
+            'invoice' => $invoiceData,
             'StudentMemberships' => $studentMemberships,
         ]);
     }
@@ -310,10 +283,21 @@ class InvoiceController extends Controller
 
         try {
             // Validate the incoming request
+
+
             $validated = $request->validate([
                 'membership_id' => 'integer',
                 'student_id' => 'required|integer',
-                'months' => 'required|integer',
+                'months' => [
+                    'required',
+                    'integer',
+                    function ($attribute, $value, $fail) use ($request) {
+                        if ($value === 0 && !$request->input('includePartialMonth')) {
+                            $fail('Le champ mois doit être supérieur à 0 si le mois partiel n\'est pas sélectionné.');
+                        }
+                    }
+                ],
+                'selected_months' => 'nullable', // Accept array or stringified JSON
                 'billDate' => 'required|date',
                 'creationDate' => 'nullable|date',
                 'totalAmount' => 'required|numeric',
@@ -341,6 +325,26 @@ class InvoiceController extends Controller
                 // Keep the existing last_payment_date if amountPaid hasn't changed
                 $validated['last_payment_date'] = $invoice->last_payment_date;
             }
+
+
+
+            // Always accept both selectedMonths and selected_months from frontend
+            $selectedMonths = $request->input('selectedMonths');
+            if (is_null($selectedMonths)) {
+                $selectedMonths = $request->input('selected_months');
+            }
+            if (is_string($selectedMonths)) {
+                $decoded = json_decode($selectedMonths, true);
+                if (is_array($decoded)) {
+                    $selectedMonths = $decoded;
+                } else {
+                    $selectedMonths = [];
+                }
+            }
+            if (!is_array($selectedMonths)) {
+                $selectedMonths = [];
+            }
+            $validated['selected_months'] = json_encode($selectedMonths);
 
             // Update the invoice
             $invoice->update($validated);

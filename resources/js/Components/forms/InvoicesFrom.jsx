@@ -5,7 +5,7 @@ import InputField from "../InputField";
 import { router } from "@inertiajs/react";
 import React, { useEffect, useState } from "react";
 
-// Define the schema for the form
+// Define the schema for the form (after imports)
 const invoiceSchema = z.object({
     membership_id: z.any().optional(),
     months: z.any(),
@@ -18,7 +18,11 @@ const invoiceSchema = z.object({
     offer_id: z.any().optional(),
     endDate: z.string().optional(),
     includePartialMonth: z.boolean().optional(),
-    partialMonthAmount: z.number().optional(),
+    // Accept string, undefined, or number, and coerce to number (default 0)
+    partialMonthAmount: z.preprocess(
+        (val) => val === "" || val === undefined ? 0 : Number(val),
+        z.number()
+    ),
     last_payment_date: z.any().optional(),
 });
 
@@ -29,6 +33,7 @@ const InvoicesForm = ({
     StudentMemberships = [],
     studentId,
 }) => {
+    // ...existing code...
     const today = new Date();
     const firstOfNextMonth = new Date(
         today.getFullYear(),
@@ -91,7 +96,67 @@ const InvoicesForm = ({
     });
 
     const selectedMembershipId = watch("membership_id");
-    const months = watch("months");
+    // Months list: current month + next 11 months
+    const monthsList = (() => {
+        const months = [];
+        for (let i = 0; i < 12; i++) {
+            const date = new Date(today.getFullYear(), today.getMonth() + i, 1);
+            const label = date.toLocaleString("default", { month: "short", year: "numeric" });
+            const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+            months.push({ label, value });
+        }
+        return months;
+    })();
+
+
+    // Default: use selectedMonths from data if present (for update), else current month
+    const [selectedMonths, setSelectedMonths] = useState(() => {
+        // 1. Use selectedMonths (array) if present (update mode, new format)
+        if (type === 'update' && Array.isArray(data?.selectedMonths) && data.selectedMonths.length > 0) {
+            return data.selectedMonths;
+        }
+        // 2. Use selected_months if present (update mode, legacy or backend format)
+        if (type === 'update' && data?.selected_months) {
+            if (typeof data.selected_months === 'string') {
+                try {
+                    const parsed = JSON.parse(data.selected_months);
+                    if (Array.isArray(parsed)) {
+                        return parsed;
+                    }
+                } catch (e) {}
+            } else if (Array.isArray(data.selected_months)) {
+                return data.selected_months;
+            }
+        }
+        // 3. Fallback to legacy keys (for backward compatibility)
+        if (type === 'update' && typeof data?.selectedMonths === "string" && data.selectedMonths) {
+            return [data.selectedMonths];
+        }
+        // 4. If update and months is 0, return empty array (for partial month only)
+        if (type === 'update' && data?.months === 0) {
+            return [];
+        }
+        // 5. If months > 0 and billDate is set, infer the month from billDate
+        if (type === 'update' && data?.months > 0 && data?.billDate) {
+            // billDate is YYYY-MM-DD, convert to YYYY-MM
+            const billMonth = data.billDate.slice(0, 7);
+            return [billMonth];
+        }
+        // 6. Otherwise, default to current month
+        return [monthsList[0].value];
+    });
+
+    // Keep form value in sync with local state
+    useEffect(() => {
+        setValue("selectedMonths", selectedMonths);
+    }, [selectedMonths, setValue]);
+
+    // Keep billDate and endDate in sync with selection
+    useEffect(() => {
+        setValue("billDate", calculateBillingDate());
+        setValue("endDate", calculateEndDate());
+    }, [includePartialMonth, selectedMonths]);
+
     const amountPaid = watch("amountPaid");
     const watchIncludePartialMonth = watch("includePartialMonth");
 
@@ -99,6 +164,33 @@ const InvoicesForm = ({
     const selectedMembership = StudentMemberships.find(
         (membership) => membership.id === parseInt(selectedMembershipId),
     );
+
+
+
+
+    // Helper to check if selected months are consecutive
+    const areMonthsConsecutive = (monthsArr) => {
+        if (!Array.isArray(monthsArr) || monthsArr.length < 2) return true;
+        // Sort months by value (YYYY-MM)
+        const sorted = [...monthsArr].sort();
+        for (let i = 1; i < sorted.length; i++) {
+            const [prevY, prevM] = sorted[i - 1].split('-').map(Number);
+            const [currY, currM] = sorted[i].split('-').map(Number);
+            let prevDate = new Date(prevY, prevM - 1, 1);
+            let currDate = new Date(currY, currM - 1, 1);
+            // Add 1 month to prevDate
+            prevDate.setMonth(prevDate.getMonth() + 1);
+            if (
+                prevDate.getFullYear() !== currDate.getFullYear() ||
+                prevDate.getMonth() !== currDate.getMonth()
+            ) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    const monthsAreConsecutive = areMonthsConsecutive(selectedMonths);
 
     // Calculate the partial month amount
     const calculatePartialMonthAmount = () => {
@@ -116,84 +208,89 @@ const InvoicesForm = ({
 
     // Calculate the total amount (partial month + full months)
     const partialMonthAmount = calculatePartialMonthAmount();
-    const fullMonthsAmount = selectedMembership
-        ? Math.round(selectedMembership.price) * months
+    // Only count months if months are selected and consecutive
+    const monthsCount = (selectedMonths.length > 0 && monthsAreConsecutive) ? selectedMonths.length : 0;
+    const fullMonthsAmount = selectedMembership && monthsCount > 0
+        ? Math.round(selectedMembership.price) * monthsCount
         : 0;
-    const totalAmount = includePartialMonth
-        ? fullMonthsAmount + partialMonthAmount
-        : fullMonthsAmount;
-    const restAmount =
-        totalAmount - (amountPaid ? Math.round(Number(amountPaid)) : 0);
+    // If partial month is checked and no months are selected, only charge partial month
+    // If both are selected, sum both
+    // If only months are selected, charge for months
+    // If neither, total is 0
+    const computedTotalAmount = (includePartialMonth ? partialMonthAmount : 0) + fullMonthsAmount;
+    const totalAmount = computedTotalAmount;
+    const restAmount = totalAmount - (amountPaid ? Math.round(Number(amountPaid)) : 0);
 
-    // Function to calculate the billing date based on includePartialMonth
+    // Keep the form value in sync with the computed totalAmount and restAmount
+    useEffect(() => {
+        setValue("totalAmount", computedTotalAmount);
+    }, [computedTotalAmount, setValue]);
+
+    useEffect(() => {
+        setValue("rest", restAmount);
+    }, [restAmount, setValue]);
+
+    // Function to calculate the billing date (date debut) and end date (date fin)
     const calculateBillingDate = () => {
-        return includePartialMonth ? todayFormatted : formattedFirstOfNextMonth;
+        // If partial month is included, start from today, else from the first selected month
+        if (includePartialMonth) return todayFormatted;
+        if (selectedMonths.length > 0) {
+            const [year, month] = selectedMonths[0].split("-").map(Number);
+            if (!isNaN(year) && !isNaN(month)) {
+                const firstDay = new Date(year, month - 1, 1);
+                return firstDay.toISOString().split("T")[0];
+            }
+        }
+        return formattedFirstOfNextMonth;
     };
 
-    // Function to calculate the end date (last day of the month)
     const calculateEndDate = () => {
-        let startMonth, startYear;
+        let validMonths = Array.isArray(selectedMonths)
+            ? selectedMonths.filter((m) => typeof m === "string" && /^\d{4}-\d{2}$/.test(m))
+            : [];
+        if (validMonths.length > 0) {
+            const lastMonth = validMonths[validMonths.length - 1];
+            const [year, month] = lastMonth.split("-").map(Number);
+            if (!isNaN(year) && !isNaN(month)) {
+                const lastDay = new Date(year, month, 0); // month is 1-based
+                if (!isNaN(lastDay.getTime())) {
+                    return lastDay.toISOString().split("T")[0];
+                }
+            }
+        }
         if (includePartialMonth) {
-            startMonth = today.getMonth() + 1;
-            startYear = today.getFullYear();
-        } else {
-            startMonth = today.getMonth() + 1 + parseInt(months) - 1;
-            startYear = today.getFullYear();
+            const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+            return lastDay.toISOString().split("T")[0];
         }
-        while (startMonth > 11) {
-            startMonth -= 12;
-            startYear += 1;
-        }
-        const lastDay = new Date(startYear, startMonth + 1, 0);
+        const lastDay = new Date(today.getFullYear(), today.getMonth() + 2, 0);
         return lastDay.toISOString().split("T")[0];
     };
 
-    // Update values when dependencies change
-    useEffect(() => {
-        const newBillingDate = calculateBillingDate();
-        setValue("billDate", newBillingDate);
-        setValue("partialMonthAmount", partialMonthAmount);
-        setValue("totalAmount", totalAmount);
-        setValue("rest", restAmount);
-        setValue("student_id", studentId);
-
-        // Update offer_id based on the selected membership
-        if (selectedMembership) {
-            setValue("offer_id", selectedMembership.offer_id);
-        }
-
-        // Calculate and update the end date
-        const endDate = calculateEndDate();
-        setValue("endDate", endDate);
-
-        // Update last_payment_date only if amountPaid has changed
-        if (amountPaid !== initialAmountPaid) {
-            setValue(
-                "last_payment_date",
-                new Date().toISOString().slice(0, 19).replace("T", " "),
-            );
-        }
-    }, [
-        selectedMembershipId,
-        months,
-        amountPaid,
-        includePartialMonth,
-        setValue,
-        selectedMembership,
-    ]);
-
-    // Handle partial month checkbox change
-    const handlePartialMonthChange = (e) => {
-        setIncludePartialMonth(e.target.checked);
-        setValue("includePartialMonth", e.target.checked);
-    };
-
     const onSubmit = (formData) => {
+        // ...existing code...
+        // Prevent submission if months are not consecutive
+        if (!monthsAreConsecutive) {
+            // ...existing code...
+            return;
+        }
         // Ensure amounts are integers
         formData.totalAmount = Math.round(formData.totalAmount);
         formData.amountPaid = Math.round(Number(formData.amountPaid));
         formData.rest = Math.round(formData.rest);
         formData.partialMonthAmount = Math.round(formData.partialMonthAmount);
+
+        // Always include selectedMonths as array in the payload
+        formData.selectedMonths = selectedMonths;
+
+        // Set months field to the number of selected months (if any and consecutive),
+        // or 0 if only partial month, or fallback to 1 (should not happen)
+        if (selectedMonths.length > 0 && monthsAreConsecutive) {
+            formData.months = selectedMonths.length;
+        } else if (includePartialMonth && selectedMonths.length === 0) {
+            formData.months = 0;
+        } else {
+            formData.months = 1; // fallback, should not happen
+        }
 
         // Update last_payment_date only if amountPaid has changed
         formData.last_payment_date =
@@ -203,6 +300,7 @@ const InvoicesForm = ({
 
         setLoading(true);
         if (type === "create") {
+            // ...existing code...
             router.post("/invoices", formData, {
                 onSuccess: () => {
                     setOpen(false);
@@ -213,13 +311,16 @@ const InvoicesForm = ({
                 },
             });
         } else if (type === "update") {
+            // ...existing code...
             router.put(`/invoices/${data.id}`, formData, {
                 onSuccess: () => {
                     setOpen(false);
                     setLoading(false);
+                    // ...existing code...
                 },
                 onError: () => {
                     setLoading(false);
+                    // ...existing code...
                 },
             });
         }
@@ -227,6 +328,7 @@ const InvoicesForm = ({
 
     const onError = (errors) => {
         setLoading(false);
+        // ...existing code...
     };
 
     // Calculate formatted dates for display
@@ -243,6 +345,15 @@ const InvoicesForm = ({
         setValue("amountPaid", totalAmount);
         setValue("rest", 0);
     };
+
+    // Handle partial month checkbox change (must be inside component)
+    const handlePartialMonthChange = (e) => {
+        setIncludePartialMonth(e.target.checked);
+        setValue("includePartialMonth", e.target.checked);
+    };
+
+    // ...existing code...
+
     return (
         <form
             className="flex flex-col gap-6 p-6 bg-white shadow-lg rounded-lg"
@@ -375,131 +486,132 @@ const InvoicesForm = ({
                             )}
                         </div>
 
-                        {selectedMembership && (
-                            <div className="bg-white p-3 rounded-md border border-gray-200 mt-2">
-                                <h3 className="font-medium text-gray-700 mb-2">
-                                    Résumé de l'adhésion sélectionnée
-                                </h3>
-                                <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                                    <div className="text-gray-600">
-                                        Adhésion :
+                        {/* Only show membership details and rest of form if a membership is selected (in create mode) */}
+                        {(type === "update" || selectedMembership) && (
+                            <>
+                                <div className="bg-white p-3 rounded-md border border-gray-200 mt-2">
+                                    <h3 className="font-medium text-gray-700 mb-2">
+                                        Résumé de l'adhésion sélectionnée
+                                    </h3>
+                                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                                        <div className="text-gray-600">
+                                            Adhésion :
+                                        </div>
+                                        <div className="font-medium">
+                                            {selectedMembership?.offer_name}
+                                        </div>
+                                        <div className="text-gray-600">
+                                            Prix mensuel :
+                                        </div>
+                                        <div className="font-medium">
+                                            {selectedMembership ? Math.round(selectedMembership.price) : ''}{" "}
+                                            DH
+                                        </div>
+                                        {selectedMembership && selectedMembership.payment_status !== "paid" && (
+                                            <>
+                                                <div className="text-gray-600">
+                                                    Statut du paiement :
+                                                </div>
+                                                <div className="font-medium text-amber-600">
+                                                    Impayé
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
-                                    <div className="font-medium">
-                                        {selectedMembership.offer_name}
+                                </div>
+                                {/* Months Checkbox List (starts from current month, default checked) */}
+                                <div className="flex flex-col gap-2 mt-4">
+                                    <label className="text-sm font-medium text-gray-700">
+                                        Mois à facturer {!includePartialMonth && <span className="text-red-500">*</span>}
+                                    </label>
+                                    <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto border border-gray-300 rounded-md p-2 bg-white">
+                                        {monthsList.map((month, idx) => {
+                                            const checked = selectedMonths.includes(month.value);
+                                            return (
+                                                <label key={month.value} className="flex items-center gap-2 cursor-pointer">
+                                                    <input
+                                                        type="checkbox"
+                                                        value={month.value}
+                                                        checked={checked}
+                                                        onChange={e => {
+                                                            let newSelected;
+                                                            if (e.target.checked) {
+                                                                newSelected = [...selectedMonths, month.value];
+                                                            } else {
+                                                                newSelected = selectedMonths.filter(m => m !== month.value);
+                                                            }
+                                                            setSelectedMonths(Array.from(new Set(newSelected)).sort());
+                                                        }}
+                                                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                                    />
+                                                    {month.label}
+                                                </label>
+                                            );
+                                        })}
                                     </div>
-                                    <div className="text-gray-600">
-                                        Prix mensuel :
-                                    </div>
-                                    <div className="font-medium">
-                                        {Math.round(selectedMembership.price)}{" "}
-                                        DH
-                                    </div>
-                                    {selectedMembership.payment_status !==
-                                        "paid" && (
-                                        <>
-                                            <div className="text-gray-600">
-                                                Statut du paiement :
-                                            </div>
-                                            <div className="font-medium text-amber-600">
-                                                Impayé
-                                            </div>
-                                        </>
+                                    {/* Only show error if partial month is NOT checked and no months are selected */}
+                                    {!includePartialMonth && selectedMonths.length === 0 && (
+                                        <span className="text-sm text-red-500">Veuillez sélectionner au moins un mois ou inclure le mois partiel.</span>
+                                    )}
+                                    {!monthsAreConsecutive && selectedMonths.length > 1 && (
+                                        <span className="text-sm text-red-500">Les mois sélectionnés doivent être consécutifs.</span>
                                     )}
                                 </div>
-                            </div>
-                        )}
-
-                        {/* Number of Months Input Field */}
-                        <div className="flex flex-col gap-2">
-                            <label
-                                htmlFor="months"
-                                className="text-sm font-medium text-gray-700"
-                            >
-                                Nombre de mois{" "}
-                                <span className="text-red-500">*</span>
-                            </label>
-                            <select
-                                id="months"
-                                {...register("months")}
-                                className="p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            >
-                                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(
-                                    (num) => (
-                                        <option key={num} value={num}>
-                                            {num}{" "}
-                                            {num === 1 ? "mois" : "mois"}
-                                        </option>
-                                    ),
-                                )}
-                            </select>
-                            {errors.months && (
-                                <span className="text-sm text-red-500">
-                                    {errors.months.message}
-                                </span>
-                            )}
-                        </div>
-
-                        {/* Partial Month Option */}
-                        {selectedMembership && (
-                            <div className="mt-2">
-                                <div className="flex items-center gap-2">
-                                    <input
-                                        type="checkbox"
-                                        id="includePartialMonth"
-                                        checked={includePartialMonth}
-                                        onChange={handlePartialMonthChange}
-                                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                                    />
-                                    <label
-                                        htmlFor="includePartialMonth"
-                                        className="text-sm font-medium text-gray-700"
-                                    >
-                                        Inclure le paiement du mois partiel (aujourd'hui
-                                        jusqu'à la fin de ce mois)
-                                    </label>
-                                </div>
-
-                                {/* Partial Month Amount Display */}
-                                {includePartialMonth && selectedMembership && (
-                                    <div className="bg-blue-50 p-3 rounded-md border border-blue-200 mt-2">
-                                        <div className="flex items-center">
-                                            <svg
-                                                className="h-5 w-5 text-blue-500 mr-2"
-                                                xmlns="http://www.w3.org/2000/svg"
-                                                fill="none"
-                                                viewBox="0 0 24 24"
-                                                stroke="currentColor"
-                                            >
-                                                <path
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    strokeWidth={2}
-                                                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                                                />
-                                            </svg>
-                                            <div>
-                                                <p className="text-sm text-blue-800">
-                                                    Paiement du mois partiel :{" "}
-                                                    <span className="font-medium">
-                                                        {partialMonthAmount} DH
-                                                    </span>
-                                                    (
-                                                    {Math.ceil(
-                                                        (firstOfNextMonth -
-                                                            today) /
-                                                            (1000 *
-                                                                60 *
-                                                                60 *
-                                                                24),
-                                                    )}{" "}
-                                                    jours restants dans le mois
-                                                    courant)
-                                                </p>
+                                {/* Partial Month Option (single instance) */}
+                                <div className="mt-2">
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="checkbox"
+                                            id="includePartialMonth"
+                                            checked={includePartialMonth}
+                                            onChange={handlePartialMonthChange}
+                                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                        />
+                                        <label
+                                            htmlFor="includePartialMonth"
+                                            className="text-sm font-medium text-gray-700"
+                                        >
+                                            Inclure le paiement du mois partiel (aujourd'hui jusqu'à la fin de ce mois)
+                                        </label>
+                                    </div>
+                                    {/* Partial Month Amount Display */}
+                                    {includePartialMonth && selectedMembership && (
+                                        <div className="bg-blue-50 p-3 rounded-md border border-blue-200 mt-2">
+                                            <div className="flex items-center">
+                                                <svg
+                                                    className="h-5 w-5 text-blue-500 mr-2"
+                                                    xmlns="http://www.w3.org/2000/svg"
+                                                    fill="none"
+                                                    viewBox="0 0 24 24"
+                                                    stroke="currentColor"
+                                                >
+                                                    <path
+                                                        strokeLinecap="round"
+                                                        strokeLinejoin="round"
+                                                        strokeWidth={2}
+                                                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                                                    />
+                                                </svg>
+                                                <div>
+                                                    <p className="text-sm text-blue-800">
+                                                        Paiement du mois partiel :{" "}
+                                                        <span className="font-medium">
+                                                            {partialMonthAmount} DH
+                                                        </span>
+                                                        (" "
+                                                        {Math.ceil(
+                                                            (firstOfNextMonth - today) /
+                                                            (1000 * 60 * 60 * 24),
+                                                        )}{" "}
+                                                        jours restants dans le mois courant)
+                                                    </p>
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                )}
-                            </div>
+                                    )}
+                                </div>
+                            </>
+                        
                         )}
                     </div>
                 </div>
@@ -573,9 +685,20 @@ const InvoicesForm = ({
                                         readOnly
                                     />
                                     <p className="text-xs text-gray-500">
-                                        {includePartialMonth
-                                            ? `${partialMonthAmount} DH (mois partiel) + ${fullMonthsAmount} DH (${months} ${parseInt(months) === 1 ? "mois" : "mois"})`
-                                            : `${fullMonthsAmount} DH (${months} ${parseInt(months) === 1 ? "mois" : "mois"})`}
+                                        {includePartialMonth && partialMonthAmount > 0 && (
+                                            <>
+                                                {partialMonthAmount} DH (mois partiel)
+                                                {monthsCount > 0 && ' + '}
+                                            </>
+                                        )}
+                                        {monthsCount > 0 && (
+                                            <>
+                                                {fullMonthsAmount} DH ({monthsCount} mois)
+                                            </>
+                                        )}
+                                        {(!includePartialMonth && monthsCount === 0) && (
+                                            <>Aucun mois sélectionné.</>
+                                        )}
                                     </p>
                                 </div>
 
@@ -650,6 +773,12 @@ const InvoicesForm = ({
                 type="hidden"
                 {...register("last_payment_date")}
                 value={new Date().toISOString().split("T")[0]}
+            />
+            {/* Ensure selectedMonths is always sent as JSON string */}
+            <input
+                type="hidden"
+                {...register("selectedMonths")}
+                value={JSON.stringify(selectedMonths)}
             />
             {/* Action Buttons */}
             <div className="flex justify-end gap-3 mt-4 pt-4 border-t">
