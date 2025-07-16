@@ -29,8 +29,8 @@ const TableSearch = ({ routeName, filters, value, onChange }) => {
             router.get(
                 route(routeName),
                 params,
-                { preserveState: true, replace: true, preserveScroll: true },
-            );
+            { preserveState: true, replace: true, preserveScroll: true },
+        );
         }
     };
 
