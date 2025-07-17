@@ -12,14 +12,16 @@ import {
 import { useEffect, useState } from "react";
 import axios from "axios";
 
-const AttendanceChart = () => {
+const AttendanceChart = ({ schoolId }) => {
     const [data, setData] = useState([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const response = await axios.get(route("attendance.stats"));
+                const response = await axios.get(route("attendance.stats"), {
+                    params: schoolId ? { school_id: schoolId } : {},
+                });
                 setData(response.data);
             } catch (error) {
                 console.error("Error fetching attendance data:", error);
@@ -29,7 +31,7 @@ const AttendanceChart = () => {
         };
 
         fetchData();
-    }, []);
+    }, [schoolId]);
 
     return (
         <div className="bg-white rounded-lg p-4 h-full">

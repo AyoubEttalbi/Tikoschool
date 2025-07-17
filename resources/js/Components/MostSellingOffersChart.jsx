@@ -10,15 +10,16 @@ import {
 } from "recharts";
 import { usePage } from "@inertiajs/react";
 
-const MostSellingOffersChart = () => {
+const MostSellingOffersChart = ({ schoolId }) => {
     const { props } = usePage();
-
-    // Data for the chart
-    const data = props.mostSellingOffers.map((offer) => ({
-        name: offer.name,
-        students: offer.student_count,
-        totalPrice: offer.total_price,
-    }));
+    // Data for the chart, filtered by schoolId if provided
+    const data = props.mostSellingOffers
+        .filter((offer) => !schoolId || String(offer.school_id) === String(schoolId))
+        .map((offer) => ({
+            name: offer.name,
+            students: offer.student_count,
+            totalPrice: offer.total_price,
+        }));
 
     return (
         <div className="bg-white rounded-xl w-full h-[400px] p-4">

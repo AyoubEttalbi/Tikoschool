@@ -6,16 +6,16 @@ import { CalendarIcon, UsersIcon, BellIcon } from "@heroicons/react/24/outline";
 /**
  * Announcements Component
  *
- * Displays filtered announcements based on user role and date visibility
- * Admin users can view announcements for all roles
+ * Displays filtered announcements based on user role, date visibility, and optionally schoolId
  *
  * @param {Object[]} announcements - Array of announcement objects
  * @param {string} userRole - Current user's role (admin, teacher, assistant, etc.)
  * @param {number} limit - Maximum number of announcements to display
+ * @param {string|number} schoolId - Selected school id for filtering
  * @returns {JSX.Element} Rendered component
  */
-const Announcements = ({ announcements = [], userRole = "all", limit = 3 }) => {
-    // Filter and sort announcements based on visibility, date range, and limit
+const Announcements = ({ announcements = [], userRole = "all", limit = 3, schoolId }) => {
+    // Filter and sort announcements based on visibility, date range, school, and limit
     const filteredAnnouncements = useMemo(() => {
         if (!announcements?.length) return [];
 
@@ -23,6 +23,10 @@ const Announcements = ({ announcements = [], userRole = "all", limit = 3 }) => {
 
         return [...announcements]
             .filter((announcement) => {
+                // If announcement.school_id exists, filter by schoolId
+                if (schoolId && announcement.school_id && String(announcement.school_id) !== String(schoolId)) {
+                    return false;
+                }
                 // Admin can see all announcements regardless of visibility setting
                 // Other roles can only see announcements targeted to them or 'all'
                 const hasVisibilityAccess =
@@ -45,7 +49,7 @@ const Announcements = ({ announcements = [], userRole = "all", limit = 3 }) => {
                     new Date(a.date_announcement),
             )
             .slice(0, limit);
-    }, [announcements, userRole, limit]);
+    }, [announcements, userRole, limit, schoolId]);
 
     // Format date to a user-friendly string
     const formatDate = (dateString) => {

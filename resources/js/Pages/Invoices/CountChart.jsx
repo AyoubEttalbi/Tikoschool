@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { usePage, router } from "@inertiajs/react";
 import { RadialBarChart, RadialBar, ResponsiveContainer } from "recharts";
 
-const CountChart = () => {
+const CountChart = ({ schoolId }) => {
     const {
         membershipStats = {
             paidCount: 0,
@@ -91,7 +91,7 @@ const CountChart = () => {
 
         router.get(
             route("dashboard"),
-            { month: newMonth },
+            { month: newMonth, school_id: schoolId },
             {
                 preserveState: true,
                 preserveScroll: true,

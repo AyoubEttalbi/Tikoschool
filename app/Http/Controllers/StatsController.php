@@ -25,51 +25,50 @@ class StatsController extends Controller
      */
     public function index(Request $request)
 {
-    // Get the selected month for membership stats
+    $schoolId = $request->get('school_id');
     $month = $request->get('month');
-    
-    // Get membership stats
-    $membershipStats = $this->getMembershipStats($month);
+    $membershipStats = $this->getMembershipStats($month, $schoolId);
 
-    // Fetch counts of teachers using the pivot table
-    $teacherCounts = DB::table('school_teacher')
-        ->select('school_id', DB::raw('COUNT(DISTINCT teacher_id) as count'))
-        ->groupBy('school_id')
-        ->get()
-        ->keyBy('school_id');
+    // Teacher counts
+    $teacherCountsQuery = DB::table('school_teacher')
+        ->select('school_id', DB::raw('COUNT(DISTINCT teacher_id) as count'));
+    if ($schoolId) {
+        $teacherCountsQuery->where('school_id', $schoolId);
+    }
+    $teacherCounts = $teacherCountsQuery->groupBy('school_id')->get()->keyBy('school_id');
+    $totalTeacherCount = $schoolId
+        ? DB::table('school_teacher')->where('school_id', $schoolId)->select(DB::raw('COUNT(DISTINCT teacher_id) as count'))->first()->count
+        : DB::table('school_teacher')->select(DB::raw('COUNT(DISTINCT teacher_id) as count'))->first()->count;
 
-    $totalTeacherCount = DB::table('school_teacher')
-        ->select(DB::raw('COUNT(DISTINCT teacher_id) as count'))
-        ->first()
-        ->count;
+    // Student counts
+    $studentCountsQuery = Student::select('schoolId', DB::raw('COUNT(*) as count'));
+    if ($schoolId) {
+        $studentCountsQuery->where('schoolId', $schoolId);
+    }
+    $studentCounts = $studentCountsQuery->groupBy('schoolId')->get()->keyBy('schoolId');
+    $totalStudentCount = $schoolId
+        ? Student::where('schoolId', $schoolId)->count()
+        : Student::count();
 
-    $studentCounts = Student::select('schoolId', DB::raw('COUNT(*) as count'))
-        ->groupBy('schoolId')
-        ->get()
-        ->keyBy('schoolId');
+    // Assistant counts
+    $assistantCountsQuery = DB::table('assistant_school')
+        ->select('school_id', DB::raw('COUNT(DISTINCT assistant_id) as count'));
+    if ($schoolId) {
+        $assistantCountsQuery->where('school_id', $schoolId);
+    }
+    $assistantCounts = $assistantCountsQuery->groupBy('school_id')->get()->keyBy('school_id');
+    $totalAssistantCount = $schoolId
+        ? DB::table('assistant_school')->where('school_id', $schoolId)->select(DB::raw('COUNT(DISTINCT assistant_id) as count'))->first()->count
+        : DB::table('assistant_school')->select(DB::raw('COUNT(DISTINCT assistant_id) as count'))->first()->count;
 
-    $totalStudentCount = Student::count();
-
-    $assistantCounts = DB::table('assistant_school')
-        ->select('school_id', DB::raw('COUNT(DISTINCT assistant_id) as count'))
-        ->groupBy('school_id')
-        ->get()
-        ->keyBy('school_id');
-
-    $totalAssistantCount = DB::table('assistant_school')
-        ->select(DB::raw('COUNT(DISTINCT assistant_id) as count'))
-        ->first()
-        ->count;
-
-    // Fetch all schools (id and name only for dropdown)
+    // Schools list
     $schoolsList = School::select('id', 'name')->get();
 
-    // Fetch monthly incomes (paid invoices) and expenses efficiently
+    // Monthly incomes and expenses
     $now = Carbon::now();
     $start = $now->copy()->subMonths(11)->startOfMonth();
     $end = $now->copy()->endOfMonth();
 
-    // INCOME: Join invoices to students to get school_id
     $incomeQuery = DB::table('invoices')
         ->join('students', 'invoices.student_id', '=', 'students.id')
         ->select(
@@ -80,49 +79,48 @@ class StatsController extends Controller
         )
         ->whereNull('invoices.deleted_at')
         ->whereColumn('invoices.amountPaid', '>=', 'invoices.totalAmount')
-        ->whereBetween('billDate', [$start, $end])
+        ->whereBetween('billDate', [$start, $end]);
+    if ($schoolId) {
+        $incomeQuery->where('students.schoolId', $schoolId);
+    }
+    $incomeQuery = $incomeQuery
         ->groupBy('year', 'month', 'students.schoolId')
         ->orderBy('year')
         ->orderBy('month')
         ->get();
 
-    // EXPENSE: For each transaction, attribute to all schools for teacher/assistant, none for 'expense' type
     $expenseRaw = DB::table('transactions')
         ->whereBetween('payment_date', [$start, $end])
         ->get();
-
     $expenseRows = [];
     foreach ($expenseRaw as $tx) {
         if ($tx->type === 'payment') {
-            // Teacher: get all schools
             $user = \App\Models\User::find($tx->user_id);
             if ($user && $user->role === 'teacher' && $user->teacher) {
                 $schools = $user->teacher->schools()->pluck('schools.id');
-                foreach ($schools as $schoolId) {
+                foreach ($schools as $sid) {
                     $expenseRows[] = [
                         'year' => (int)date('Y', strtotime($tx->payment_date)),
                         'month' => (int)date('m', strtotime($tx->payment_date)),
-                        'school_id' => $schoolId,
+                        'school_id' => $sid,
                         'expense' => (float)$tx->amount
                     ];
                 }
             }
         } elseif ($tx->type === 'salary') {
-            // Assistant: get all schools
             $user = \App\Models\User::find($tx->user_id);
             if ($user && $user->role === 'assistant' && $user->assistant) {
                 $schools = $user->assistant->schools()->pluck('schools.id');
-                foreach ($schools as $schoolId) {
+                foreach ($schools as $sid) {
                     $expenseRows[] = [
                         'year' => (int)date('Y', strtotime($tx->payment_date)),
                         'month' => (int)date('m', strtotime($tx->payment_date)),
-                        'school_id' => $schoolId,
+                        'school_id' => $sid,
                         'expense' => (float)$tx->amount
                     ];
                 }
             }
         } elseif ($tx->type === 'expense') {
-            // General expense, not attributed to a school
             $expenseRows[] = [
                 'year' => (int)date('Y', strtotime($tx->payment_date)),
                 'month' => (int)date('m', strtotime($tx->payment_date)),
@@ -131,8 +129,11 @@ class StatsController extends Controller
             ];
         }
     }
-
-    // Group expenseRows by year, month, school_id
+    if ($schoolId) {
+        $expenseRows = array_filter($expenseRows, function($row) use ($schoolId) {
+            return $row['school_id'] == $schoolId;
+        });
+    }
     $expenseGrouped = [];
     foreach ($expenseRows as $row) {
         $key = $row['year'] . '-' . str_pad($row['month'], 2, '0', STR_PAD_LEFT) . '-' . ($row['school_id'] ?? 'none');
@@ -146,8 +147,6 @@ class StatsController extends Controller
         }
         $expenseGrouped[$key]['expense'] += $row['expense'];
     }
-
-    // Merge income and expense by year, month, school_id
     $merged = [];
     foreach ($incomeQuery as $item) {
         $key = $item->year . '-' . str_pad($item->month, 2, '0', STR_PAD_LEFT) . '-' . $item->school_id;
@@ -174,69 +173,58 @@ class StatsController extends Controller
             $merged[$key]['expense'] = (float)$item['expense'];
         }
     }
-
-    // Return as array sorted by date ascending
     $result = array_reverse(array_values($merged));
 
-    // Fetch most selling offers, students count, and total price
-    $mostSellingOffers = DB::table('invoices')
+    // Most selling offers
+    $mostSellingOffersQuery = DB::table('invoices')
         ->join('offers', 'invoices.offer_id', '=', 'offers.id')
+        ->join('students', 'invoices.student_id', '=', 'students.id')
         ->select(
             'offers.offer_name as name',
             DB::raw('COUNT(DISTINCT invoices.student_id) as student_count'),
-            DB::raw('SUM(invoices.`totalAmount`) as total_price')
+            DB::raw('SUM(invoices.`totalAmount`) as total_price'),
+            'students.schoolId as school_id'
         )
-        ->whereNull('invoices.deleted_at')
-        ->groupBy('offers.id', 'offers.offer_name')
+        ->whereNull('invoices.deleted_at');
+    if ($schoolId) {
+        $mostSellingOffersQuery->where('students.schoolId', $schoolId);
+    }
+    $mostSellingOffers = $mostSellingOffersQuery
+        ->groupBy('offers.id', 'offers.offer_name', 'students.schoolId')
         ->orderByDesc('student_count')
-        ->limit(5) // Limit to top 5 most selling offers
+        ->limit(5)
         ->get();
 
-    // Fetch announcements
-    
-     $status = $request->query('status', 'all'); // 'all', 'active', 'upcoming', 'expired'
-        
-     // Base query
-     $query = Announcement::query();
-     
-     // Apply date filtering based on status parameter
-     $now = Carbon::now();
-     
-     if ($status === 'active') {
-         $query->where(function($q) use ($now) {
-             $q->where(function($q) use ($now) {
-                 $q->whereNull('date_start')
-                   ->orWhere('date_start', '<=', $now);
-             })->where(function($q) use ($now) {
-                 $q->whereNull('date_end')
-                   ->orWhere('date_end', '>=', $now);
-             });
-         });
-     } elseif ($status === 'upcoming') {
-         $query->where('date_start', '>', $now);
-     } elseif ($status === 'expired') {
-         $query->where('date_end', '<', $now);
-     }
-     
-     // Get user role for role-based visibility
-     $userRole = Auth::user() ? Auth::user()->role : null;
-     
-     // Apply role-based visibility filter based on user role
-     if ($userRole === 'admin') {
-         // Admin sees all announcements (no visibility filter needed)
-     } else {
-         // Teachers and assistants only see announcements with visibility 'all' or matching their role
-         $query->where(function($q) use ($userRole) {
-             $q->where('visibility', 'all')
-               ->orWhere('visibility', $userRole);
-         });
-     }
-     
-     // Order by announcement date (most recent first)
-     $query->orderBy('date_announcement', 'desc');
-     
-     // Execute query
-     $announcements = $query->get();
+    // Announcements
+    $status = $request->query('status', 'all');
+    $query = Announcement::query();
+    $now = Carbon::now();
+    if ($status === 'active') {
+        $query->where(function($q) use ($now) {
+            $q->where(function($q) use ($now) {
+                $q->whereNull('date_start')
+                  ->orWhere('date_start', '<=', $now);
+            })->where(function($q) use ($now) {
+                $q->whereNull('date_end')
+                  ->orWhere('date_end', '>=', $now);
+            });
+        });
+    } elseif ($status === 'upcoming') {
+        $query->where('date_start', '>', $now);
+    } elseif ($status === 'expired') {
+        $query->where('date_end', '<', $now);
+    }
+    $userRole = Auth::user() ? Auth::user()->role : null;
+    if ($userRole === 'admin') {
+        // Admin sees all announcements
+    } else {
+        $query->where(function($q) use ($userRole) {
+            $q->where('visibility', 'all')
+              ->orWhere('visibility', $userRole);
+        });
+    }
+    $query->orderBy('date_announcement', 'desc');
+    $announcements = $query->get();
 
     return Inertia::render('Dashboard', [
         'teacherCounts' => $teacherCounts,
@@ -253,12 +241,12 @@ class StatsController extends Controller
             'status' => $status,
         ],
         'userRole' => $userRole,
-        // Add membership stats
-        'membershipStats' => $membershipStats
+        'membershipStats' => $membershipStats,
+        'selectedSchoolId' => $schoolId,
     ]);
 }
 
-private function getMembershipStats($month = null)
+private function getMembershipStats($month = null, $schoolId = null)
 {
     try {
         $date = $month ? Carbon::parse($month) : Carbon::now();
@@ -277,13 +265,6 @@ private function getMembershipStats($month = null)
                     });
             });
         })->whereNull('deleted_at');
-
-        // Get all memberships for the month for debugging
-        $allMemberships = (clone $query)
-            ->select('id', 'payment_status', 'is_active', 'start_date', 'end_date')
-            ->get();
-        
-        \Log::info('All memberships for the month:', $allMemberships->toArray());
 
         // Count paid memberships (active AND paid status)
         $paidQuery = (clone $query)
