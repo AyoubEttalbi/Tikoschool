@@ -6,6 +6,7 @@ import {
     ChevronDown,
     ChevronUp,
     AlertCircle,
+    ShieldCheck,
 } from "lucide-react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 
@@ -311,6 +312,23 @@ const SingleStudentPage = ({
                                 </h1>
                                 <span className="text-sm text-gray-400">
                                     Classe
+                                </span>
+                            </div>
+                        </div>
+                        {/* CARTE - Assurance */}
+                        <div className="bg-white p-4 rounded-md flex gap-4 w-full md:w-[48%] xl:w-[45%] 2xl:w-[48%] border border-blue-200">
+                            <ShieldCheck className="w-6 h-6 text-blue-500" />
+                            <div>
+                                <h1 className="text-xl font-semibold">
+                                    {student.assurance_paid
+                                        ? `Payée (${student.assurance_invoice?.amount} DH)`
+                                        : "Non payée"}
+                                </h1>
+                                <span className="text-sm text-gray-400">
+                                    Assurance
+                                    {student.assurance_paid && student.assurance_invoice?.date && (
+                                        <> — {new Date(student.assurance_invoice.date).toLocaleDateString("fr-FR")}</>
+                                    )}
                                 </span>
                             </div>
                         </div>

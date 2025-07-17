@@ -37,6 +37,12 @@ const schema = z
         schoolId: z.string().min(1, { message: "L'école est requise !" }),
         status: z.enum(["active", "inactive"]).optional(),
         assurance: z.any().optional(),
+        assuranceAmount: z
+            .union([
+                z.string().regex(/^\d+(\.\d{1,2})?$/, { message: "Le montant doit être un nombre positif." }),
+                z.number().positive({ message: "Le montant doit être positif." })
+            ])
+            .optional(),
         profile_image: z.any().optional(),
         hasDisease: z
             .union([z.literal(1), z.literal(0), z.literal("1"), z.literal("0")])
@@ -55,6 +61,14 @@ const schema = z
                 code: z.ZodIssueCode.custom,
                 message: "Le nom de la maladie est requis lorsque l'élève a une maladie.",
                 path: ["diseaseName"],
+            });
+        }
+        // Only validate assuranceAmount if assurance is "1"
+        if (data.assurance === "1" && (!data.assuranceAmount || isNaN(Number(data.assuranceAmount)) || Number(data.assuranceAmount) <= 0)) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "Le montant de l'assurance est requis et doit être positif.",
+                path: ["assuranceAmount"],
             });
         }
     });
@@ -78,6 +92,7 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
     const [selectedAssurance, setSelectedAssurance] = useState(
         data?.assurance === 1 ? "1" : "0",
     );
+    const [assuranceAmount, setAssuranceAmount] = useState(data?.assuranceAmount || "");
     const [selectedHasDisease, setSelectedHasDisease] = useState(
         data?.hasDisease === 1 ? "1" : "0",
     );
@@ -107,6 +122,7 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
         defaultValues: {
             billingDate: defaultBillingDate,
             assurance: data?.assurance === 1 ? "1" : "0",
+            assuranceAmount: data?.assuranceAmount || "",
             status: data?.status || "active",
             hasDisease: data?.hasDisease === 1 ? "1" : "0",
             diseaseName:
@@ -145,6 +161,7 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
             setSelectedSchool(data.schoolId?.toString());
             setSelectedStatus(data.status);
             setSelectedAssurance(data.assurance === 1 ? "1" : "0");
+            setAssuranceAmount(data.assuranceAmount || "");
             setSelectedHasDisease(data.hasDisease === 1 ? "1" : "0");
 
             // Set image preview if exists
@@ -228,6 +245,11 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
                 ? 1
                 : 0;
         formDataObj.append("assurance", assuranceValue); // Send as integer
+
+        // Add assuranceAmount if assurance is 1
+        if (assuranceValue === 1) {
+            formDataObj.append("assuranceAmount", formData.assuranceAmount || "");
+        }
 
         // Always explicitly set diseaseName and medication
         // If hasDisease is true, use provided values or default to empty
@@ -583,6 +605,10 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
                         onValueChange={(value) => {
                             setSelectedAssurance(value);
                             setValue("assurance", value);
+                            if (value === "0") {
+                                setAssuranceAmount("");
+                                setValue("assuranceAmount", "");
+                            }
                         }}
                     >
                         <SelectTrigger className="w-full bg-white ring-1 ring-gray-300 p-2 rounded-md text-sm">
@@ -597,6 +623,27 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
                         <p className="text-xs text-red-400">
                             {errors.assurance.message}
                         </p>
+                    )}
+                    {selectedAssurance === "1" && (
+                        <div className="mt-2">
+                            <label className="text-xs text-gray-600 font-medium mb-1 block">Montant payé pour l'assurance <span className="text-red-500">*</span></label>
+                            <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                className="w-full px-3 py-2 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors bg-blue-50 text-blue-900 font-semibold"
+                                {...register("assuranceAmount")}
+                                value={assuranceAmount}
+                                onChange={e => {
+                                    setAssuranceAmount(e.target.value);
+                                    setValue("assuranceAmount", e.target.value);
+                                }}
+                                placeholder="Ex: 200.00"
+                            />
+                            {errors.assuranceAmount && (
+                                <p className="text-xs text-red-400 mt-1">{errors.assuranceAmount.message}</p>
+                            )}
+                        </div>
                     )}
                 </div>
             </div>

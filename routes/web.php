@@ -46,7 +46,7 @@ use App\Http\Middleware\CanViewTeacherProfile;
 
 // Redirect to dashboard if authenticated, otherwise to login
 Route::get('/', function () {
-    return auth()->check() ? redirect('/dashboard') : redirect('/login');
+    return Auth::check() ? redirect('/dashboard') : redirect('/login');
 });
 Route::middleware('auth')->group(function () {
     // Dashboard route with RoleRedirect middleware
@@ -260,10 +260,20 @@ Route::middleware('auth')->group(function () {
 // Route::get('/cashier/daily', [CashierController::class, 'daily'])->name('cashier.daily');
 // Route::post('/cashier/daily', [CashierController::class, 'daily']); // For filtering
 // Data route
-Route::get('/cashier/daily', [CashierController::class, 'daily'])->name('cashier.daily');
+Route::get('/cashier/daily', function (\Illuminate\Http\Request $request) {
+    $user = Auth::user();
+    if ($user && $user->role === 'teacher') {
+        return redirect('/dashboard')->with('error', 'Accès refusé.');
+    }
+    return app(\App\Http\Controllers\CashierController::class)->daily($request);
+})->name('cashier.daily');
 
 // Redirect /cashier to today's view
 Route::get('/cashier', function () {
+    $user = Auth::user();
+    if ($user && $user->role === 'teacher') {
+        return redirect('/dashboard')->with('error', 'Accès refusé.');
+    }
     $today = Carbon::today()->toDateString();
     return redirect()->route('cashier.daily', ['date' => $today]);
 })->name('cashier');
@@ -333,3 +343,8 @@ Route::post('/admin/view-as/{user}', [AdminController::class, 'viewAs'])
 Route::get('/debug-invoice-data', [App\Http\Controllers\TransactionController::class, 'debugInvoiceData'])
     ->name('debug.invoice.data');
 }
+
+// Global fallback route: redirect any not found route to dashboard
+Route::fallback(function () {
+    return redirect('/dashboard');
+});

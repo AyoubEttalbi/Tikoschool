@@ -140,14 +140,16 @@ class InvoiceController extends Controller
             // Set the creator
             $validated['created_by'] = auth()->email ?? auth()->id(); // Fallback to ID if email is not available
 
+            // Fetch the membership
+            $membership = Membership::findOrFail($validated['membership_id']);
+            // Always set offer_id from membership
+            $validated['offer_id'] = $membership->offer_id;
+
             // Create the invoice
             $invoice = Invoice::create($validated);
             Log::info('Invoice created successfully', ['invoice_id' => $invoice->id, 'data' => $validated]);
             // Log the activity
             $this->logActivity('created', $invoice, null, $invoice->toArray());
-
-            // Fetch the membership
-            $membership = Membership::findOrFail($validated['membership_id']);
 
             // Calculate the amount that should be included in teacher percentages
             $amountForTeacherPercentage = $validated['totalAmount'];
@@ -346,14 +348,16 @@ class InvoiceController extends Controller
             }
             $validated['selected_months'] = json_encode($selectedMonths);
 
+            // Fetch the membership
+            $membership = Membership::findOrFail($validated['membership_id']);
+            // Always set offer_id from membership
+            $validated['offer_id'] = $membership->offer_id;
+
             // Update the invoice
             $invoice->update($validated);
 
             // Log the activity
             $this->logActivity('updated', $invoice, $oldData, $invoice->toArray());
-
-            // Fetch the membership
-            $membership = Membership::findOrFail($validated['membership_id']);
 
             // Calculate the amount that should be included in teacher percentages
             $amountForTeacherPercentage = $validated['totalAmount'];

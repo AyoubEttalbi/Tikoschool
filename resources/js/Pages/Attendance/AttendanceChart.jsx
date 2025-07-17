@@ -19,7 +19,7 @@ const AttendanceChart = ({ schoolId }) => {
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const response = await axios.get(route("attendance.stats"), {
+                const response = await axios.get("/attendance/stats", {
                     params: schoolId ? { school_id: schoolId } : {},
                 });
                 setData(response.data);

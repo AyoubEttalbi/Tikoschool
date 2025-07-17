@@ -268,6 +268,11 @@ const InvoicesForm = ({
 
     const onSubmit = (formData) => {
         // ...existing code...
+        // Set offer_id from selected membership
+        const selectedMembership = StudentMemberships.find(m => m.id == formData.membership_id);
+        if (selectedMembership) {
+            formData.offer_id = selectedMembership.offer_id;
+        }
         // Prevent submission if months are not consecutive
         if (!monthsAreConsecutive) {
             // ...existing code...

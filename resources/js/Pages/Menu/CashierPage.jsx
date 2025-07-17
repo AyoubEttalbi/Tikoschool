@@ -5,6 +5,7 @@ import { router } from "@inertiajs/react"
 import DashboardLayout from "@/Layouts/DashboardLayout"
 import { Bar } from "react-chartjs-2"
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from "chart.js"
+import { SchoolIcon } from "lucide-react"
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 
@@ -176,22 +177,26 @@ const CashierPage = ({
   chartData = [],
   totalPaid = 0,
   date = new Date().toISOString().slice(0, 10),
-  filters = { memberships: [], students: [], creators: [] },
+  filters = { memberships: [], students: [], creators: [], schools: [] },
   currentFilters = {
     membership_id: "",
     student_id: "",
     creator_id: "",
     date: new Date().toISOString().slice(0, 10),
+    school_id: "",
   },
   previousDayTotal = 0,
+  pagination = null,
+  role = null,
 }) => {
   const getTodayDate = () => new Date().toISOString().slice(0, 10)
-
+  console.log('invoices:', invoices)
   const [localFilters, setLocalFilters] = useState(() => ({
     membership_id: currentFilters.membership_id || "",
     student_id: currentFilters.student_id || "",
     creator_id: currentFilters.creator_id || "",
     date: currentFilters.date || getTodayDate(),
+    school_id: currentFilters.school_id || "",
   }))
 
   const [showFilters, setShowFilters] = useState(false)
@@ -199,6 +204,8 @@ const CashierPage = ({
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [activeDropdown, setActiveDropdown] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
+
+  const isAssistant = role === 'assistant';
 
   // Chart configuration
   const chartOptions = {
@@ -249,6 +256,7 @@ const CashierPage = ({
         student_id: currentFilters.student_id || "",
         creator_id: currentFilters.creator_id || "",
         date: currentFilters.date || getTodayDate(),
+        school_id: currentFilters.school_id || "",
       }
       const hasChanged = Object.keys(next).some((key) => prev[key] !== next[key])
       return hasChanged ? next : prev
@@ -280,6 +288,7 @@ const CashierPage = ({
       student_id: "",
       creator_id: "",
       date: todayDate,
+      school_id: "",
     }
     setLocalFilters(resetFilters)
     router.get(
@@ -324,6 +333,16 @@ const CashierPage = ({
   }
 
   const activeFiltersCount = Object.values(localFilters).filter((v) => v && v !== "").length - 1
+  console.log('time' ,new Date().toLocaleString())
+
+  // Pagination handler
+  const handlePageChange = (page) => {
+    const params = { ...localFilters, page }
+    router.get("/cashier/daily", params, {
+      preserveState: true,
+      preserveScroll: true,
+    })
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100/50">
@@ -357,27 +376,29 @@ const CashierPage = ({
                 <RefreshIcon className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
                 Actualiser
               </button>
-
-              <button
-                onClick={() => setShowFilters(!showFilters)}
-                className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
-              >
-                <FilterIcon className="h-4 w-4" />
-                Filtres
-                {activeFiltersCount > 0 && (
-                  <span className="inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-blue-600 bg-blue-100 rounded-full ml-1">
-                    {activeFiltersCount}
-                  </span>
-                )}
-              </button>
-
-              <button
-                onClick={exportCSV}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
-              >
-                <DownloadIcon className="h-4 w-4" />
-                Exporter
-              </button>
+              {!isAssistant && (
+                <>
+                  <button
+                    onClick={() => setShowFilters(!showFilters)}
+                    className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+                  >
+                    <FilterIcon className="h-4 w-4" />
+                    Filtres
+                    {activeFiltersCount > 0 && (
+                      <span className="inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-blue-600 bg-blue-100 rounded-full ml-1">
+                        {activeFiltersCount}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    onClick={exportCSV}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+                  >
+                    <DownloadIcon className="h-4 w-4" />
+                    Exporter
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -385,7 +406,7 @@ const CashierPage = ({
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         {/* Enhanced Filters Panel */}
-        {showFilters && (
+        {showFilters && !isAssistant && (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200/60 overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-200/60">
               <div className="flex items-center justify-between">
@@ -435,6 +456,7 @@ const CashierPage = ({
                   </select>
                 </div>
 
+                {/*
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
                     <UsersIcon className="h-4 w-4" />
@@ -453,6 +475,7 @@ const CashierPage = ({
                     ))}
                   </select>
                 </div>
+                */}
 
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
@@ -468,6 +491,26 @@ const CashierPage = ({
                     {filters?.creators?.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* School Filter */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                    <SchoolIcon className="h-4 w-4" />
+                    École
+                  </label>
+                  <select
+                    value={localFilters.school_id}
+                    onChange={(e) => handleFilterChange("school_id", e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  >
+                    <option value="">Toutes les écoles</option>
+                    {filters?.schools?.map((school) => (
+                      <option key={school.id} value={school.id}>
+                        {school.name}
                       </option>
                     ))}
                   </select>
@@ -703,6 +746,48 @@ const CashierPage = ({
                   ))}
                 </tbody>
               </table>
+              {/* Pagination Controls */}
+              {pagination && pagination.last_page > 1 && (
+                <div className="flex justify-center items-center gap-2 py-4">
+                  <button
+                    onClick={() => handlePageChange(1)}
+                    disabled={pagination.current_page === 1}
+                    className="px-3 py-1 rounded border text-sm disabled:opacity-50"
+                  >
+                    Première
+                  </button>
+                  <button
+                    onClick={() => handlePageChange(pagination.current_page - 1)}
+                    disabled={pagination.current_page === 1}
+                    className="px-3 py-1 rounded border text-sm disabled:opacity-50"
+                  >
+                    Précédent
+                  </button>
+                  {Array.from({ length: pagination.last_page }, (_, i) => i + 1).map((page) => (
+                    <button
+                      key={page}
+                      onClick={() => handlePageChange(page)}
+                      className={`px-3 py-1 rounded border text-sm ${pagination.current_page === page ? 'bg-blue-600 text-white' : ''}`}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => handlePageChange(pagination.current_page + 1)}
+                    disabled={pagination.current_page === pagination.last_page}
+                    className="px-3 py-1 rounded border text-sm disabled:opacity-50"
+                  >
+                    Suivant
+                  </button>
+                  <button
+                    onClick={() => handlePageChange(pagination.last_page)}
+                    disabled={pagination.current_page === pagination.last_page}
+                    className="px-3 py-1 rounded border text-sm disabled:opacity-50"
+                  >
+                    Dernière
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <div className="text-center py-12">

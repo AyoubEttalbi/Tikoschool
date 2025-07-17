@@ -15,6 +15,8 @@ import { CalendarIcon, UsersIcon, BellIcon } from "@heroicons/react/24/outline";
  * @returns {JSX.Element} Rendered component
  */
 const Announcements = ({ announcements = [], userRole = "all", limit = 3, schoolId }) => {
+    const { props } = usePage();
+    const role = props.auth.user.role;
     // Filter and sort announcements based on visibility, date range, school, and limit
     const filteredAnnouncements = useMemo(() => {
         if (!announcements?.length) return [];
@@ -154,8 +156,12 @@ const Announcements = ({ announcements = [], userRole = "all", limit = 3, school
         );
     };
 
+    // Determine width based on URL
+    const isDashboard = typeof window !== 'undefined' && window.location.pathname.startsWith('/dashboard');
+    const containerWidth = isDashboard ? 'w-1/2' : 'w-full';
+
     return (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
+        <div className={`bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden ${containerWidth}`}>
             <div className="flex items-center justify-between p-4 border-b border-gray-100">
                 <div className="flex items-center space-x-2">
                     <BellIcon className="h-5 w-5 text-gray-500" />

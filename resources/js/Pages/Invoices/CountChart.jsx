@@ -99,6 +99,7 @@ const CountChart = ({ schoolId }) => {
             },
         );
     };
+
     return (
         <div className="bg-none w-full h-full p-3 sm:p-6 shadow-sm transition-all duration-300">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3 sm:gap-0">

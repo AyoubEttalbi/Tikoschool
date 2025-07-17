@@ -25,6 +25,8 @@ class Invoice extends Model
         'last_payment_date',
         'selected_months',
         'created_by',
+        'type',
+        'assurance_amount',
     ];
 
     protected $casts = [

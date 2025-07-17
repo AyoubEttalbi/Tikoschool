@@ -14,11 +14,11 @@ const FinanceChart = ({ schoolId }) => {
     const { props } = usePage();
     // Filter data by school_id
     const filteredData =
-        schoolId
-            ? props.monthlyIncomes.filter(
+        !schoolId || schoolId === "all"
+            ? props.monthlyIncomes
+            : props.monthlyIncomes.filter(
                   (income) => String(income.school_id) === String(schoolId)
-              )
-            : props.monthlyIncomes;
+              );
 
     return (
         <div className="bg-white rounded-xl w-full h-full p-4">
