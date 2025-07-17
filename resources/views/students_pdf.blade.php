@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Student Information PDF</title>
+    <title>Informations sur l'élève PDF</title>
     <style>
         body { font-family: DejaVu Sans, sans-serif; }
         table { width: 100%; border-collapse: collapse; margin: 16px 0; }
@@ -15,14 +15,14 @@
     <div style="text-align:center; margin-bottom: 12px;">
         <img src="{{ public_path('logo.png') }}" alt="Logo" style="height: 80px; margin-bottom: 8px;">
     </div>
-    <h2 style="text-align:center; color:#2d6cdf; margin-top:0;">Student Information</h2>
+    <h2 style="text-align:center; color:#2d6cdf; margin-top:0;">Informations sur l'élève</h2>
     <table>
         <tr>
-            <th>Name</th>
+            <th>Nom</th>
             <td>{{ $student->firstName }} {{ $student->lastName }}</td>
         </tr>
         <tr>
-            <th>Date of Birth</th>
+            <th>Date de naissance</th>
             <td>{{ $student->dateOfBirth }}</td>
         </tr>
         <tr>
@@ -30,42 +30,42 @@
             <td>{{ $student->email }}</td>
         </tr>
         <tr>
-            <th>Phone Number</th>
+            <th>Numéro de téléphone</th>
             <td>{{ $student->phoneNumber }}</td>
         </tr>
         <tr>
-            <th>Address</th>
+            <th>Adresse</th>
             <td>{{ $student->address }}</td>
         </tr>
         <tr>
-            <th>Guardian Number</th>
+            <th>Numéro du tuteur</th>
             <td>{{ $student->guardianNumber }}</td>
         </tr>
         <tr>
-            <th>Massar Code</th>
+            <th>Code Massar</th>
             <td>{{ $student->massarCode }}</td>
         </tr>
         <tr>
-            <th>Level</th>
+            <th>Niveau</th>
             <td>{{ optional($student->level)->name }}</td>
         </tr>
         <tr>
-            <th>Class</th>
+            <th>Classe</th>
             <td>{{ optional($student->class)->name }}</td>
         </tr>
         <tr>
-            <th>School</th>
+            <th>École</th>
             <td>{{ optional($student->school)->name }}</td>
         </tr>
     </table>
-    <h3 style="margin-top:32px; color:#2d6cdf;">Memberships</h3>
+    <h3 style="margin-top:32px; color:#2d6cdf;">Adhésions</h3>
     <table>
         <thead>
             <tr>
-                <th>Offer</th>
-                <th>Status</th>
-                <th>Start Date</th>
-                <th>End Date</th>
+                <th>Offre</th>
+                <th>Statut</th>
+                <th>Date de début</th>
+                <th>Date de fin</th>
             </tr>
         </thead>
         <tbody>

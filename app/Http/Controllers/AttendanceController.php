@@ -14,6 +14,7 @@ use App\Models\Teacher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Spatie\Activitylog\Models\Activity;
+use Carbon\Carbon;
 
 class AttendanceController extends Controller
 {
@@ -435,48 +436,42 @@ class AttendanceController extends Controller
 
     public function getStats(Request $request)
     {
-        $selectedSchoolId = session('school_id');
-        $lastWeek = now()->subWeek();
-        $today = now();
+        // Accept date range and school_id from request
+        $startDate = $request->input('start_date') ?? now()->subMonth()->toDateString();
+        $endDate = $request->input('end_date') ?? now()->toDateString();
+        $schoolId = $request->input('school_id');
 
-        // First get total active students for the school
-        $studentsQuery = \App\Models\Student::where('status', 'active')
-            ->when($selectedSchoolId, function ($q) use ($selectedSchoolId) {
-                $q->where('schoolId', $selectedSchoolId);
-            });
-        
-        $totalActiveStudents = $studentsQuery->count();
+        // Limit range to 90 days for performance
+        $start = Carbon::parse($startDate);
+        $end = Carbon::parse($endDate);
+        if ($end->diffInDays($start) > 90) {
+            $start = $end->copy()->subDays(90);
+        }
 
-        // Query builder for attendance records from the last week
-        $query = Attendance::query()
-            ->whereBetween('date', [$lastWeek, $today])
-            ->when($selectedSchoolId, function ($q) use ($selectedSchoolId) {
-                $q->whereHas('class', function($query) use ($selectedSchoolId) {
-                    $query->where('school_id', $selectedSchoolId);
-                });
-            });
+        // Query attendance, join classes for school filter
+        $query = DB::table('attendances')
+            ->join('classes', 'attendances.classId', '=', 'classes.id')
+            ->select(
+                DB::raw('DATE(attendances.date) as date'),
+                'attendances.status',
+                DB::raw('COUNT(*) as count')
+            )
+            ->whereBetween('attendances.date', [$start, $end]);
+        if ($schoolId && $schoolId !== 'all') {
+            $query->where('classes.school_id', $schoolId);
+        }
+        $rows = $query->groupBy('date', 'attendances.status')->orderBy('date')->get();
 
-        // Get stats by day of week
-        $stats = $query->get()
-            ->groupBy(function($record) {
-                return \Carbon\Carbon::parse($record->date)->format('D'); // Returns Mon, Tue, etc.
-            })
-            ->map(function($records) use ($totalActiveStudents) {
-                $absentCount = $records->where('status', 'absent')->count();
-                $lateCount = $records->where('status', 'late')->count();
-                
-                return [
-                    'present' => $totalActiveStudents - ($absentCount + $lateCount),
-                    'absent' => $absentCount,
-                    'late' => $lateCount,
-                    'total' => $totalActiveStudents
-                ];
-            })
-            ->map(function($stats, $day) {
-                return array_merge(['name' => $day], $stats);
-            })
-            ->values();
+        // Pivot to chart-friendly format
+        $dates = $rows->pluck('date')->unique()->sort()->values();
+        $result = $dates->map(function($date) use ($rows) {
+            $statuses = ['present' => 0, 'absent' => 0, 'late' => 0];
+            foreach ($rows->where('date', $date) as $row) {
+                $statuses[$row->status] = $row->count;
+            }
+            return array_merge(['date' => $date], $statuses);
+        });
 
-        return response()->json($stats);
+        return response()->json($result);
     }
 }

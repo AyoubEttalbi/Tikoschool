@@ -129,10 +129,6 @@ class StudentsController extends Controller
                  $q->where('schoolId', $selectedSchoolId)
                    ->orWhereNull('schoolId');
              });
-             \Log::info('Students filtered by school (including unassigned)', [
-                 'school_id' => $selectedSchoolId,
-                 'user_role' => $request->user()->role
-             ]);
          }
      
          // Apply search filter if search term is provided
@@ -211,15 +207,15 @@ protected function applyRelationshipSearch($query, $searchTerm)
 protected function applyFilters($query, $filters)
 {
     if (!empty($filters['school'])) {
-        $query->where(DB::raw('"schoolId"'), $filters['school']);
+        $query->where('schoolId', $filters['school']);
     }
 
     if (!empty($filters['class'])) {
-        $query->where(DB::raw('"classId"'), $filters['class']);
+        $query->where('classId', $filters['class']);
     }
 
     if (!empty($filters['level'])) {
-        $query->where(DB::raw('"levelId"'), $filters['level']);
+        $query->where('levelId', $filters['level']);
     }
 }
 
@@ -286,6 +282,7 @@ protected function transformStudentData($student)
                 'diseaseName' => 'nullable|required_if:hasDisease,1,true',
                 'medication' => 'nullable',
                 'assurance' => 'required',
+                'assuranceAmount' => 'nullable|numeric|min:0',
                 'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120', // Added for image upload
             ]);
 
@@ -336,26 +333,32 @@ protected function transformStudentData($student)
                     $class->updateStudentCount();
                     
                     // Log the updated class count
-                    \Log::info('Updated class student count after adding new student', [
-                        'class_id' => $class->id,
-                        'class_name' => $class->name,
-                        'new_student_count' => $class->number_of_students,
-                        'student_id' => $student->id
-                    ]);
                 }
             }
 
             // Log the activity
             $this->logActivity('created', $student);
 
+            // Insert assurance invoice if needed
+            if ($validatedData['assurance'] == 1 && $request->filled('assuranceAmount') && floatval($request->input('assuranceAmount')) > 0) {
+                Invoice::create([
+                    'type' => 'assurance',
+                    'assurance_amount' => $request->input('assuranceAmount'),
+                    'membership_id' => null,
+                    'offer_id' => null,
+                    'student_id' => $student->id,
+                    'amountPaid' => $request->input('assuranceAmount'),
+                    'totalAmount' => $request->input('assuranceAmount'),
+                    'rest' => 0,
+                    'billDate' => $validatedData['billingDate'],
+                    'creationDate' => now(),
+                    'created_by' => auth()->id(),
+                    'months' => 1,
+                ]);
+            }
+
             return redirect()->route('students.index')->with('success', 'Student created successfully.');
         } catch (\Exception $e) {
-            \Log::error('Error creating student', [
-                'error' => $e->getMessage(),
-                'user_id' => auth()->id(),
-                'data' => $request->all(),
-            ]);
-
             return redirect()->back()->with('error', 'Failed to create student. Please try again.');
         }
     }
@@ -405,6 +408,18 @@ protected function transformStudentData($student)
             ->with(['offer'])
             ->get()
             ->map(function ($invoice) {
+                // Always send selectedMonths as array if present
+                $selectedMonths = [];
+                if (isset($invoice->selected_months)) {
+                    if (is_string($invoice->selected_months)) {
+                        $decoded = json_decode($invoice->selected_months, true);
+                        if (is_array($decoded)) {
+                            $selectedMonths = $decoded;
+                        }
+                    } elseif (is_array($invoice->selected_months)) {
+                        $selectedMonths = $invoice->selected_months;
+                    }
+                }
                 return [
                     'id' => $invoice->id,
                     'membership_id' => $invoice->membership_id,
@@ -419,8 +434,15 @@ protected function transformStudentData($student)
                     'partialMonthAmount' => $invoice->partialMonthAmount,
                     'last_payment' => $invoice->updated_at,
                     'created_at' => $invoice->created_at,
+                    'selectedMonths' => $selectedMonths,
                 ];
             });
+
+        // Fetch latest assurance invoice for the student
+        $assuranceInvoice = Invoice::where('student_id', $student->id)
+            ->where('type', 'assurance')
+            ->orderByDesc('created_at')
+            ->first();
 
         // Fetch attendance records for the student
         $attendances = Attendance::with(['class', 'recordedBy'])
@@ -501,6 +523,12 @@ protected function transformStudentData($student)
             'attendances' => $attendances,
             'results' => $results,
             'promotion' => $promotionData,
+            'assurance_paid' => $assuranceInvoice ? true : false,
+            'assurance_invoice' => $assuranceInvoice ? [
+                'amount' => $assuranceInvoice->assurance_amount,
+                'date' => $assuranceInvoice->created_at,
+                'invoice_id' => $assuranceInvoice->id,
+            ] : null,
         ];
 
         // Fetch schools and classes
@@ -543,11 +571,6 @@ protected function transformStudentData($student)
             $oldClassId = $student->classId;
             
             // Log the raw request data for debugging
-            \Log::info('Student update raw request data:', [
-                'student_id' => $student->id,
-                'request_data' => $request->all(),
-            ]);
-
             $validatedData = $request->validate([
                 'firstName' => 'required|string|max:100',
                 'lastName' => 'required|string|max:100',
@@ -564,6 +587,7 @@ protected function transformStudentData($student)
                 'schoolId' => 'nullable',
                 'status' => 'required|in:active,inactive',
                 'assurance' => 'required',
+                'assuranceAmount' => 'nullable|numeric|min:0',
                 'hasDisease' => 'sometimes',
                 'diseaseName' => 'nullable|string|max:255',
                 'medication' => 'nullable|string',
@@ -633,12 +657,6 @@ protected function transformStudentData($student)
                 }
             }
 
-            // Debug: Log the validated data before update
-            \Log::info('Student update data before saving:', [
-                'student_id' => $student->id,
-                'validated_data' => $validatedData,
-            ]);
-
             // Direct database update to ensure correct values are set
             // This bypasses Eloquent's casting which might be causing issues
             \DB::table('students')
@@ -656,11 +674,6 @@ protected function transformStudentData($student)
                     $oldClass = Classes::find($oldClassId);
                     if ($oldClass) {
                         $oldClass->updateStudentCount();
-                        \Log::info('Updated old class student count', [
-                            'class_id' => $oldClass->id,
-                            'class_name' => $oldClass->name,
-                            'new_student_count' => $oldClass->number_of_students
-                        ]);
                     }
                 }
                 
@@ -669,11 +682,6 @@ protected function transformStudentData($student)
                     $newClass = Classes::find($newClassId);
                     if ($newClass) {
                         $newClass->updateStudentCount();
-                        \Log::info('Updated new class student count', [
-                            'class_id' => $newClass->id,
-                            'class_name' => $newClass->name,
-                            'new_student_count' => $newClass->number_of_students
-                        ]);
                     }
                 }
             }
@@ -681,19 +689,26 @@ protected function transformStudentData($student)
             // Log the activity with old and new data
             $this->logActivity('updated', $student, $oldData, $student->toArray());
 
+            // Insert assurance invoice if needed (on update)
+            if ($validatedData['assurance'] == 1 && $request->filled('assuranceAmount') && floatval($request->input('assuranceAmount')) > 0) {
+                Invoice::create([
+                    'type' => 'assurance',
+                    'assurance_amount' => $request->input('assuranceAmount'),
+                    'membership_id' => null,
+                    'offer_id' => null,
+                    'student_id' => $student->id,
+                    'amountPaid' => $request->input('assuranceAmount'),
+                    'totalAmount' => $request->input('assuranceAmount'),
+                    'rest' => 0,
+                    'billDate' => $validatedData['billingDate'],
+                    'creationDate' => now(),
+                    'created_by' => auth()->id(),
+                    'months' => 1,
+                ]);
+            }
+
             return redirect()->route('students.show', $student->id)->with('success', 'Student updated successfully.');
         } catch (\Exception $e) {
-            \Log::error('Error updating student', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-                'user_id' => auth()->id(),
-                'request_data' => $request->all(),
-                'student_id' => $student->id,
-                'student_data' => $student->toArray(),
-                'line' => $e->getLine(),
-                'file' => $e->getFile(),
-            ]);
-
             return redirect()->back()->with('error', 'Failed to update student: ' . $e->getMessage());
         }
     }
@@ -726,21 +741,11 @@ protected function transformStudentData($student)
                     $class->updateStudentCount();
                     
                     // Log the updated class count
-                    \Log::info('Updated class student count after removing student', [
-                        'class_id' => $class->id,
-                        'class_name' => $class->name,
-                        'new_student_count' => $class->number_of_students
-                    ]);
                 }
             }
 
             return redirect()->route('students.index')->with('success', 'Student deleted successfully.');
         } catch (\Exception $e) {
-            \Log::error('Error deleting student', [
-                'error' => $e->getMessage(),
-                'user_id' => auth()->id(),
-            ]);
-
             return redirect()->back()->with('error', 'Failed to delete student. Please try again.');
         }
     }

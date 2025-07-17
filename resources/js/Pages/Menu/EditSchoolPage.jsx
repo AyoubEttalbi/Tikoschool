@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { usePage, useForm } from "@inertiajs/react";
+import { usePage, useForm, router } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { ArrowLeft, Save } from "lucide-react";
 import { Link } from "@inertiajs/react";
@@ -15,7 +15,11 @@ export default function EditSchoolPage({ school }) {
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        put(route("schools.update", school.id));
+        put(route("schools.update", school.id),{
+            onSuccess: () => {
+                router.visit(route("schools.show", school.id));
+            }
+        });
     };
 
     return (

@@ -1,11 +1,4 @@
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "./ui/select";
-import {
     LineChart,
     Line,
     XAxis,
@@ -16,59 +9,21 @@ import {
     ResponsiveContainer,
 } from "recharts";
 import { usePage } from "@inertiajs/react";
-import { useState } from "react";
 
-const FinanceChart = () => {
-    const [school, setSchool] = useState("all");
-    const [open, setOpen] = useState(false);
+const FinanceChart = ({ schoolId }) => {
     const { props } = usePage();
-
+    // Filter data by school_id
     const filteredData =
-        school === "all"
+        !schoolId || schoolId === "all"
             ? props.monthlyIncomes
             : props.monthlyIncomes.filter(
-                  (income) => income.school_id == school,
+                  (income) => String(income.school_id) === String(schoolId)
               );
 
     return (
         <div className="bg-white rounded-xl w-full h-full p-4">
             <div className="flex justify-between items-center">
                 <h1 className="text-lg font-semibold">Finance</h1>
-                <button onClick={() => setOpen(!open)} className="relative">
-                    <img src="/moreDark.png" alt="" width={20} height={20} />
-                    {open && (
-                        <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg z-10">
-                            <Select
-                                value={school}
-                                onValueChange={(value) => {
-                                    setSchool(value);
-                                    setOpen(false); // Fermer le menu déroulant après la sélection
-                                }}
-                            >
-                                <SelectTrigger className="w-full bg-white border-none shadow-none">
-                                    <SelectValue placeholder="Sélectionnez l'école" />
-                                </SelectTrigger>
-                                <SelectContent className="bg-white rounded-lg shadow-md">
-                                    <SelectItem
-                                        value="all"
-                                        className="cursor-pointer hover:bg-gray-100 p-2"
-                                    >
-                                        Toutes les écoles
-                                    </SelectItem>
-                                    {props.schools.map((school) => (
-                                        <SelectItem
-                                            key={school.id}
-                                            value={school.id}
-                                            className="cursor-pointer hover:bg-gray-100 p-2"
-                                        >
-                                            {school.name}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    )}
-                </button>
             </div>
             <ResponsiveContainer width="100%" height="90%">
                 <LineChart

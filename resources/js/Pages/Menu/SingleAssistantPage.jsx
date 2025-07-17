@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import Announcements from "@/Pages/Menu/Announcements/Announcements";
 import BigCalendar from "@/Components/BigCalender";
 import FormModal from "@/Components/FormModal";
@@ -19,6 +19,7 @@ import {
     FileText,
     User,
 } from "lucide-react";
+import EventCalendar from "@/Components/EventCalendar";
 
 const SingleAssistantPage = ({
     assistant,
@@ -626,10 +627,10 @@ const SingleAssistantPage = ({
             {/* DROITE */}
             <div className="w-full xl:w-1/3 flex flex-col gap-4">
                 <div className="bg-white p-4 rounded-md">
-                    <h2 className="text-lg font-semibold mb-4">
-                        Calendrier de l'assistant
-                    </h2>
-                    <BigCalendar />
+                    
+                    <Suspense fallback={<div>Chargement...</div>}>
+                        <EventCalendar />
+                    </Suspense>
                 </div>
                 <Announcements announcements={announcements} userRole={role} />
             </div>

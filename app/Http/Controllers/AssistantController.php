@@ -753,9 +753,9 @@ class AssistantController extends Controller
         $subjects = Subject::all();
         $classes = Classes::all();
         $schools = School::all();
-
+        $assistantUser = \App\Models\User::where('email', $assistant->email)->first();
         return Inertia::render('Assistants/Edit', [
-            'assistant' => $assistant,
+            'assistant' => $assistantUser ? array_merge($assistant->toArray(), ['user_id' => $assistantUser->id]) : $assistant,
             'subjects' => $subjects,
             'classes' => $classes,
             'schools' => $schools,
@@ -768,34 +768,51 @@ class AssistantController extends Controller
     public function update(Request $request, Assistant $assistant)
     {
         try {
-            // Store the current school_id and school_name from session
             $currentSchoolId = session('school_id');
             $currentSchoolName = session('school_name');
-            
+
+            // Store the old email before updating
+            $oldEmail = $assistant->email;
+
+            // Validate input, but do not allow duplicate emails in users or assistants (except for this assistant/user)
             $validatedData = $request->validate([
                 'first_name' => 'required|string|max:100',
                 'last_name' => 'required|string|max:100',
-                'email' => 'required|string|email|max:255|unique:assistants,email,' . $assistant->id,
+                'email' => [
+                    'required',
+                    'string',
+                    'email',
+                    'max:255',
+                    // Unique in assistants, except for this assistant
+                    'unique:assistants,email,' . $assistant->id,
+                ],
                 'phone_number' => 'nullable|string|max:20',
                 'address' => 'nullable|string|max:255',
-                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120', // Increased to 5MB
+                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120',
                 'salary' => 'required|numeric|min:0',
                 'status' => 'required|in:active,inactive',
                 'schools' => 'array',
                 'schools.*' => 'exists:schools,id',
             ]);
 
+            // Check for duplicate email in users table (except for the user with the old email)
+            $userWithEmail = \App\Models\User::where('email', $validatedData['email'])
+                ->where('email', '!=', $oldEmail)
+                ->first();
+            $assistantWithEmail = \App\Models\Assistant::where('email', $validatedData['email'])
+                ->where('id', '!=', $assistant->id)
+                ->first();
+            if ($userWithEmail || $assistantWithEmail) {
+                return redirect()->back()
+                    ->withErrors(['email' => 'Cette adresse e-mail est déjà utilisée par un autre utilisateur ou assistant.'])
+                    ->withInput();
+            }
+
             // Handle profile image upload to Cloudinary
             if ($request->hasFile('profile_image')) {
                 $uploadedFile = $request->file('profile_image');
-                
-                // Use our optimized upload method
                 $uploadResult = $this->uploadToCloudinary($uploadedFile);
-                
-                // Store only the secure URL in the database
                 $validatedData['profile_image'] = $uploadResult['secure_url'];
-                
-                // If you want to delete the old image, you could do that here
                 if ($assistant->profile_image && $assistant->profile_image_public_id) {
                     $cloudinary = $this->getCloudinary();
                     $cloudinary->uploadApi()->destroy($assistant->profile_image_public_id);
@@ -807,8 +824,15 @@ class AssistantController extends Controller
 
             // Sync schools with the assistant
             $assistant->schools()->sync($request->schools ?? []);
-            
-            // Restore the session variables if they existed
+
+            // Update the corresponding user (if exists)
+            $user = \App\Models\User::where('email', $oldEmail)->first();
+            if ($user) {
+                $user->name = $validatedData['first_name'] . ' ' . $validatedData['last_name'];
+                $user->email = $validatedData['email'];
+                $user->save();
+            }
+
             if ($currentSchoolId) {
                 session([
                     'school_id' => $currentSchoolId,
@@ -816,23 +840,14 @@ class AssistantController extends Controller
                 ]);
             }
 
-            // Check if this is a form update
             $isFormUpdate = $request->has('is_form_update');
-            
-            // For form updates, always stay on the assistant's profile page
             if ($isFormUpdate) {
                 return redirect()->route('assistants.show', $assistant->id)->with('success', 'Assistant updated successfully.');
             }
-            
-            // Check if this is an admin viewing as another user
             $isViewingAs = session()->has('admin_user_id');
-            
-            // For other types of updates, apply the admin view logic
             if ($isViewingAs) {
-                // If admin is viewing as assistant, redirect to dashboard
                 return redirect()->route('dashboard')->with('success', 'Assistant updated successfully.');
             } else {
-                // For normal updates, redirect to assistant's show page
                 return redirect()->route('assistants.show', $assistant->id)->with('success', 'Assistant updated successfully.');
             }
         } catch (ValidationException $e) {

@@ -38,7 +38,11 @@ const ClassesForm = ({
                 },
             });
         } else if (type === "update") {
-            router.put(`/classes/${data.id}`, formData);
+            router.put(`/classes/${data.id}`, formData,{
+                onSuccess: () => {
+                    setOpen(false);
+                },
+            });
         }
     };
 

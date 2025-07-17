@@ -1,21 +1,49 @@
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "./ui/select";
-import { useState } from "react";
+import { useMemo, useEffect, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Tooltip } from "react-tooltip";
 
-const UserCard = ({ type, counts, totalCount, schools }) => {
-    const [school, setSchool] = useState("all");
-    const [open, setOpen] = useState(false);
-
+const UserCard = ({ type, counts, totalCount, schoolId, onClick }) => {
     // Get the count for the selected school
-    const count =
-        school === "all"
-            ? totalCount // Use the total count from the backend
-            : counts[school]?.count || 0; // Get count for the selected school
+    const count = useMemo(() => {
+        if (schoolId && counts[schoolId]) {
+            return counts[schoolId].count;
+        }
+        return totalCount;
+    }, [schoolId, counts, totalCount]);
+
+    // Animated counter
+    const [displayCount, setDisplayCount] = useState(0);
+    useEffect(() => {
+        if (typeof count === "number") {
+            let start = displayCount;
+            let end = count;
+            if (start === end) return;
+            const duration = 800;
+            const step = (end - start) / (duration / 16);
+            let current = start;
+            let frame;
+            function animate() {
+                current += step;
+                if ((step > 0 && current >= end) || (step < 0 && current <= end)) {
+                    setDisplayCount(end);
+                    return;
+                }
+                setDisplayCount(Math.round(current));
+                frame = requestAnimationFrame(animate);
+            }
+            animate();
+            return () => cancelAnimationFrame(frame);
+        }
+    }, [count]);
+
+    // When fetching or filtering data, treat 'all' as null for schoolId
+    useEffect(() => {
+        let effectiveSchoolId = schoolId;
+        if (schoolId === 'all') effectiveSchoolId = null;
+        // Fetch or filter data with effectiveSchoolId
+        // For now, just log the effectiveSchoolId
+        console.log("UserCard: schoolId:", effectiveSchoolId);
+    }, [schoolId]);
 
     // Helper to get the current school year dynamically
     const getCurrentSchoolYear = () => {
@@ -37,54 +65,44 @@ const UserCard = ({ type, counts, totalCount, schools }) => {
         }
     }
 
+    // Tooltip content
+    const tooltipText = `Total ${getTypeLabel(type).toLowerCase()}${schoolId && schoolId !== 'all' ? ' dans cette école' : ''}`;
+
+    // Loading skeleton
+    if (count === undefined || count === null) {
+        return (
+            <div className="rounded-2xl bg-gray-100 animate-pulse p-4 flex-1 min-w-[130px] h-[110px]" />
+        );
+    }
+
     return (
-        <div className="rounded-2xl odd:bg-lamaPurple even:bg-lamaYellow p-4 flex-1 min-w-[130px] relative">
+        <div
+            className="rounded-2xl odd:bg-lamaPurple even:bg-lamaYellow p-4 flex-1 min-w-[130px] relative cursor-pointer hover:shadow-lg transition-shadow"
+            data-tooltip-id={`usercard-tooltip-${type}`}
+            onClick={() => onClick && onClick(type, schoolId)}
+        >
             <div className="flex justify-between items-center">
                 <span className="text-[10px] bg-white px-2 py-1 rounded-full text-green-600">
                     {getCurrentSchoolYear()}
                 </span>
-                <button onClick={() => setOpen(!open)}>
-                    <img src="/more.png" alt="" width={20} height={20} />
-                </button>
             </div>
-            <h1 className="text-2xl font-semibold my-4">{count}</h1>
+            <h1 className="text-2xl font-semibold my-4">
+                <AnimatePresence>
+                    <motion.span
+                        key={displayCount}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        transition={{ duration: 0.3 }}
+                    >
+                        {displayCount}
+                    </motion.span>
+                </AnimatePresence>
+            </h1>
             <h2 className="capitalize text-sm font-medium text-gray-500">
                 {getTypeLabel(type)}
             </h2>
-
-            {/* Dropdown */}
-            {open && (
-                <div className="absolute top-8 right-2 mt-2 w-48 bg-white rounded-lg shadow-lg z-10">
-                    <Select
-                        value={school}
-                        onValueChange={(value) => {
-                            setSchool(value);
-                            setOpen(false); // Close the dropdown after selection
-                        }}
-                    >
-                        <SelectTrigger className="w-full bg-white border-none shadow-none">
-                            <SelectValue placeholder="Sélectionner l'école" />
-                        </SelectTrigger>
-                        <SelectContent className="bg-white rounded-lg shadow-md">
-                            <SelectItem
-                                value="all"
-                                className="cursor-pointer hover:bg-gray-100 p-2"
-                            >
-                                Toutes les écoles
-                            </SelectItem>
-                            {schools.map((school) => (
-                                <SelectItem
-                                    key={school.id}
-                                    value={school.id}
-                                    className="cursor-pointer hover:bg-gray-100 p-2"
-                                >
-                                    {school.name}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
-            )}
+            <Tooltip id={`usercard-tooltip-${type}`} place="top" content={tooltipText} />
         </div>
     );
 };

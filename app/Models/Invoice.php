@@ -23,6 +23,10 @@ class Invoice extends Model
         'includePartialMonth',
         'partialMonthAmount',
         'last_payment_date',
+        'selected_months',
+        'created_by',
+        'type',
+        'assurance_amount',
     ];
 
     protected $casts = [
@@ -31,13 +35,19 @@ class Invoice extends Model
         'endDate' => 'date',
         'includePartialMonth' => 'boolean',
         'last_payment_date' => 'datetime',
+        'selected_months' => 'array',
     ];
 
     // Relationship with Membership (assuming it exists)
     public function membership()
-{
-    return $this->belongsTo(Membership::class , 'membership_id');
-}
+    {
+        return $this->belongsTo(Membership::class , 'membership_id');
+    }
+
+    public function creator()
+    {
+        return $this->belongsTo(\App\Models\User::class, 'created_by');
+    }
     public function student()
     {
         return $this->belongsTo(Student::class, 'student_id');

@@ -8,7 +8,6 @@ import { Edit } from "lucide-react";
 const AbsenceLogTable = ({ absences, studentId, studentClassId }) => {
     const [showUpdateModal, setShowUpdateModal] = useState(false);
     const [selectedAbsence, setSelectedAbsence] = useState(null);
-
     // Function to format the date
     const formatDate = (dateString) => {
         try {
@@ -103,7 +102,7 @@ const AbsenceLogTable = ({ absences, studentId, studentClassId }) => {
                                     {formatDate(absence.date)}
                                 </td>
                                 <td className="p-3 text-sm text-gray-900">
-                                    {absence.classe}
+                                    {absence.class}
                                 </td>
                                 <td className="p-3 text-sm text-gray-900">
                                     {absence.recordedBy}

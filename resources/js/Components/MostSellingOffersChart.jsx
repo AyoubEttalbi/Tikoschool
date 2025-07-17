@@ -1,90 +1,31 @@
-import {
-    BarChart,
-    Bar,
-    XAxis,
-    YAxis,
-    CartesianGrid,
-    Tooltip,
-    Legend,
-    ResponsiveContainer,
-} from "recharts";
-import { usePage } from "@inertiajs/react";
+import React from "react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 
-const MostSellingOffersChart = () => {
-    const { props } = usePage();
-
-    // Data for the chart
-    const data = props.mostSellingOffers.map((offer) => ({
-        name: offer.name,
-        students: offer.student_count,
-        totalPrice: offer.total_price,
-    }));
+const MostSellingOffersChart = ({ mostSellingOffers = [], schoolId }) => {
+    // Debug: log the received data
+    console.log('MostSellingOffersChart data:', mostSellingOffers, 'schoolId:', schoolId);
+    // Filter data by school_id if provided
+    const filteredData =
+        schoolId && schoolId !== 'all'
+            ? mostSellingOffers.filter((item) => String(item.school_id) === String(schoolId))
+            : mostSellingOffers;
 
     return (
         <div className="bg-white rounded-xl w-full h-[400px] p-4">
-            <h1 className="text-lg font-semibold mb-4">
-                Offres les plus vendues
-            </h1>
-            <ResponsiveContainer width="100%" height="90%">
-                <BarChart
-                    data={data}
-                    margin={{
-                        top: 5,
-                        right: 30,
-                        left: 20,
-                        bottom: 5,
-                    }}
-                >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#ddd" />
-                    <XAxis
-                        dataKey="name"
-                        axisLine={false}
-                        tick={{ fill: "grey" }}
-                        tickLine={false}
-                    />
-                    {/* YAxis for students */}
-                    <YAxis
-                        yAxisId="left"
-                        axisLine={false}
-                        tick={{ fill: "black" }}
-                        tickLine={false}
-                        label={{
-                            value: "Étudiants",
-                            angle: -90,
-                            position: "insideLeft",
-                        }}
-                    />
-                    {/* YAxis for total price */}
-                    <YAxis
-                        yAxisId="right"
-                        orientation="right"
-                        axisLine={false}
-                        tick={{ fill: "black" }}
-                        tickLine={false}
-                        label={{
-                            value: "Prix total",
-                            angle: -90,
-                            position: "insideRight",
-                        }}
-                    />
-                    <Tooltip />
-                    <Legend />
-                    {/* Bar for students */}
-                    <Bar
-                        yAxisId="left"
-                        dataKey="students"
-                        fill="#C3EBFA"
-                        name="Étudiants"
-                    />
-                    {/* Bar for total price */}
-                    <Bar
-                        yAxisId="right"
-                        dataKey="totalPrice"
-                        fill="#CFCEFF"
-                        name="Prix total"
-                    />
-                </BarChart>
-            </ResponsiveContainer>
+            <h1 className="text-lg font-semibold mb-4">Offres les plus vendues</h1>
+            {filteredData.length === 0 ? (
+                <div className="text-center text-gray-400 mt-16">Aucune donnée disponible</div>
+            ) : (
+                <ResponsiveContainer width="100%" height="90%">
+                    <BarChart data={filteredData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                        <XAxis dataKey="name" fontSize={12} />
+                        <YAxis fontSize={12} />
+                        <Tooltip />
+                        <Bar dataKey="student_count" fill="#C3EBFA" name="Élèves" />
+                        <Bar dataKey="total_price" fill="#CFCEFF" name="Prix total" />
+                    </BarChart>
+                </ResponsiveContainer>
+            )}
         </div>
     );
 };

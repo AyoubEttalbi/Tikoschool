@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Invoice {{ $invoice->id }}</title>
+    <title>Facture {{ $invoice->id }}</title>
     <style>
         body { 
             font-family: 'Arial', sans-serif; 
@@ -88,32 +88,32 @@
 </head>
 <body>
     <div class="invoice-container">
-        <!-- Header with Logo -->
+        <!-- En-tête avec logo -->
         <div class="invoice-header">
-            <img src="{{ public_path('logo.png') }}" alt="Company Logo">
-            <h1>Invoice #{{ $invoice->id }}</h1>
-            <p>Date: {{ $invoice->creationDate }}</p>
+            <img src="{{ public_path('logo.png') }}" alt="Logo de l'entreprise">
+            <h1>Facture n°{{ $invoice->id }}</h1>
+            <p>Date : {{ $invoice->creationDate }}</p>
         </div>
 
-        <!-- Invoice Details -->
+        <!-- Détails de la facture -->
         <div class="invoice-details">
-            <h2>Student Information</h2>
-            <p><strong>Name:</strong> {{ $invoice->student->firstName }} {{ $invoice->student->lastName }}</p>
-            <p><strong>Class:</strong> {{ $invoice->className }}</p>
-            <p><strong>Offer:</strong> {{ $invoice->offer->offer_name }}</p>
+            <h2>Informations sur l'élève</h2>
+            <p><strong>Nom :</strong> {{ $invoice->student->firstName }} {{ $invoice->student->lastName }}</p>
+            <p><strong>Classe :</strong> {{ $invoice->className }}</p>
+            <p><strong>Offre :</strong> {{ $invoice->offer->offer_name }}</p>
         </div>
 
-        <!-- Invoice Table -->
+        <!-- Tableau de la facture -->
         <table>
             <thead>
                 <tr>
                     <th>Description</th>
-                    <th>Amount</th>
+                    <th>Montant</th>
                 </tr>
             </thead>
             <tbody>
                 <tr>
-                    <td>Total Amount</td>
+                    <td>Montant total</td>
                     <td>{{ $invoice->totalAmount }} DH</td>
                 </tr>
             </tbody>
@@ -121,13 +121,13 @@
 
         <!-- Total -->
         <div class="total">
-            <p><strong>Total:</strong> {{ $invoice->totalAmount }} DH</p>
+            <p><strong>Total :</strong> {{ $invoice->totalAmount }} DH</p>
         </div>
 
-        <!-- Footer -->
+        <!-- Pied de page -->
         <div class="footer">
-            <p>Thank you for your business!</p>
-            <p>Tiko School | Address | Phone | Email</p>
+            <p>Merci pour votre confiance !</p>
+            <p>Tiko School | Adresse | Téléphone | Email</p>
         </div>
     </div>
 </body>

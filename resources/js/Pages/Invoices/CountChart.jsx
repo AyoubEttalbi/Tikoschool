@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { usePage, router } from "@inertiajs/react";
 import { RadialBarChart, RadialBar, ResponsiveContainer } from "recharts";
 
-const CountChart = () => {
+const CountChart = ({ schoolId }) => {
     const {
         membershipStats = {
             paidCount: 0,
@@ -91,7 +91,7 @@ const CountChart = () => {
 
         router.get(
             route("dashboard"),
-            { month: newMonth },
+            { month: newMonth, school_id: schoolId },
             {
                 preserveState: true,
                 preserveScroll: true,
@@ -99,6 +99,7 @@ const CountChart = () => {
             },
         );
     };
+
     return (
         <div className="bg-none w-full h-full p-3 sm:p-6 shadow-sm transition-all duration-300">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3 sm:gap-0">

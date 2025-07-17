@@ -1,9 +1,11 @@
+
+
 <?php
 
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Auth;
-
+use Carbon\Carbon;
 // Controllers
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AnnouncementController;
@@ -27,6 +29,7 @@ use App\Http\Controllers\TeacherController;
 use App\Http\Controllers\TeacherClassController;
 use App\Http\Controllers\TransactionController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\CashierController;
 use App\Http\Controllers\PerformanceController;
 
 // Middleware
@@ -43,7 +46,7 @@ use App\Http\Middleware\CanViewTeacherProfile;
 
 // Redirect to dashboard if authenticated, otherwise to login
 Route::get('/', function () {
-    return auth()->check() ? redirect('/dashboard') : redirect('/login');
+    return Auth::check() ? redirect('/dashboard') : redirect('/login');
 });
 Route::middleware('auth')->group(function () {
     // Dashboard route with RoleRedirect middleware
@@ -117,6 +120,8 @@ Route::middleware('auth')->group(function () {
         Route::get('/{id}/download', 'download')->name('invoices.download');
         Route::post('/bulk-download', 'bulkDownload')->name('invoices.bulk.download');
     });
+    // Custom route for deleting an invoice from the student context
+    Route::delete('/students/invoices/{id}', [InvoiceController::class, 'destroy'])->name('students.invoices.destroy');
     
     // Results API routes
     Route::controller(ResultsController::class)->prefix('results')->group(function () {
@@ -252,6 +257,29 @@ Route::middleware('auth')->group(function () {
     // New route for UserController@index
     Route::get('/users', [\App\Http\Controllers\UserController::class, 'index'])->name('users.index');
 });
+// Route::get('/cashier/daily', [CashierController::class, 'daily'])->name('cashier.daily');
+// Route::post('/cashier/daily', [CashierController::class, 'daily']); // For filtering
+// Data route
+Route::get('/cashier/daily', function (\Illuminate\Http\Request $request) {
+    $user = Auth::user();
+    if ($user && $user->role === 'teacher') {
+        return redirect('/dashboard')->with('error', 'Accès refusé.');
+    }
+    return app(\App\Http\Controllers\CashierController::class)->daily($request);
+})->name('cashier.daily');
+
+// Redirect /cashier to today's view
+Route::get('/cashier', function () {
+    $user = Auth::user();
+    if ($user && $user->role === 'teacher') {
+        return redirect('/dashboard')->with('error', 'Accès refusé.');
+    }
+    $today = Carbon::today()->toDateString();
+    return redirect()->route('cashier.daily', ['date' => $today]);
+})->name('cashier');
+    
+// Custom route for deleting invoices from the student context (must be outside local-only block)
+Route::delete('/students/invoices/{id}', [InvoiceController::class, 'destroy']);
 
 // Authentication routes
 require __DIR__ . '/auth.php';
@@ -315,3 +343,8 @@ Route::post('/admin/view-as/{user}', [AdminController::class, 'viewAs'])
 Route::get('/debug-invoice-data', [App\Http\Controllers\TransactionController::class, 'debugInvoiceData'])
     ->name('debug.invoice.data');
 }
+
+// Global fallback route: redirect any not found route to dashboard
+Route::fallback(function () {
+    return redirect('/dashboard');
+});
