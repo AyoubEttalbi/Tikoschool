@@ -256,6 +256,10 @@ Route::middleware('auth')->group(function () {
 
     // New route for UserController@index
     Route::get('/users', [\App\Http\Controllers\UserController::class, 'index'])->name('users.index');
+
+    // Absence Log routes (admin and assistant only)
+    Route::get('/absence-log', [AttendanceController::class, 'absenceLogPage'])->name('absence.log.page');
+    Route::get('/api/absence-log', [AttendanceController::class, 'absenceLogData'])->name('absence.log.data');
 });
 // Route::get('/cashier/daily', [CashierController::class, 'daily'])->name('cashier.daily');
 // Route::post('/cashier/daily', [CashierController::class, 'daily']); // For filtering

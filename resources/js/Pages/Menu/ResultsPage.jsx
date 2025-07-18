@@ -17,7 +17,6 @@ export default function ResultsPage({
     teacherSubjectIds = [],
     loggedInTeacherId = null,
 }) {
-    console.log('schools', schools);
     // When user is a teacher, immediately select their teacher ID
     const getInitialTeacher = () => {
         if (role === "teacher") {

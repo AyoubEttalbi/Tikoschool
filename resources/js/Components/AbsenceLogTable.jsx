@@ -8,6 +8,8 @@ import { Edit } from "lucide-react";
 const AbsenceLogTable = ({ absences, studentId, studentClassId }) => {
     const [showUpdateModal, setShowUpdateModal] = useState(false);
     const [selectedAbsence, setSelectedAbsence] = useState(null);
+    // Defensive: ensure absences is always an array
+    const safeAbsences = Array.isArray(absences) ? absences : [];
     // Function to format the date
     const formatDate = (dateString) => {
         try {
@@ -18,7 +20,7 @@ const AbsenceLogTable = ({ absences, studentId, studentClassId }) => {
     };
 
     // Enrich absence data with student_id and class_id
-    const enrichedAbsences = absences.map((absence) => ({
+    const enrichedAbsences = safeAbsences.map((absence) => ({
         ...absence,
         student_id: studentId,
         class_id: studentClassId,
@@ -87,9 +89,6 @@ const AbsenceLogTable = ({ absences, studentId, studentClassId }) => {
                             <th className="p-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 Motif
                             </th>
-                            <th className="p-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Actions
-                            </th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
@@ -102,43 +101,16 @@ const AbsenceLogTable = ({ absences, studentId, studentClassId }) => {
                                     {formatDate(absence.date)}
                                 </td>
                                 <td className="p-3 text-sm text-gray-900">
-                                    {absence.class}
+                                    {absence.class_name || absence.class || "-"}
                                 </td>
                                 <td className="p-3 text-sm text-gray-900">
-                                    {absence.recordedBy}
+                                    {absence.recorded_by_name || absence.recorded_by || absence.recordedBy || "-"}
                                 </td>
                                 <td className="p-3 text-sm text-gray-900">
                                     {getStatusBadge(absence.status)}
                                 </td>
                                 <td className="p-3 text-sm text-gray-900">
                                     {absence.reason || "---"}
-                                </td>
-                                <td className="p-3 text-sm text-gray-900">
-                                    {showUpdateModal &&
-                                        selectedAbsence &&
-                                        selectedAbsence.id === absence.id && (
-                                            <AttendanceModal
-                                                table="attendances"
-                                                id={absence.id}
-                                                data={enrichedAbsences.find(
-                                                    (a) => a.id === absence.id,
-                                                )}
-                                                type="update"
-                                                onClose={() =>
-                                                    setShowUpdateModal(false)
-                                                }
-                                            />
-                                        )}
-                                    {absence.status !== "present" && (
-                                        <button
-                                            onClick={() =>
-                                                handleEditClick(absence)
-                                            }
-                                            className="flex items-center justify-center rounded-full w-7 h-7 bg-lamaYellow text-white"
-                                        >
-                                            <Edit className="w-4 h-4" />
-                                        </button>
-                                    )}
                                 </td>
                             </tr>
                         ))}
@@ -147,7 +119,7 @@ const AbsenceLogTable = ({ absences, studentId, studentClassId }) => {
             </div>
 
             {/* Empty state */}
-            {(!absences || absences.length === 0) && (
+            {(safeAbsences.length === 0) && (
                 <div className="p-8 text-center text-gray-500">
                     Aucun enregistrement d'absence trouvé.
                 </div>

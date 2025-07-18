@@ -100,17 +100,6 @@ const EmployeeSummaryTable = ({
     // More detailed logging for debugging
     useEffect(() => {
         if (earningsData?.earnings) {
-            console.log("Detailed Earnings Data:", {
-                totalEarnings: earningsData.earnings.length,
-                availableYears: earningsData.availableYears,
-                currentMonth: selectedMonth + 1,
-                currentYear: selectedYear,
-                matchingEarnings: earningsData.earnings.filter(
-                    (e) =>
-                        e.month === selectedMonth + 1 &&
-                        e.year === parseInt(selectedYear),
-                ),
-            });
         }
     }, [earningsData, selectedMonth, selectedYear]);
 
@@ -118,22 +107,15 @@ const EmployeeSummaryTable = ({
     useEffect(() => {
         // If adminEarnings is provided and has the data we need, use it
         if (adminEarnings?.earnings && adminEarnings.earnings.length > 0) {
-            console.log("Using provided adminEarnings:", adminEarnings);
             setEarningsData(adminEarnings);
         } else {
             // Otherwise fetch the data from the API
-            console.log("Fetching earnings data from API...");
             axios
                 .get(route("admin.earnings.dashboard"))
                 .then((response) => {
-                    console.log(
-                        "API Response for earnings data:",
-                        response.data,
-                    );
                     setEarningsData(response.data);
                 })
                 .catch((error) => {
-                    console.error("Error fetching admin earnings:", error);
                 });
         }
     }, [adminEarnings, selectedMonth, selectedYear]);
@@ -249,12 +231,6 @@ const EmployeeSummaryTable = ({
             setSelectedMonth(dateToUse.getMonth());
             setSelectedYear(dateToUse.getFullYear());
 
-            console.log("Setting initial date:", {
-                date: dateToUse,
-                month: dateToUse.getMonth(),
-                year: dateToUse.getFullYear(),
-                isFromPayment: Boolean(mostRecentDate),
-            });
         }
     }, [employeePayments]);
 
@@ -331,13 +307,10 @@ const EmployeeSummaryTable = ({
     }, [selectedMonth, selectedYear, safeEmployeePayments]);
 
     const handleViewHistory = (employeeId) => {
-        console.log("Viewing history for employee:", employeeId);
         const employee = safeEmployeePayments.find(
             (emp) => emp.userId === employeeId,
         );
         if (employee) {
-            console.log("Found employee:", employee);
-            // Pass the entire employee object with transactions
             onView({
                 userId: employee.userId,
                 transactions: employee.transactions,
@@ -376,10 +349,6 @@ const EmployeeSummaryTable = ({
             (e) =>
                 e.month === selectedMonth + 1 &&
                 e.year === parseInt(selectedYear),
-        );
-        console.log(
-            `Found ${matchingEntries.length} matching entries for ${selectedMonth + 1}/${selectedYear}:`,
-            matchingEntries,
         );
     }
 

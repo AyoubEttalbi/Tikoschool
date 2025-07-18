@@ -474,4 +474,67 @@ class AttendanceController extends Controller
 
         return response()->json($result);
     }
+
+    /**
+     * Show the Absence Log page (admin/assistant only)
+     */
+    public function absenceLogPage(Request $request)
+    {
+        $user = $request->user();
+        if (!in_array($user->role, ['admin', 'assistant'])) {
+            abort(403);
+        }
+        return Inertia::render('Menu/AbsenceLog');
+    }
+
+    /**
+     * Return paginated absences/lates, filterable by date/range (admin/assistant only)
+     */
+    public function absenceLogData(Request $request)
+    {
+        $user = $request->user();
+        if (!in_array($user->role, ['admin', 'assistant'])) {
+            return response()->json(['error' => 'Forbidden'], 403);
+        }
+        $query = Attendance::with(['student', 'class', 'recordedBy'])
+            ->whereIn('status', ['absent', 'late']);
+
+        // Date filtering: always filter by date, default to today if not provided
+        $date = $request->input('date', now()->toDateString());
+        $query->whereDate('date', $date);
+
+        // Optional: class or student filter
+        if ($request->filled('class_id')) {
+            $query->where('classId', $request->input('class_id'));
+        }
+        if ($request->filled('student_id')) {
+            $query->where('student_id', $request->input('student_id'));
+        }
+
+        $perPage = $request->input('per_page', 20);
+        $absences = $query->orderByDesc('date')->paginate($perPage);
+
+        // Format for frontend
+        $data = $absences->through(function($attendance) {
+            return [
+                'id' => $attendance->id,
+                'student_id' => $attendance->student ? $attendance->student->id : null,
+                'student_name' => $attendance->student ? $attendance->student->firstName . ' ' . $attendance->student->lastName : 'Unknown',
+                'class_id' => $attendance->class ? $attendance->class->id : null,
+                'class_name' => $attendance->class ? $attendance->class->name : 'Unknown',
+                'date' => $attendance->date,
+                'status' => $attendance->status,
+                'reason' => $attendance->reason,
+                'recorded_by_name' => $attendance->recordedBy ? $attendance->recordedBy->name : '-',
+            ];
+        });
+
+        return response()->json([
+            'data' => $data,
+            'current_page' => $absences->currentPage(),
+            'last_page' => $absences->lastPage(),
+            'per_page' => $absences->perPage(),
+            'total' => $absences->total(),
+        ]);
+    }
 }

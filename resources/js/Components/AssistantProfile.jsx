@@ -6,8 +6,6 @@ export default function AssistantProfile({
     assistant = {},
     transactions = [],
 }) {
-    console.log('transactions', transactions);
-    console.log('assistant.user_id', assistant.user_id);
     return (
         <div className="space-y-6">
             {/* Section des paiements */}

@@ -1,4 +1,5 @@
 import { Link, usePage } from "@inertiajs/react";
+import React from "react";
 
 const menuItems = [
     {
@@ -69,6 +70,16 @@ const menuItems = [
                 label: "Présences",
                 href: "/attendances",
                 visible: ["admin", "teacher", "assistant"],
+                dropdown: [
+                    {
+                        label: "Présences",
+                        href: "/attendances",
+                    },
+                    {
+                        label: "Absence Log",
+                        href: "/absence-log",
+                    },
+                ],
             },
             {
                 icon: "/announcement.png",
@@ -113,6 +124,28 @@ const menuItems = [
 
 const Menu = () => {
     const role = usePage().props.auth.user.role;
+    const [openDropdown, setOpenDropdown] = React.useState(null);
+    // Add a ref to detect outside clicks
+    const dropdownRef = React.useRef();
+    const page = usePage();
+
+    React.useEffect(() => {
+        function handleClickOutside(event) {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+                setOpenDropdown(null);
+            }
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, []);
+
+    // Close dropdown on route change
+    React.useEffect(() => {
+        setOpenDropdown(null);
+    }, [page.url]);
+
     return (
         <div className="mt-4 text-sm">
             {menuItems.map((i) => (
@@ -122,6 +155,46 @@ const Menu = () => {
                     </span>
                     {i.items.map((item) => {
                         if (item.visible.includes(role)) {
+                            if (item.dropdown && ["admin", "assistant"].includes(role)) {
+                                return (
+                                    <div
+                                        key={item.label}
+                                        className="relative"
+                                        ref={dropdownRef}
+                                    >
+                                        <div
+                                            className="flex items-center justify-center lg:justify-start gap-4 text-gray-500 py-2 md:px-2 rounded-md hover:bg-lamaSkyLight cursor-pointer"
+                                            onClick={() => setOpenDropdown(openDropdown === item.label ? null : item.label)}
+                                        >
+                                            <img
+                                                src={item.icon}
+                                                alt=""
+                                                width={20}
+                                                height={20}
+                                                className={`${item.label === "Assistants" ? "w-6 h-6 -ml-1" : ""}`}
+                                            />
+                                            <span className="hidden lg:block">
+                                                {item.label}
+                                            </span>
+                                            <svg className="w-3 h-3 ml-1 hidden lg:block" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                                        </div>
+                                        {openDropdown === item.label && (
+                                            <div className="absolute left-0 mt-2 w-48 bg-white border border-gray-200 rounded shadow-lg z-10">
+                                                {item.dropdown.map((drop) => (
+                                                    <Link
+                                                        href={drop.href}
+                                                        key={drop.label}
+                                                        className="block px-4 py-2 text-gray-700 hover:bg-lamaSkyLight"
+                                                        onClick={() => setOpenDropdown(null)}
+                                                    >
+                                                        {drop.label}
+                                                    </Link>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            }
                             return (
                                 <Link
                                     as={item.as}

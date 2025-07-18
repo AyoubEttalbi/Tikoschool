@@ -28,10 +28,7 @@ const AdminEarningsSection = ({ adminEarnings }) => {
     const [showDebug, setShowDebug] = useState(false);
 
     useEffect(() => {
-        console.log("Admin Earnings:", adminEarnings);
-        console.log("Yearly Totals (raw):", yearlyTotals);
-        console.log("Yearly Monthly Totals (raw):", yearlyMonthlyTotals);
-        console.log("Debug Info:", debugInfo);
+        // Remove all console.log debug statements
     }, [adminEarnings]);
 
     const availableYears = useMemo(() => {
@@ -187,8 +184,6 @@ const AdminEarningsSection = ({ adminEarnings }) => {
     const totalPages = Math.ceil(filteredEarnings.length / itemsPerPage);
 
     const yearlyTotalRevenue = Number(yearlyTotals[selectedYear] || 0);
-
-    console.log(`Total revenue for ${selectedYear}:`, yearlyTotalRevenue);
 
     return (
         <div className="bg-white shadow-md rounded-lg p-6 mt-6">

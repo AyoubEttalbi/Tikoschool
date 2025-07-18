@@ -21,7 +21,6 @@ const InvoiceDetails = ({ invoice, onClose }) => {
     useEffect(() => {
         // Check if all necessary data is loaded
         if (invoice) {
-            console.log("Invoice data loaded:", invoice);
             setIsDataLoaded(true);
         }
     }, [invoice]);

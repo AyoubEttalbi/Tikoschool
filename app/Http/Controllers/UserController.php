@@ -20,7 +20,6 @@ class UserController extends Controller
      */
     public function update(Request $request, User $user): RedirectResponse
     {
-        \Log::info('User update request', $request->all());
         try {
             $oldEmail = $user->email;
             $oldRole = $user->role;
@@ -43,20 +42,15 @@ class UserController extends Controller
                     'unique:users,email,' . $user->id,
                 ];
             }
-            \Log::info('Validating for user', ['id' => $user->id, 'email' => $user->email, 'inputEmail' => $inputEmail, 'validateEmail' => $validateEmail]);
             $validatedData = $request->validate($validationRules);
             // If email is not changed, always use the current email
             if (!$validateEmail) {
                 $validatedData['email'] = $user->email;
             }
 
-            \Log::info('Validated data', $validatedData);
             // Minimal manual password update for debug
-            \Log::info('User primary key', ['id' => $user->id, 'email' => $user->email]);
             $user->password = Hash::make('testpassword');
-            \Log::info('Is dirty?', $user->isDirty() ? ['dirty' => true] : ['dirty' => false]);
             $user->save();
-            \Log::info('Manual password update', $user->fresh()->toArray());
 
             // If email is being updated, check uniqueness in related table
             if (isset($validatedData['email']) && $validatedData['email'] !== $oldEmail) {
@@ -77,7 +71,6 @@ class UserController extends Controller
                 }
             }
 
-            \Log::info('User before update', $user->toArray());
             // Only update password if present
             if (isset($validatedData['password']) && $validatedData['password']) {
                 $validatedData['password'] = Hash::make($validatedData['password']);
@@ -85,7 +78,6 @@ class UserController extends Controller
                 unset($validatedData['password']);
             }
             $user->update($validatedData);
-            \Log::info('User after update', $user->fresh()->toArray());
 
             // Update the related teacher or assistant record if needed
             if ($user->role === 'teacher') {

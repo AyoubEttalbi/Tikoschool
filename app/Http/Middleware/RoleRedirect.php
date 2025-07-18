@@ -38,15 +38,6 @@ class RoleRedirect
             // }
 
 
-            // Debug: Log user information
-            Log::info('RoleRedirect middleware: User found', [
-                'id' => $user->id,
-                'email' => $user->email,
-                'role' => $user->role,
-                'requested_route' => $request->route() ? $request->route()->getName() : 'N/A',
-                'requested_method' => $request->method()
-            ]);
-
             // Redirect teachers and assistants away from the dashboard and other restricted routes
             if ($user->role === 'teacher') {
                 // **** ADDED CHECK: If already going to the show page, let it through ****

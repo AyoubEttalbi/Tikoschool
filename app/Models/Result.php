@@ -50,13 +50,6 @@ class Result extends Model
         $numeric_values = [];
         $validGrades = 0;
         
-        \Log::info('Starting final grade calculation', [
-            'id' => $this->id,
-            'grade1' => $this->grade1,
-            'grade2' => $this->grade2,
-            'grade3' => $this->grade3
-        ]);
-        
         // Extract scale from the first non-empty grade to maintain consistent format
         $scale = '20'; // Default scale
         foreach ([$this->grade1, $this->grade2, $this->grade3] as $grade) {
@@ -76,14 +69,12 @@ class Result extends Model
                 if ($rawNumerator !== null) {
                     $numeric_values[] = $rawNumerator;
                     $validGrades++;
-                    \Log::info('Extracted raw numerator from grade1', ['value' => $this->grade1, 'raw' => $rawNumerator]);
                 } else {
                     $numeric_values[] = $numValue;
                     $validGrades++;
-                    \Log::info('Using percentage from grade1', ['value' => $this->grade1, 'numeric' => $numValue]);
                 }
             } else {
-                \Log::info('Could not extract numeric value from grade1', ['value' => $this->grade1]);
+                // Log::info('Could not extract numeric value from grade1', ['value' => $this->grade1]);
             }
         }
         
@@ -96,14 +87,12 @@ class Result extends Model
                 if ($rawNumerator !== null) {
                     $numeric_values[] = $rawNumerator;
                     $validGrades++;
-                    \Log::info('Extracted raw numerator from grade2', ['value' => $this->grade2, 'raw' => $rawNumerator]);
                 } else {
                     $numeric_values[] = $numValue;
                     $validGrades++;
-                    \Log::info('Using percentage from grade2', ['value' => $this->grade2, 'numeric' => $numValue]);
                 }
             } else {
-                \Log::info('Could not extract numeric value from grade2', ['value' => $this->grade2]);
+                // Log::info('Could not extract numeric value from grade2', ['value' => $this->grade2]);
             }
         }
         
@@ -116,14 +105,12 @@ class Result extends Model
                 if ($rawNumerator !== null) {
                     $numeric_values[] = $rawNumerator;
                     $validGrades++;
-                    \Log::info('Extracted raw numerator from grade3', ['value' => $this->grade3, 'raw' => $rawNumerator]);
                 } else {
                     $numeric_values[] = $numValue;
                     $validGrades++;
-                    \Log::info('Using percentage from grade3', ['value' => $this->grade3, 'numeric' => $numValue]);
                 }
             } else {
-                \Log::info('Could not extract numeric value from grade3', ['value' => $this->grade3]);
+                // Log::info('Could not extract numeric value from grade3', ['value' => $this->grade3]);
             }
         }
         
@@ -138,21 +125,11 @@ class Result extends Model
             // Format the final grade with the detected scale
             $this->final_grade = number_format($average, 1) . '/' . $scale;
             
-            \Log::info('Calculated final grade with numeric values', [
-                'sum' => $sum,
-                'divided_by' => 3,
-                'average' => $average,
-                'scale' => $scale,
-                'final_grade' => $this->final_grade,
-                'valid_grades' => $validGrades
-            ]);
         } else if (count($grades) > 0) {
             // If we don't have numeric values but have grades, use the most recent grade
             $this->final_grade = end($grades);
-            \Log::info('Using most recent grade for final grade', ['final_grade' => $this->final_grade]);
         } else {
             $this->final_grade = null;
-            \Log::info('No grades available, setting final_grade to null');
         }
         
         return $this;
@@ -173,19 +150,14 @@ class Result extends Model
     // Helper method to extract numeric value from a grade like "14/20" or "A+"
     private function extractNumericValue($grade)
     {
-        \Log::info('Extracting numeric value from', ['grade' => $grade]);
-        
         // Check for fraction format (e.g., "14/20")
         if (preg_match('/^(\d+(\.\d+)?)\s*\/\s*(\d+(\.\d+)?)$/', $grade, $matches)) {
             $numerator = floatval($matches[1]);
             $denominator = floatval($matches[3]);
             
-            \Log::info('Fraction format detected', ['numerator' => $numerator, 'denominator' => $denominator]);
-            
             if ($denominator > 0) {
                 // Convert to a percentage (0-100 scale)
                 $percentage = ($numerator / $denominator) * 100;
-                \Log::info('Converted to percentage', ['percentage' => $percentage]);
                 return $percentage;
             }
         }
@@ -193,25 +165,19 @@ class Result extends Model
         // Check for just a number (e.g., "85")
         if (is_numeric($grade)) {
             $value = floatval($grade);
-            \Log::info('Numeric format detected', ['value' => $value]);
             return $value;
         }
         
-        \Log::info('Could not extract numeric value', ['grade' => $grade]);
         return null;
     }
     
     // Helper method to detect the scale used (e.g., "/20", "/10", etc.)
     private function detectScale($grade)
     {
-        \Log::info('Detecting scale from', ['grade' => $grade]);
-        
         if (preg_match('/\/(\d+(\.\d+)?)$/', $grade, $matches)) {
-            \Log::info('Scale detected', ['scale' => $matches[1]]);
             return $matches[1];
         }
         
-        \Log::info('No scale detected, using default scale', ['scale' => '20']);
         return '20'; // Default scale changed to 20
     }
 } 

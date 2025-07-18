@@ -1,7 +1,6 @@
 import { router, usePage } from "@inertiajs/react";
 
 const Navbar = ({ auth, profile_image }) => {
-    console.log("auth", auth);
     // Check if the admin is viewing as another user
     const isViewingAs = usePage().props.auth.isViewingAs; // Assuming `isViewingAs` is passed from the backend
 

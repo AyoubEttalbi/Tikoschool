@@ -42,7 +42,6 @@ const UserCard = ({ type, counts, totalCount, schoolId, onClick }) => {
         if (schoolId === 'all') effectiveSchoolId = null;
         // Fetch or filter data with effectiveSchoolId
         // For now, just log the effectiveSchoolId
-        console.log("UserCard: schoolId:", effectiveSchoolId);
     }, [schoolId]);
 
     // Helper to get the current school year dynamically

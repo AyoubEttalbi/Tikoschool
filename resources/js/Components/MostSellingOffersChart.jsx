@@ -2,8 +2,6 @@ import React from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 
 const MostSellingOffersChart = ({ mostSellingOffers = [], schoolId }) => {
-    // Debug: log the received data
-    console.log('MostSellingOffersChart data:', mostSellingOffers, 'schoolId:', schoolId);
     // Filter data by school_id if provided
     const filteredData =
         schoolId && schoolId !== 'all'

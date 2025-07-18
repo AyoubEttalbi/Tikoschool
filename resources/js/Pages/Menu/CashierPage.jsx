@@ -190,7 +190,6 @@ const CashierPage = ({
   role = null,
 }) => {
   const getTodayDate = () => new Date().toISOString().slice(0, 10)
-  console.log('invoices:', invoices)
   const [localFilters, setLocalFilters] = useState(() => ({
     membership_id: currentFilters.membership_id || "",
     student_id: currentFilters.student_id || "",
@@ -333,7 +332,6 @@ const CashierPage = ({
   }
 
   const activeFiltersCount = Object.values(localFilters).filter((v) => v && v !== "").length - 1
-  console.log('time' ,new Date().toLocaleString())
 
   // Pagination handler
   const handlePageChange = (page) => {
