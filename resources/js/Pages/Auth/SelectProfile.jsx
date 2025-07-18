@@ -671,6 +671,27 @@ export default function SelectProfile({ schools, isAdminInspection = false }) {
     const profileImage = auth.profile_image || roleSpecificDefaultImage;
     const roleDisplay = user.role.charAt(0).toUpperCase() + user.role.slice(1);
 
+    // Auto-select if only one school
+    useEffect(() => {
+        if (schools && schools.length === 1) {
+            setData("school_id", schools[0].id);
+            post(route("profiles.store"), {
+                data: { school_id: schools[0].id },
+                preserveScroll: true,
+            });
+        }
+    }, [schools]);
+
+    // Only show the picker if there are multiple schools
+    if (schools && schools.length === 1) {
+        // Show a centered loading spinner while redirecting
+        return (
+            <div className="flex items-center justify-center min-h-[40vh]">
+                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-lamaPurple"></div>
+            </div>
+        );
+    }
+
     return (
         <div className="relative min-h-screen">
             {/* Blurred Background */}
