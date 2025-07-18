@@ -234,6 +234,96 @@ class InvoiceController extends Controller
     }
 
     /**
+     * API: Get a single invoice as JSON (for modal details)
+     */
+    public function apiShow($id)
+    {
+        $invoice = Invoice::with([
+            'membership',
+            'membership.student',
+            'membership.student.class',
+            'membership.student.school',
+            'student',
+            'student.class',
+            'student.school',
+            'offer'
+        ])->findOrFail($id);
+
+        // Prefer membership.student, fallback to invoice.student
+        $student = $invoice->membership && $invoice->membership->student ? $invoice->membership->student : $invoice->student;
+        $student_name = $student ? trim(($student->firstName ?? '') . ' ' . ($student->lastName ?? '')) : null;
+        $student_class = $student && $student->class ? $student->class->name : null;
+        $student_school = $student && $student->school ? $student->school->name : null;
+        $student_id = $student ? $student->id : null;
+
+        // Prefer membership.offer, fallback to invoice.offer
+        $offer = $invoice->membership && $invoice->membership->offer ? $invoice->membership->offer : $invoice->offer;
+        $offer_name = $offer ? $offer->offer_name : null;
+
+        // Payments: if amountPaid > 0, show a single payment (for now)
+        $payments = [];
+        if ($invoice->amountPaid > 0) {
+            $payments[] = [
+                'date' => $invoice->last_payment_date ? $invoice->last_payment_date->format('Y-m-d') : ($invoice->creationDate ? $invoice->creationDate->format('Y-m-d') : null),
+                'amount' => (float) $invoice->amountPaid,
+                'method' => 'Cash',
+            ];
+        }
+
+        // Teachers: from membership.teachers (array of {teacherId, name, amount})
+        $teachers = [];
+        if ($invoice->membership && is_array($invoice->membership->teachers)) {
+            foreach ($invoice->membership->teachers as $teacher) {
+                $teachers[] = [
+                    'teacherId' => $teacher['teacherId'] ?? null,
+                    'name' => $teacher['name'] ?? null,
+                    'amount' => $teacher['amount'] ?? null,
+                ];
+            }
+        }
+
+        // selectedMonths
+        $selectedMonths = [];
+        if (isset($invoice->selected_months)) {
+            if (is_string($invoice->selected_months)) {
+                $decoded = json_decode($invoice->selected_months, true);
+                if (is_array($decoded)) {
+                    $selectedMonths = $decoded;
+                }
+            } elseif (is_array($invoice->selected_months)) {
+                $selectedMonths = $invoice->selected_months;
+            }
+        }
+
+        $data = [
+            'id' => $invoice->id,
+            'membership_id' => $invoice->membership_id,
+            'months' => $invoice->months,
+            'billDate' => $invoice->billDate,
+            'creationDate' => $invoice->creationDate,
+            'totalAmount' => is_numeric($invoice->totalAmount) ? floatval($invoice->totalAmount) : 0,
+            'amountPaid' => is_numeric($invoice->amountPaid) ? floatval($invoice->amountPaid) : 0,
+            'rest' => is_numeric($invoice->rest) ? floatval($invoice->rest) : 0,
+            'student_id' => $student_id,
+            'student_name' => $student_name,
+            'student_class' => $student_class,
+            'student_school' => $student_school,
+            'offer_id' => $invoice->offer_id,
+            'offer_name' => $offer_name,
+            'endDate' => $invoice->endDate,
+            'includePartialMonth' => $invoice->includePartialMonth,
+            'partialMonthAmount' => $invoice->partialMonthAmount,
+            'last_payment' => $invoice->last_payment_date,
+            'created_at' => $invoice->created_at,
+            'selectedMonths' => $selectedMonths,
+            'payments' => $payments,
+            'teachers' => $teachers,
+        ];
+
+        return response()->json(['invoice' => $data]);
+    }
+
+    /**
      * Show the form for editing the specified invoice.
      */
     public function edit($id)

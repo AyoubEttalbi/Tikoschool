@@ -253,7 +253,7 @@ const SingleStudentPage = ({
                                 strokeLinejoin="round"
                                 className="w-6 h-6 text-lamaSky"
                             >
-                                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+                                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 00-4 4v2"></path>
                                 <circle cx="9" cy="7" r="4"></circle>
                                 <polyline points="16 11 18 13 22 9"></polyline>
                             </svg>
@@ -576,116 +576,76 @@ const SingleStudentPage = ({
                     )}
                 </div>
                 {/* BAS */}
-                <div className="mt-4 bg-white rounded-md p-4 h-fit flex flex-col justify-center items-start">
-                    <div className="w-full max-w-lg p-6 bg-white rounded-lg shadow-md border border-gray-200">
-                        <div className="flex justify-between items-center mb-6">
-                            <div className="flex items-center gap-2 text-blue-600 font-medium mr-4">
-                                <span className="flex flex-row">
-                                    <Users className="h-5 w-5 mr-3" />
-                                    Adhésions :
-                                    {/* Afficher le badge avec le nombre d'adhésions impayées */}
-                                    {student.memberships &&
-                                        student.memberships.filter(
-                                            (m) => m.payment_status !== "paid",
-                                        ).length > 0 && (
-                                            <span className="ml-2 bg-amber-100 text-amber-800 text-xs font-medium px-2 py-0.5 rounded-full">
-                                                {
-                                                    student.memberships.filter(
-                                                        (m) =>
-                                                            m.payment_status !==
-                                                            "paid",
-                                                    ).length
-                                                }{" "}
-                                                impayée(s)
-                                            </span>
-                                        )}
-                                </span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <Suspense fallback={<span>Chargement...</span>}>
-                                    <FormModal
-                                        table="membership"
-                                        type="create"
-                                        id={student.id}
-                                        offers={Alloffers}
-                                        teachers={Allteachers}
-                                        studentId={student.id}
-                                    />
-                                </Suspense>
-                            </div>
+                {/* Adhésions section: use flex-col and w-full ONLY on small screens, revert to old flex-row and spacing for md+. */}
+                <div className="mt-4 bg-white rounded-md p-4">
+                    {/* Adhésions Heading for mobile */}
+                    
+                    <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-2 md:gap-0">
+                        <div className="flex flex-col md:flex-row md:items-center md:mb-6 gap-2 md:gap-2 text-blue-600 font-medium mr-4">
+                            <span className="flex flex-row items-center">
+                                <Users className="h-5 w-5 mr-3" />
+                                Adhésions :
+                                {student.memberships && student.memberships.filter((m) => m.payment_status !== "paid").length > 0 && (
+                                    <span className="ml-2 bg-amber-100 text-amber-800 text-xs font-medium px-2 py-0.5 rounded-full">
+                                        {student.memberships.filter((m) => m.payment_status !== "paid").length} impayée(s)
+                                    </span>
+                                )}
+                            </span>
                         </div>
-                        {student.memberships ? (
-                            <>
-                                {student.memberships.filter(
-                                    (m) => m.payment_status !== "paid",
-                                ).length > 0 && (
-                                    <div className="mb-4 p-3 bg-amber-50 border-l-4 border-amber-500 rounded-md">
-                                        <div className="flex items-start">
-                                            <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5 mr-2" />
-                                            <div>
-                                                <h3 className="text-sm font-medium text-amber-800">
-                                                    Adhésions impayées
-                                                </h3>
-                                                <p className="text-sm text-amber-700 mt-1">
-                                                    Cet élève a{" "}
-                                                    {
-                                                        student.memberships.filter(
-                                                            (m) =>
-                                                                m.payment_status !==
-                                                                "paid",
-                                                        ).length
-                                                    }{" "}
-                                                    adhésion
-                                                    {student.memberships.filter(
-                                                        (m) =>
-                                                            m.payment_status !==
-                                                            "paid",
-                                                    ).length === 1
-                                                        ? ""
-                                                        : "s"}{" "}
-                                                    impayée
-                                                    {student.memberships.filter(
-                                                        (m) =>
-                                                            m.payment_status !==
-                                                            "paid",
-                                                    ).length === 1
-                                                        ? ""
-                                                        : "s"}
-                                                    .<br />
-                                                    Ajoutez une facture pour
-                                                    compléter le processus de
-                                                    paiement.
-                                                </p>
-                                            </div>
+                        <div className="flex items-center gap-2 md:gap-2 w-full md:w-auto mt-2 md:mt-0">
+                            <Suspense fallback={<span>Chargement...</span>}>
+                                <FormModal
+                                    table="membership"
+                                    type="create"
+                                    id={student.id}
+                                    offers={Alloffers}
+                                    teachers={Allteachers}
+                                    studentId={student.id}
+                                    className="w-full md:w-auto"
+                                />
+                            </Suspense>
+                        </div>
+                    </div>
+                    {student.memberships ? (
+                        <>
+                            {student.memberships.filter((m) => m.payment_status !== "paid").length > 0 && (
+                                <div className="mb-4 p-3 bg-amber-50 border-l-4 border-amber-500 rounded-md text-sm">
+                                    <div className="flex items-start gap-2">
+                                        <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5 mr-2 flex-shrink-0" />
+                                        <div>
+                                            <h3 className="font-medium text-amber-800">Adhésions impayées</h3>
+                                            <p className="text-amber-700 mt-1">
+                                                Cet élève a {student.memberships.filter((m) => m.payment_status !== "paid").length} adhésion{student.memberships.filter((m) => m.payment_status !== "paid").length === 1 ? "" : "s"} impayée{student.memberships.filter((m) => m.payment_status !== "paid").length === 1 ? "" : "s"}.<br />
+                                                Ajoutez une facture pour compléter le processus de paiement.
+                                            </p>
                                         </div>
                                     </div>
-                                )}
+                                </div>
+                            )}
+                            <div className="w-full md:max-w-lg md:p-6 md:bg-white md:rounded-lg md:shadow-md md:border md:border-gray-200">
                                 <Suspense fallback={<span>Chargement...</span>}>
                                     <MembershipCard
-                                        Student_memberships={
-                                            student.memberships
-                                        }
+                                        Student_memberships={student.memberships}
                                         teachers={Allteachers}
                                         offers={Alloffers}
                                         studentId={student.id}
+                                        className="w-full"
                                     />
                                 </Suspense>
-                            </>
-                        ) : (
-                            <div className="flex flex-col items-center gap-4">
-                                <img
-                                    src="/student.png"
-                                    alt="Élève"
-                                    width={64}
-                                    height={64}
-                                    className="mb-4"
-                                />
-                                <h1 className="text-2xl font-semibold text-gray-700">
-                                    Aucune adhésion
-                                </h1>
                             </div>
-                        )}
-                    </div>
+                        </>
+                    ) : (
+                        <div className="flex flex-col items-center gap-4">
+                            <img
+                                src="/student.png"
+                                alt="Élève"
+                                width={64}
+                                height={64}
+                                className="mb-4"
+                            />
+                            <h1 className="text-2xl font-semibold text-gray-700">Aucune adhésion</h1>
+                        </div>
+                    )}
                 </div>
                 {/* Profil de l'élève avec notes, factures et présence */}
                 <Suspense fallback={<span>Chargement...</span>}>

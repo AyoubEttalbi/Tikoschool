@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Models\Invoice;
 use App\Models\Student;
 use App\Models\User;
+use App\Models\Offer;
 use Carbon\Carbon;
 use Inertia\Inertia;
 
@@ -42,7 +43,7 @@ if (empty($date)) {
             });
         }
 
-        // Optional: filter by membership, student, creator, or school
+        // Optional: filter by membership, student, creator, school, or offer
         if ($request->filled('membership_id')) {
             $query->where('membership_id', $request->membership_id);
         }
@@ -62,6 +63,13 @@ if (empty($date)) {
             });
         }
 
+        // Offer filter: filter invoices by the offer_id of the related membership
+        if ($request->filled('offer_id')) {
+            $query->whereHas('membership', function ($membershipQuery) use ($request) {
+                $membershipQuery->where('offer_id', $request->offer_id);
+            });
+        }
+
         $invoices = $query->orderBy('created_at', 'desc')->paginate(50);
 
         // For chart: group by hour and sum amountPaid
@@ -70,6 +78,26 @@ if (empty($date)) {
         if ($isAssistant && count($assistantSchoolIds) > 0) {
             $chartDataQuery->whereHas('student', function ($studentQuery) use ($assistantSchoolIds) {
                 $studentQuery->whereIn('schoolId', $assistantSchoolIds);
+            });
+        }
+        // Apply all filters to chartDataQuery
+        if ($request->filled('membership_id')) {
+            $chartDataQuery->where('membership_id', $request->membership_id);
+        }
+        if ($request->filled('student_id')) {
+            $chartDataQuery->where('student_id', $request->student_id);
+        }
+        if ($request->filled('creator_id')) {
+            $chartDataQuery->where('created_by', $request->creator_id);
+        }
+        if ($request->filled('school_id')) {
+            $chartDataQuery->whereHas('student', function ($studentQuery) use ($request) {
+                $studentQuery->where('schoolId', $request->school_id);
+            });
+        }
+        if ($request->filled('offer_id')) {
+            $chartDataQuery->whereHas('membership', function ($membershipQuery) use ($request) {
+                $membershipQuery->where('offer_id', $request->offer_id);
             });
         }
         $chartData = $chartDataQuery
@@ -124,6 +152,13 @@ if (empty($date)) {
                 'name' => $school->name
             ];
         });
+        // Fetch all offers for the offer filter
+        $offers = Offer::select('id', 'offer_name')->orderBy('offer_name')->get()->map(function ($offer) {
+            return [
+                'id' => $offer->id,
+                'name' => $offer->offer_name
+            ];
+        });
 
         // Format invoices for frontend (for paginated results, use ->getCollection())
         $formattedInvoices = $invoices->getCollection()->map(function ($invoice) {
@@ -163,12 +198,14 @@ if (empty($date)) {
                 'students' => $students,
                 'creators' => $creators,
                 'schools' => $schools,
+                'offers' => $offers, // Add offers to filters
             ],
             'currentFilters' => [
                 'membership_id' => $request->input('membership_id'),
                 'student_id' => $request->input('student_id'),
                 'creator_id' => $request->input('creator_id'),
                 'school_id' => $request->input('school_id'),
+                'offer_id' => $request->input('offer_id'), // Add offer_id to currentFilters
                 'date' => $date, // Always return the date being used
             ],
             'role' => $user ? $user->role : null,

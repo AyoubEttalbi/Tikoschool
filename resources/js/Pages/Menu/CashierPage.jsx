@@ -177,13 +177,14 @@ const CashierPage = ({
   chartData = [],
   totalPaid = 0,
   date = new Date().toISOString().slice(0, 10),
-  filters = { memberships: [], students: [], creators: [], schools: [] },
+  filters = { memberships: [], students: [], creators: [], schools: [], offers: [] },
   currentFilters = {
     membership_id: "",
     student_id: "",
     creator_id: "",
     date: new Date().toISOString().slice(0, 10),
     school_id: "",
+    offer_id: "",
   },
   previousDayTotal = 0,
   pagination = null,
@@ -196,6 +197,7 @@ const CashierPage = ({
     creator_id: currentFilters.creator_id || "",
     date: currentFilters.date || getTodayDate(),
     school_id: currentFilters.school_id || "",
+    offer_id: currentFilters.offer_id || "",
   }))
 
   const [showFilters, setShowFilters] = useState(false)
@@ -256,6 +258,7 @@ const CashierPage = ({
         creator_id: currentFilters.creator_id || "",
         date: currentFilters.date || getTodayDate(),
         school_id: currentFilters.school_id || "",
+        offer_id: currentFilters.offer_id || "",
       }
       const hasChanged = Object.keys(next).some((key) => prev[key] !== next[key])
       return hasChanged ? next : prev
@@ -263,7 +266,11 @@ const CashierPage = ({
   }, [currentFilters])
 
   const handleFilterChange = (name, value) => {
-    const newFilters = { ...localFilters, [name]: value }
+    let newFilters = { ...localFilters, [name]: value }
+    // If offer_id is changed, reset membership_id
+    if (name === "offer_id") {
+      newFilters.membership_id = ""
+    }
     const finalFilters = {
       ...newFilters,
       date: newFilters.date && newFilters.date.trim() !== "" ? newFilters.date : getTodayDate(),
@@ -288,6 +295,7 @@ const CashierPage = ({
       creator_id: "",
       date: todayDate,
       school_id: "",
+      offer_id: "",
     }
     setLocalFilters(resetFilters)
     router.get(
@@ -435,21 +443,20 @@ const CashierPage = ({
                   />
                 </div>
 
+                {/* Offer Filter */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
                     <CreditCardIcon className="h-4 w-4" />
-                    Adhésion
+                    Offre
                   </label>
                   <select
-                    value={localFilters.membership_id}
-                    onChange={(e) => handleFilterChange("membership_id", e.target.value)}
+                    value={localFilters.offer_id}
+                    onChange={e => handleFilterChange("offer_id", e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                   >
-                    <option value="">Toutes les adhésions</option>
-                    {filters?.memberships?.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}
-                      </option>
+                    <option value="">Toutes les offres</option>
+                    {filters?.offers?.map((offer) => (
+                      <option key={offer.id} value={offer.id}>{offer.name}</option>
                     ))}
                   </select>
                 </div>

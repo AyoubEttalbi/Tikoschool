@@ -24,4 +24,9 @@ class Announcement extends Model
         'created_at',
         'updated_at',
     ];
+
+    public function reads()
+    {
+        return $this->hasMany(\App\Models\AnnouncementRead::class);
+    }
 }

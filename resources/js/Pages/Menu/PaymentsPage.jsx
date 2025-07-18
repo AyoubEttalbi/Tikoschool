@@ -136,17 +136,17 @@ const PaymentsPage = ({
     };
 
     return (
-        <div className="py-6">
-            <div className="mx-20 sm:px-6 lg:px-8">
+        <div className="py-4 px-2 sm:px-4 md:px-6 lg:px-8 w-full">
+            <div className="w-full max-w-7xl mx-auto">
                 <PageHeader
                     title="Gestion des paiements"
                     description="Consultez, créez et gérez toutes vos transactions financières"
                 >
                     {activeView !== "form" && activeView !== "batch" && (
-                        <div className="flex flex-wrap gap-3">
+                        <div className="flex flex-col sm:flex-row flex-wrap gap-2 sm:gap-3 w-full">
                             <button
                                 onClick={handleCreateNew}
-                                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-medium rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors duration-200"
+                                className="flex items-center gap-2 px-3 py-2 sm:px-4 bg-blue-600 text-white font-medium rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors duration-200 w-full sm:w-auto"
                             >
                                 <Plus size={18} />
                                 Ajouter une transaction
@@ -154,7 +154,7 @@ const PaymentsPage = ({
 
                             <button
                                 onClick={handleBatchPayment}
-                                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white font-medium rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors duration-200"
+                                className="flex items-center gap-2 px-3 py-2 sm:px-4 bg-green-600 text-white font-medium rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors duration-200 w-full sm:w-auto"
                             >
                                 <CreditCard size={18} />
                                 Paiement groupé
@@ -162,7 +162,7 @@ const PaymentsPage = ({
 
                             <button
                                 onClick={handleProcessRecurring}
-                                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white font-medium rounded-lg shadow-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 transition-colors duration-200"
+                                className="flex items-center gap-2 px-3 py-2 sm:px-4 bg-purple-600 text-white font-medium rounded-lg shadow-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 transition-colors duration-200 w-full sm:w-auto"
                             >
                                 <RefreshCw size={18} />
                                 Traiter les récurrents
@@ -172,7 +172,7 @@ const PaymentsPage = ({
                     {(activeView === "form" || activeView === "batch") && (
                         <button
                             onClick={handleCancelForm}
-                            className="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-400"
+                            className="px-3 py-2 sm:px-4 bg-gray-500 text-white rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-400 w-full sm:w-auto"
                         >
                             Annuler
                         </button>
@@ -185,8 +185,8 @@ const PaymentsPage = ({
                         className="mb-6"
                     />
                 )}
-                <div className="bg-white h-full shadow-sm sm:rounded-lg">
-                    <div className="p-6 bg-white border-b border-gray-200">
+                <div className="bg-white h-full shadow-sm sm:rounded-lg w-full">
+                    <div className="p-3 sm:p-6 bg-white border-b border-gray-200">
                         {activeView === "list" && (
                             <PaymentsList
                                 transactions={transactions}

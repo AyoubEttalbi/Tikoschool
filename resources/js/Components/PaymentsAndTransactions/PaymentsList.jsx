@@ -108,7 +108,7 @@ const PaymentsList = ({
         <div className="flex flex-col">
             <Tab.Group onChange={setSelectedTab}>
                 <div className="border-b border-gray-200 mb-4">
-                    <div className="flex justify-between items-center">
+                    <div className="flex justify-between items-center flex-wrap gap-2">
                         <Tab.List className="flex space-x-4">
                             <Tab
                                 className={({ selected }) =>

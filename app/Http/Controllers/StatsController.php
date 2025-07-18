@@ -185,17 +185,20 @@ class StatsController extends Controller
         ->join('offers', 'invoices.offer_id', '=', 'offers.id')
         ->join('students', 'invoices.student_id', '=', 'students.id')
         ->select(
+            'offers.id as offer_id',
             'offers.offer_name as name',
             DB::raw('COUNT(DISTINCT invoices.student_id) as student_count'),
-            DB::raw('SUM(invoices.`totalAmount`) as total_price'),
-            'students.schoolId as school_id'
+            DB::raw('SUM(invoices.`totalAmount`) as total_price')
         )
         ->whereNull('invoices.deleted_at');
     if ($schoolId) {
         $mostSellingOffersQuery->where('students.schoolId', $schoolId);
+        $mostSellingOffersQuery->addSelect('students.schoolId as school_id');
+        $mostSellingOffersQuery->groupBy('offers.id', 'offers.offer_name', 'students.schoolId');
+    } else {
+        $mostSellingOffersQuery->groupBy('offers.id', 'offers.offer_name');
     }
     $mostSellingOffers = $mostSellingOffersQuery
-        ->groupBy('offers.id', 'offers.offer_name', 'students.schoolId')
         ->orderByDesc('student_count')
         ->limit(5)
         ->get();

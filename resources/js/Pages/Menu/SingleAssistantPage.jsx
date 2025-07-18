@@ -20,6 +20,7 @@ import {
     User,
 } from "lucide-react";
 import EventCalendar from "@/Components/EventCalendar";
+import axios from "axios";
 
 const SingleAssistantPage = ({
     assistant,
@@ -52,14 +53,22 @@ const SingleAssistantPage = ({
     // State for invoice modal
     const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
     const [selectedInvoice, setSelectedInvoice] = useState(null);
+    const [isInvoiceLoading, setIsInvoiceLoading] = useState(false);
 
     // State to ensure schools list is always available for the update form
     const [schools, setSchools] = useState(initialSchools || []);
 
     // Function to open invoice modal
     const openInvoiceModal = (invoice) => {
-        setSelectedInvoice(invoice);
-        setIsInvoiceModalOpen(true);
+        setIsInvoiceLoading(true);
+        // Fetch full invoice details from backend API
+        axios
+            .get(`/api/invoices/${invoice.id}`)
+            .then((response) => {
+                setSelectedInvoice(response.data.invoice);
+                setIsInvoiceModalOpen(true);
+            })
+            .finally(() => setIsInvoiceLoading(false));
     };
 
     // Function to close invoice modal
@@ -103,7 +112,7 @@ const SingleAssistantPage = ({
     return (
         <div className="flex-1 p-4 flex flex-col gap-4 xl:flex-row">
             {/* GAUCHE */}
-            <div className="w-full xl:w-2/3">
+            <div className="w-full lg:px-10">
                 {/* Bannière de sélection d'école */}
                 {selectedSchool &&
                     assistant.schools &&
@@ -625,7 +634,7 @@ const SingleAssistantPage = ({
             </div>
 
             {/* DROITE */}
-            <div className="w-full xl:w-1/3 flex flex-col gap-4">
+            {/* <div className="w-full xl:w-1/3 flex flex-col gap-4">
                 <div className="bg-white p-4 rounded-md">
                     
                     <Suspense fallback={<div>Chargement...</div>}>
@@ -633,7 +642,7 @@ const SingleAssistantPage = ({
                     </Suspense>
                 </div>
                 <Announcements announcements={announcements} userRole={role} />
-            </div>
+            </div> */}
 
             {/* Modal de facture */}
             <InvoiceModal
@@ -641,6 +650,11 @@ const SingleAssistantPage = ({
                 closeModal={closeInvoiceModal}
                 invoice={selectedInvoice}
             />
+            {isInvoiceLoading && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+                    <div className="bg-white p-6 rounded shadow text-lg font-semibold">Chargement de la facture...</div>
+                </div>
+            )}
         </div>
     );
 };

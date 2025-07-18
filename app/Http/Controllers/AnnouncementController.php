@@ -62,13 +62,23 @@ class AnnouncementController extends Controller
         
         // Execute query
         $announcements = $query->get();
-        
+
+        // Unread count for current user
+        $unreadCount = 0;
+        if (Auth::check()) {
+            $userId = Auth::id();
+            $unreadCount = $announcements->filter(function($announcement) use ($userId) {
+                return !$announcement->reads()->where('user_id', $userId)->exists();
+            })->count();
+        }
+
         return Inertia::render('Menu/AnnouncementsPage', [
             'announcements' => $announcements,
             'filters' => [
                 'status' => $status,
             ],
             'userRole' => $userRole, // Pass user role to frontend
+            'unreadCount' => $unreadCount,
         ]);
     }
     public function viewAllAnnouncements(Request $request)
@@ -313,5 +323,45 @@ class AnnouncementController extends Controller
 
         return redirect()->route('announcements.index')
             ->with('success', 'Announcement deleted successfully.');
+    }
+
+    /**
+     * Mark all visible announcements as read for the current user.
+     */
+    public function markAllRead(Request $request)
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
+        $userRole = $user->role;
+        $now = Carbon::now();
+        $query = Announcement::query();
+        if ($userRole !== 'admin') {
+            $query->where(function($q) use ($userRole) {
+                $q->where('visibility', 'all')
+                  ->orWhere('visibility', $userRole);
+            });
+        }
+        $query->where(function($q) use ($now) {
+            $q->where(function($subq) use ($now) {
+                $subq->whereNull('date_start')
+                     ->orWhere('date_start', '<=', $now);
+            })->where(function($subq) use ($now) {
+                $subq->whereNull('date_end')
+                     ->orWhere('date_end', '>=', $now);
+            });
+        });
+        $announcements = $query->get();
+        foreach ($announcements as $announcement) {
+            $alreadyRead = $announcement->reads()->where('user_id', $user->id)->exists();
+            if (!$alreadyRead) {
+                $announcement->reads()->create([
+                    'user_id' => $user->id,
+                    'read_at' => now(),
+                ]);
+            }
+        }
+        return back();
     }
 }

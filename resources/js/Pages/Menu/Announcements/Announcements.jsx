@@ -158,7 +158,7 @@ const Announcements = ({ announcements = [], userRole = "all", limit = 3, school
 
     // Determine width based on URL
     const isDashboard = typeof window !== 'undefined' && window.location.pathname.startsWith('/dashboard');
-    const containerWidth = isDashboard ? 'w-1/2' : 'w-full';
+    const containerWidth = isDashboard ? 'w-full' : 'w-full';
 
     return (
         <div className={`bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden ${containerWidth}`}>

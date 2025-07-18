@@ -158,6 +158,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/ViewAllAnnouncements', [AnnouncementController::class, 'viewAllAnnouncements'])
     ->name('ViewAllAnnouncements');
     
+    // Mark all announcements as read
+    Route::post('/announcements/mark-all-read', [AnnouncementController::class, 'markAllRead'])->name('announcements.markAllRead');
+    
     // ADMIN ONLY routes based on Menu.jsx
     Route::middleware(AdminMiddleware::class)->group(function () {
         // Admin-only index routes based on Menu.jsx visibility
@@ -333,20 +336,46 @@ Route::get('/debug-assistant/{id}', function($id) {
         })
     ]);
 });
-// Admin impersonation routes
-Route::middleware(['auth'])->group(function () {
-Route::post('/admin/switch-back', [AdminController::class, 'switchBack'])
-        ->middleware(CheckImpersonation::class)
-    ->name('admin.switch-back');
-        
-Route::post('/admin/view-as/{user}', [AdminController::class, 'viewAs'])
-        ->middleware(AdminMiddleware::class)
-    ->name('admin.view-as');
+}
+
+// TEMPORARY: Debug route to inspect session contents
+Route::get('/debug-session', function () {
+    return response()->json(session()->all());
+});
+
+// Admin impersonation routes (available in all environments, protected)
+Route::middleware(['auth', AdminMiddleware::class])->group(function () {
+    Route::post('/admin/view-as/{user}', [AdminController::class, 'viewAs'])->name('admin.view-as');
+    Route::post('/admin/switch-back', [AdminController::class, 'switchBack'])->middleware(CheckImpersonation::class)->name('admin.switch-back');
 });
 // Debug invoice data
 Route::get('/debug-invoice-data', [App\Http\Controllers\TransactionController::class, 'debugInvoiceData'])
     ->name('debug.invoice.data');
-}
+
+// TEMP: Direct GET route for switch back (for debugging only)
+// Restore real switch-back route
+Route::post('/admin/switch-back', [App\Http\Controllers\AdminController::class, 'switchBack'])->middleware(App\Http\Middleware\CheckImpersonation::class)->name('admin.switch-back');
+
+// API route for fetching invoice details as JSON
+Route::middleware('auth')->get('/api/invoices/{id}', [App\Http\Controllers\InvoiceController::class, 'apiShow']);
+
+// API route for fetching upcoming announcements
+Route::middleware('auth')->get('/api/upcoming-announcements', function () {
+    $user = auth()->user();
+    $userRole = $user ? $user->role : null;
+    $now = now();
+    $query = \App\Models\Announcement::query();
+    $query->where('date_announcement', '>', $now);
+    if ($userRole !== 'admin') {
+        $query->where(function($q) use ($userRole) {
+            $q->where('visibility', 'all')
+              ->orWhere('visibility', $userRole);
+        });
+    }
+    $query->orderBy('date_announcement');
+    $announcements = $query->get();
+    return response()->json(['announcements' => $announcements]);
+});
 
 // Global fallback route: redirect any not found route to dashboard
 Route::fallback(function () {

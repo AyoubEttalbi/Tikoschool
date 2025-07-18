@@ -33,6 +33,7 @@ const FormModal = ({
     type,
     icon,
     data,
+    screen,
     id,
     levels,
     route,
@@ -91,9 +92,20 @@ const FormModal = ({
                     onClick={() => setOpen(true)}
                 >
                     <Plus className="h-4 w-4 mr-1" />
-                    Nouveau
+                    {screen === "small" ? null : "Nouveau"}
                 </button>
-            ) : table === "membership" && type === "update" ? (
+            ) 
+            : table === "invoice" && type === "create" && screen === "small" ? (
+                <button
+                    className="bg-black hover:bg-neutral-700 text-white rounded-full px-3 py-1 h-8 flex items-center"
+                    onClick={() => setOpen(true)}
+                >
+                    <Plus className="h-4 w-4 mr-1" />
+                    
+                </button>
+                
+            )
+            : table === "membership" && type === "update" ? (
                 <button
                     className="text-blue-500 hover:text-blue-600"
                     onClick={() => setOpen(true)}

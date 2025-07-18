@@ -490,13 +490,13 @@ const EmployeeSummaryTable = ({
         <div className="space-y-4">
             {/* Filtres */}
             <div className="bg-white p-4 rounded-lg shadow">
-                <div className="flex items-center flex-wrap space-x-4 mb-4">
+                <div className="flex items-center  flex-wrap space-x-4 mb-4">
                     <div className="font-medium text-gray-700">
                         Filtrer par mois :
                     </div>
                     <div className="flex space-x-2">
                         <select
-                            className="bg-white border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                            className="bg-white border border-gray-300 rounded-md shadow-sm py-2 pl-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                             value={selectedMonth}
                             onChange={(e) =>
                                 setSelectedMonth(parseInt(e.target.value))
@@ -509,20 +509,20 @@ const EmployeeSummaryTable = ({
                             ))}
                         </select>
                         <select
-                            className="bg-white border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                            className="bg-white border border-gray-300 rounded-md shadow-sm py-2 pl-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                             value={selectedYear}
                             onChange={(e) =>
                                 setSelectedYear(parseInt(e.target.value))
                             }
                         >
                             {years.map((year) => (
-                                <option key={year} value={year}>
+                                <option key={year} value={year} className="px-5">
                                     {year}
                                 </option>
                             ))}
                         </select>
                     </div>
-                    <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center justify-between mb-4 mt-4 sm:mt-0 lg:mt-0">
                         <div className="flex items-center space-x-2 -mb-4">
                             <button
                                 onClick={() => setShowFilters(!showFilters)}

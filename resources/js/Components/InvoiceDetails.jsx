@@ -83,7 +83,7 @@ const InvoiceDetails = ({ invoice, onClose }) => {
                     <FileText className="text-white w-6 h-6 mr-3" />
                     <div>
                         <h1 className="text-xl font-bold text-white flex items-center">
-                            Invoice #{invoice.id}
+                            Facture #{invoice.id}
                             <span
                                 className={`ml-3 text-xs px-2 py-1 rounded-full ${
                                     paymentStatus === "paid"
@@ -94,14 +94,14 @@ const InvoiceDetails = ({ invoice, onClose }) => {
                                 }`}
                             >
                                 {paymentStatus === "paid"
-                                    ? "Paid"
+                                    ? "Payée"
                                     : paymentStatus === "unpaid"
-                                      ? "Unpaid"
-                                      : "Partially Paid"}
+                                      ? "Impayée"
+                                      : "Partiellement payée"}
                             </span>
                         </h1>
                         <p className="text-blue-100 text-sm">
-                            Created on {formatDate(invoice.creationDate)}
+                            Créée le {formatDate(invoice.creationDate)}
                         </p>
                     </div>
                 </div>
@@ -109,6 +109,7 @@ const InvoiceDetails = ({ invoice, onClose }) => {
                     <button
                         onClick={onClose}
                         className="text-white hover:bg-blue-800 rounded-full p-1"
+                        title="Fermer"
                     >
                         <X className="w-6 h-6" />
                     </button>
@@ -121,23 +122,23 @@ const InvoiceDetails = ({ invoice, onClose }) => {
                 <div className="mb-6 bg-gray-50 p-4 rounded-lg">
                     <h2 className="text-lg font-semibold mb-3 flex items-center">
                         <User className="w-5 h-5 mr-2 text-blue-600" />
-                        Student Information
+                        Informations sur l'élève
                     </h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <p className="text-gray-500 text-sm">Name</p>
+                            <p className="text-gray-500 text-sm">Nom</p>
                             <p className="font-medium">
-                                {invoice.student_name || "Unknown"}
+                                {invoice.student_name || "Inconnu"}
                             </p>
                         </div>
                         <div>
-                            <p className="text-gray-500 text-sm">Class</p>
+                            <p className="text-gray-500 text-sm">Classe</p>
                             <p className="font-medium">
                                 {invoice.student_class || "N/A"}
                             </p>
                         </div>
                         <div>
-                            <p className="text-gray-500 text-sm">School</p>
+                            <p className="text-gray-500 text-sm">École</p>
                             <p className="font-medium">
                                 {invoice.student_school || "N/A"}
                             </p>
@@ -148,7 +149,7 @@ const InvoiceDetails = ({ invoice, onClose }) => {
                                     href={`/students/${invoice.student_id}`}
                                     className="text-sm text-blue-600 hover:text-blue-800 flex items-center"
                                 >
-                                    View Student Profile
+                                    Voir le profil de l'élève
                                     <ChevronDown className="ml-1 w-4 h-4" />
                                 </Link>
                             </div>
@@ -160,27 +161,27 @@ const InvoiceDetails = ({ invoice, onClose }) => {
                 <div className="mb-6">
                     <h2 className="text-lg font-semibold mb-3 flex items-center">
                         <FileText className="w-5 h-5 mr-2 text-blue-600" />
-                        Invoice Details
+                        Détails de la facture
                     </h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <p className="text-gray-500 text-sm">Bill Date</p>
+                            <p className="text-gray-500 text-sm">Date de facturation</p>
                             <p className="font-medium">
                                 {formatDate(invoice.billDate)}
                             </p>
                         </div>
                         <div>
-                            <p className="text-gray-500 text-sm">End Date</p>
+                            <p className="text-gray-500 text-sm">Date de fin</p>
                             <p className="font-medium">
                                 {formatDate(invoice.endDate)}
                             </p>
                         </div>
                         <div>
-                            <p className="text-gray-500 text-sm">Months</p>
+                            <p className="text-gray-500 text-sm">Mois</p>
                             <p className="font-medium">{invoice.months || 1}</p>
                         </div>
                         <div>
-                            <p className="text-gray-500 text-sm">Offer</p>
+                            <p className="text-gray-500 text-sm">Offre</p>
                             <p className="font-medium">
                                 {invoice.offer_name || "N/A"}
                             </p>
@@ -188,11 +189,10 @@ const InvoiceDetails = ({ invoice, onClose }) => {
                         {invoice.includePartialMonth && (
                             <div className="col-span-2">
                                 <p className="text-gray-500 text-sm">
-                                    Partial Month
+                                    Mois partiel
                                 </p>
                                 <p className="font-medium">
-                                    Yes -{" "}
-                                    {formatCurrency(invoice.partialMonthAmount)}
+                                    Oui - {formatCurrency(invoice.partialMonthAmount)}
                                 </p>
                             </div>
                         )}
@@ -203,173 +203,137 @@ const InvoiceDetails = ({ invoice, onClose }) => {
                 <div className="mb-6">
                     <h2 className="text-lg font-semibold mb-3 flex items-center">
                         <DollarSign className="w-5 h-5 mr-2 text-blue-600" />
-                        Payment Information
+                        Informations de paiement
                     </h2>
 
-                    <div className="bg-gray-50 p-4 rounded-lg mb-4">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                            <div>
-                                <p className="text-gray-500 text-sm">
-                                    Total Amount
-                                </p>
-                                <p className="font-medium text-lg">
-                                    {formatCurrency(totalAmount)}
-                                </p>
-                            </div>
-                            <div>
-                                <p className="text-gray-500 text-sm">
-                                    Amount Paid
-                                </p>
-                                <p className="font-medium text-lg text-green-600">
-                                    {formatCurrency(amountPaid)}
-                                </p>
-                            </div>
-                            <div>
-                                <p className="text-gray-500 text-sm">
-                                    Remaining
-                                </p>
-                                <p className="font-medium text-lg text-red-600">
-                                    {formatCurrency(remainingAmount)}
-                                </p>
-                            </div>
+                    {(totalAmount === 0 && amountPaid === 0 && remainingAmount === 0) ? (
+                        <div className="bg-gray-50 p-4 rounded-lg mb-4 text-center text-gray-500">
+                            Aucun paiement enregistré
                         </div>
-
-                        {/* Payment Progress Bar */}
-                        <div className="mb-2">
-                            <div className="flex justify-between text-xs text-gray-600 mb-1">
-                                <span>Payment Progress</span>
-                                <span>
-                                    {Number.isFinite(paymentPercentage)
-                                        ? paymentPercentage
-                                        : 0}
-                                    %
-                                </span>
-                            </div>
-                            <div className="w-full bg-gray-200 rounded-full h-2.5">
-                                <div
-                                    className={`h-2.5 rounded-full ${
-                                        paymentStatus === "paid"
-                                            ? "bg-green-600"
-                                            : paymentStatus === "partial"
-                                              ? "bg-yellow-500"
-                                              : "bg-red-600"
-                                    }`}
-                                    style={{
-                                        width: `${Number.isFinite(paymentPercentage) ? paymentPercentage : 0}%`,
-                                    }}
-                                ></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Payment History Toggle */}
-                    {invoice.payments && invoice.payments.length > 0 && (
-                        <div>
-                            <button
-                                onClick={() => setShowPayments(!showPayments)}
-                                className="flex items-center justify-between w-full px-4 py-2 text-left text-sm font-medium text-blue-600 bg-blue-50 rounded-md hover:bg-blue-100"
-                            >
-                                <span>
-                                    View Payment History (
-                                    {invoice.payments.length})
-                                </span>
-                                {showPayments ? (
-                                    <ChevronUp className="w-4 h-4" />
-                                ) : (
-                                    <ChevronDown className="w-4 h-4" />
-                                )}
-                            </button>
-
-                            {showPayments && (
-                                <div className="mt-3 border rounded-md overflow-hidden">
-                                    <table className="min-w-full divide-y divide-gray-200">
-                                        <thead className="bg-gray-50">
-                                            <tr>
-                                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                                    Date
-                                                </th>
-                                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                                    Amount
-                                                </th>
-                                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                                    Method
-                                                </th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="bg-white divide-y divide-gray-200">
-                                            {invoice.payments.map(
-                                                (payment, index) => (
-                                                    <tr
-                                                        key={index}
-                                                        className="hover:bg-gray-50"
-                                                    >
-                                                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
-                                                            {formatDate(
-                                                                payment.date,
-                                                            )}
-                                                        </td>
-                                                        <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-green-600">
-                                                            {formatCurrency(
-                                                                payment.amount,
-                                                            )}
-                                                        </td>
-                                                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
-                                                            {payment.method ||
-                                                                "N/A"}
-                                                        </td>
-                                                    </tr>
-                                                ),
-                                            )}
-                                        </tbody>
-                                    </table>
+                    ) : (
+                        <div className="bg-gray-50 p-4 rounded-lg mb-4">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                                <div>
+                                    <p className="text-gray-500 text-sm">
+                                        Montant total
+                                    </p>
+                                    <p className="font-medium text-lg">
+                                        {formatCurrency(totalAmount)}
+                                    </p>
                                 </div>
-                            )}
+                                <div>
+                                    <p className="text-gray-500 text-sm">
+                                        Montant payé
+                                    </p>
+                                    <p className="font-medium text-lg text-green-600">
+                                        {formatCurrency(amountPaid)}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-gray-500 text-sm">
+                                        Restant
+                                    </p>
+                                    <p className="font-medium text-lg text-red-600">
+                                        {formatCurrency(remainingAmount)}
+                                    </p>
+                                </div>
+                            </div>
+                            {/* Payment Progress Bar */}
+                            <div className="mb-2">
+                                <div className="flex justify-between text-xs text-gray-600 mb-1">
+                                    <span>Progression du paiement</span>
+                                    <span>
+                                        {Number.isFinite(paymentPercentage)
+                                            ? paymentPercentage
+                                            : 0}
+                                        %
+                                    </span>
+                                </div>
+                                <div className="w-full bg-gray-200 rounded-full h-2.5">
+                                    <div
+                                        className={`h-2.5 rounded-full ${
+                                            paymentStatus === "paid"
+                                                ? "bg-green-600"
+                                                : paymentStatus === "partial"
+                                                  ? "bg-yellow-500"
+                                                  : "bg-red-600"
+                                        }`}
+                                        style={{
+                                            width: `${Number.isFinite(paymentPercentage) ? paymentPercentage : 0}%`,
+                                        }}
+                                    ></div>
+                                </div>
+                            </div>
                         </div>
                     )}
-                </div>
 
-                {/* Teacher Information */}
-                {invoice.teachers && invoice.teachers.length > 0 && (
-                    <div className="mb-6">
-                        <h2 className="text-lg font-semibold mb-3 flex items-center">
-                            <User className="w-5 h-5 mr-2 text-blue-600" />
-                            Teacher Information
-                        </h2>
-                        <div className="border rounded-md overflow-hidden">
-                            <table className="min-w-full divide-y divide-gray-200">
-                                <thead className="bg-gray-50">
-                                    <tr>
-                                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                            Name
-                                        </th>
-                                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                            Amount
-                                        </th>
-                                    </tr>
-                                </thead>
-                                <tbody className="bg-white divide-y divide-gray-200">
-                                    {invoice.teachers.map((teacher, index) => (
-                                        <tr
-                                            key={index}
-                                            className="hover:bg-gray-50"
-                                        >
-                                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
-                                                {teacher.name ||
-                                                    `Teacher #${teacher.teacherId}`}
-                                            </td>
-                                            <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-600">
-                                                {formatCurrency(
-                                                    teacher.amount *
-                                                        (invoice.months || 1),
-                                                )}
-                                            </td>
+                {/* Payment History Toggle */}
+                {invoice.payments && invoice.payments.length > 0 && (
+                    <div>
+                        <button
+                            onClick={() => setShowPayments(!showPayments)}
+                            className="flex items-center justify-between w-full px-4 py-2 text-left text-sm font-medium text-blue-600 bg-blue-50 rounded-md hover:bg-blue-100"
+                        >
+                            <span>
+                                Voir l'historique des paiements (
+                                {invoice.payments.length})
+                            </span>
+                            {showPayments ? (
+                                <ChevronUp className="w-4 h-4" />
+                            ) : (
+                                <ChevronDown className="w-4 h-4" />
+                            )}
+                        </button>
+
+                        {showPayments && (
+                            <div className="mt-3 border rounded-md overflow-hidden">
+                                <table className="min-w-full divide-y divide-gray-200">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                                Date
+                                            </th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                                Montant
+                                            </th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                                Méthode
+                                            </th>
                                         </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
+                                    </thead>
+                                    <tbody className="bg-white divide-y divide-gray-200">
+                                        {invoice.payments.map(
+                                            (payment, index) => (
+                                                <tr
+                                                    key={index}
+                                                    className="hover:bg-gray-50"
+                                                >
+                                                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
+                                                        {formatDate(
+                                                            payment.date,
+                                                        )}
+                                                    </td>
+                                                    <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-green-600">
+                                                        {formatCurrency(
+                                                            payment.amount,
+                                                        )}
+                                                    </td>
+                                                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
+                                                        {payment.method ||
+                                                            "N/A"}
+                                                    </td>
+                                                </tr>
+                                            ),
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
                     </div>
                 )}
+            </div>
+
+                {/* Teacher Information section removed as requested */}
             </div>
 
             {/* Footer */}
@@ -377,11 +341,11 @@ const InvoiceDetails = ({ invoice, onClose }) => {
                 <div className="text-gray-500 text-sm">
                     <span className="mr-2">
                         <Calendar className="w-4 h-4 inline mr-1" />
-                        Bill: {formatDate(invoice.billDate)}
+                        Facturation : {formatDate(invoice.billDate)}
                     </span>
                     <span>
                         <Calendar className="w-4 h-4 inline mr-1" />
-                        End: {formatDate(invoice.endDate)}
+                        Fin : {formatDate(invoice.endDate)}
                     </span>
                 </div>
                 <div>
@@ -395,13 +359,13 @@ const InvoiceDetails = ({ invoice, onClose }) => {
                         className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center"
                     >
                         <Download className="w-4 h-4 mr-1" />
-                        Download Invoice
+                        Télécharger la facture
                     </button>
                 </div>
             </div>
             {!isDataLoaded && (
                 <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center">
-                    <div className="text-gray-500">Loading invoice data...</div>
+                    <div className="text-gray-500">Chargement des données de la facture...</div>
                 </div>
             )}
         </div>

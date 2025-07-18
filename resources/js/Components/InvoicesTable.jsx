@@ -3,6 +3,7 @@ import FormModal from "./FormModal";
 import { format, parseISO } from "date-fns";
 import { Printer, AlertCircle } from "lucide-react";
 import { useState } from "react";
+import { useEffect } from "react";
 
 const InvoicesTable = ({
     invoices = [],
@@ -10,6 +11,17 @@ const InvoicesTable = ({
     studentId = null,
 }) => {
     const [loading, setLoading] = useState(false); // Global loading state
+    const [isSmallScreen, setIsSmallScreen] = useState(false);
+
+    useEffect(() => {
+        // Function to check if the screen is small (mobile)
+        const checkScreen = () => {
+            setIsSmallScreen(window.matchMedia('(max-width: 640px)').matches);
+        };
+        checkScreen();
+        window.addEventListener('resize', checkScreen);
+        return () => window.removeEventListener('resize', checkScreen);
+    }, []);
 
     // Count unpaid memberships
     const unpaidMembershipsCount = Student_memberships.filter(
@@ -59,6 +71,7 @@ const InvoicesTable = ({
                             type="create"
                             StudentMemberships={Student_memberships}
                             studentId={studentId}
+                            {...(isSmallScreen ? { screen: "small" } : {})}
                         />
                         {unpaidMembershipsCount > 0 && (
                             <span className="bg-amber-100 text-amber-800 text-xs font-medium px-2 py-0.5 rounded-full">

@@ -83,11 +83,12 @@ const formatDate = (dateString) => {
     }
 };
 
-const ITEMS_PER_PAGE = 10;
+const ITEMS_PER_PAGE = 5;
 
 const AssistantPaymentsCard = ({ transactions = [], userId }) => {
     const [isLoading, setIsLoading] = useState(true);
     const [currentPage, setCurrentPage] = useState(1);
+    const [expanded, setExpanded] = useState(false);
     console.log('userId', userId, 'transactions', transactions);
     // Memoize filtered transactions to avoid unnecessary updates
     const filteredTransactions = useMemo(() => {
@@ -124,50 +125,58 @@ const AssistantPaymentsCard = ({ transactions = [], userId }) => {
 
     return (
         <div className="bg-white shadow rounded-lg overflow-hidden">
-            <div className="bg-blue-50 px-4 py-3 border-b border-blue-100">
+            <div className="bg-blue-50 px-4 py-3 border-b border-blue-100 flex items-center justify-between">
                 <div className="flex items-center">
                     <CreditCard className="h-5 w-5 text-blue-600 mr-2" />
                     <h3 className="text-lg font-medium text-blue-800">
                         Historique des paiements
                     </h3>
                 </div>
+                <button
+                    className="text-xs font-semibold text-blue-600 hover:underline px-2 py-1 rounded transition"
+                    onClick={() => setExpanded((prev) => !prev)}
+                >
+                    {expanded ? 'Voir moins' : 'Voir plus'}
+                </button>
             </div>
-            <div className="divide-y divide-gray-200">
-                {paginatedTransactions.map((transaction) => (
-                    <div
-                        key={transaction.id}
-                        className="p-4 hover:bg-gray-50 transition-colors"
-                    >
-                        <div className="flex justify-between items-center mb-1">
-                            <div className="flex items-center">
-                                <PaymentTypeBadge type={transaction.type} isRecurring={transaction.is_recurring} />
-                                <span className="font-medium text-gray-900">
-                                    {transaction.type === "salary"
-                                        ? "Paiement de salaire"
-                                        : transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)}
-                                </span>
+            {expanded && (
+                <div className="divide-y divide-gray-200">
+                    {paginatedTransactions.map((transaction) => (
+                        <div
+                            key={transaction.id}
+                            className="p-4 hover:bg-gray-50 transition-colors"
+                        >
+                            <div className="flex justify-between items-center mb-1">
+                                <div className="flex items-center">
+                                    <PaymentTypeBadge type={transaction.type} isRecurring={transaction.is_recurring} />
+                                    <span className="font-medium text-gray-900">
+                                        {transaction.type === "salary"
+                                            ? "Paiement de salaire"
+                                            : transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)}
+                                    </span>
+                                </div>
+                                <div className="text-sm font-bold text-gray-900">
+                                    {parseFloat(transaction.amount).toFixed(2)} DH
+                                </div>
                             </div>
-                            <div className="text-sm font-bold text-gray-900">
-                                {parseFloat(transaction.amount).toFixed(2)} DH
+                            <div className="text-xs text-gray-500 mb-1">
+                                {transaction.description || "Aucune description"}
+                            </div>
+                            <div className="flex items-center justify-between mt-1">
+                                <div className="text-xs text-gray-500">
+                                    {transaction.is_recurring ? (
+                                        <>Fréquence : {transaction.frequency ? transaction.frequency.charAt(0).toUpperCase() + transaction.frequency.slice(1) : "-"}</>
+                                    ) : (
+                                        <>Date : {formatDate(transaction.payment_date)}</>
+                                    )}
+                                </div>
+                                <PaymentStatus transaction={transaction} />
                             </div>
                         </div>
-                        <div className="text-xs text-gray-500 mb-1">
-                            {transaction.description || "Aucune description"}
-                        </div>
-                        <div className="flex items-center justify-between mt-1">
-                            <div className="text-xs text-gray-500">
-                                {transaction.is_recurring ? (
-                                    <>Fréquence : {transaction.frequency ? transaction.frequency.charAt(0).toUpperCase() + transaction.frequency.slice(1) : "-"}</>
-                                ) : (
-                                    <>Date : {formatDate(transaction.payment_date)}</>
-                                )}
-                            </div>
-                            <PaymentStatus transaction={transaction} />
-                        </div>
-                    </div>
-                ))}
-            </div>
-            {totalPages > 1 && (
+                    ))}
+                </div>
+            )}
+            {expanded && totalPages > 1 && (
                 <PaymentsPagination
                     currentPage={currentPage}
                     totalPages={totalPages}

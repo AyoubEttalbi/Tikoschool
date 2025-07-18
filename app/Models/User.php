@@ -61,6 +61,11 @@ class User extends Authenticatable
         return $this->hasOne(Assistant::class, 'email', 'email');
     }
 
+    public function announcementReads()
+    {
+        return $this->hasMany(\App\Models\AnnouncementRead::class);
+    }
+
     /**
      * Check if the user is an admin.
      *
