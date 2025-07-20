@@ -79,6 +79,10 @@ const menuItems = [
                         label: "Absence Log",
                         href: "/absence-log",
                     },
+                    {
+                        label: "Liste de présence",
+                        href: "/absence-list",
+                    },
                 ],
             },
             {

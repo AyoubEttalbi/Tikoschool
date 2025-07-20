@@ -551,4 +551,53 @@ class AttendanceController extends Controller
         WasenderApi::sendText($fatherPhone, "Bonjour, votre enfant {$studentName} est absent aujourd’hui.");
         return back()->with('success', 'WhatsApp message envoyé au parent.');
     }
+
+    /**
+     * Télécharger la liste de présence PDF pour une classe et un enseignant
+     */
+    public function downloadAbsenceList(Request $request)
+    {
+        $request->validate([
+            'teacher_id' => 'required|exists:teachers,id',
+            'class_id' => 'required|exists:classes,id',
+            'date' => 'nullable|date',
+        ]);
+        $teacher = \App\Models\Teacher::findOrFail($request->teacher_id);
+        $class = \App\Models\Classes::with('level')->findOrFail($request->class_id);
+        $students = $class->students()->orderBy('lastName')->get();
+        $date = $request->input('date', now()->format('d/m/Y'));
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('absence_list_pdf', [
+            'teacher' => $teacher,
+            'class' => $class,
+            'students' => $students,
+            'date' => $date,
+        ])->setPaper('A4', 'landscape');
+        $filename = 'Liste-absence-' . $class->name . '-' . $teacher->last_name . '-' . now()->format('Ymd_His') . '.pdf';
+        return $pdf->download($filename);
+    }
+
+    /**
+     * Page de sélection pour la liste de présence (frontend)
+     */
+    public function absenceListPage()
+    {
+        $teachers = \App\Models\Teacher::select('id', 'first_name', 'last_name')->get();
+        $classes = \App\Models\Classes::with(['teachers:id,first_name,last_name'])->get()->map(function($class) {
+            return [
+                'id' => $class->id,
+                'name' => $class->name,
+                'teachers' => $class->teachers->map(function($t) {
+                    return [
+                        'id' => $t->id,
+                        'first_name' => $t->first_name,
+                        'last_name' => $t->last_name,
+                    ];
+                })->toArray(),
+            ];
+        });
+        return \Inertia\Inertia::render('Menu/AbsenceListPage', [
+            'teachers' => $teachers,
+            'classes' => $classes,
+        ]);
+    }
 }

@@ -265,6 +265,11 @@ Route::middleware('auth')->group(function () {
     Route::get('/absence-log', [AttendanceController::class, 'absenceLogPage'])->name('absence.log.page');
     Route::get('/api/absence-log', [AttendanceController::class, 'absenceLogData'])->name('absence.log.data');
     Route::post('/absence/{student}/notify', [AttendanceController::class, 'notifyParent'])->name('absence.notify');
+
+    // Absence List page (frontend selection)
+    Route::get('/absence-list', [AttendanceController::class, 'absenceListPage'])->name('absence-list')->middleware('auth');
+    // Absence List PDF download (GET, not POST)
+    Route::get('/absence-list/download', [AttendanceController::class, 'downloadAbsenceList'])->name('absence-list.download')->middleware('auth');
 });
 // Route::get('/cashier/daily', [CashierController::class, 'daily'])->name('cashier.daily');
 // Route::post('/cashier/daily', [CashierController::class, 'daily']); // For filtering
