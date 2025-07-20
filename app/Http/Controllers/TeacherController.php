@@ -23,6 +23,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\Log;
 
 class TeacherController extends Controller
 {
@@ -268,7 +269,7 @@ class TeacherController extends Controller
 
             return redirect()->route('teachers.index')->with('success', 'Teacher created successfully.');
         } catch (\Exception $e) {
-            \Log::error('Error creating teacher: ' . $e->getMessage());
+            Log::error('Error creating teacher: ' . $e->getMessage());
             return redirect()->back()->with('error', 'Failed to create teacher. Please try again.');
         }
     }
@@ -325,7 +326,7 @@ class TeacherController extends Controller
 
         // Fetch the teacher with related data
         $teacher = Teacher::with(['subjects', 'classes', 'schools'])->findOrFail($id);
-        $teacherUser = \App\Models\User::where('email', $teacher->email)->first();
+        $teacherUser = User::where('email', $teacher->email)->first();
         
         if (!$teacher) {
             abort(404);
@@ -494,7 +495,7 @@ class TeacherController extends Controller
         $subjects = Subject::all();
         $classes = Classes::all(); // ✅ Changed from 'groups' to 'classes'
         $schools = School::all();
-        $teacherUser = \App\Models\User::where('email', $teacher->email)->first();
+        $teacherUser = User::where('email', $teacher->email)->first();
         return Inertia::render('Teachers/Edit', [
             'teacher' => $teacherUser ? array_merge($teacher->toArray(), ['user_id' => $teacherUser->id]) : $teacher,
             'subjects' => $subjects,
@@ -538,10 +539,10 @@ class TeacherController extends Controller
             ]);
 
             // Check for duplicate email in users table (except for the user with the old email)
-            $userWithEmail = \App\Models\User::where('email', $validatedData['email'])
+            $userWithEmail = User::where('email', $validatedData['email'])
                 ->where('email', '!=', $oldEmail)
                 ->first();
-            $teacherWithEmail = \App\Models\Teacher::where('email', $validatedData['email'])
+            $teacherWithEmail = Teacher::where('email', $validatedData['email'])
                 ->where('id', '!=', $teacher->id)
                 ->first();
             if ($userWithEmail || $teacherWithEmail) {
@@ -573,7 +574,7 @@ class TeacherController extends Controller
             $teacher->schools()->sync($request->schools ?? []);
 
             // Update the corresponding user (if exists)
-            $user = \App\Models\User::where('email', $oldEmail)->first();
+            $user = User::where('email', $oldEmail)->first();
             if ($user) {
                 $user->name = $validatedData['first_name'] . ' ' . $validatedData['last_name'];
                 $user->email = $validatedData['email'];
@@ -598,7 +599,7 @@ class TeacherController extends Controller
                 return redirect()->route('teachers.show', $teacher->id)->with('success', 'Teacher updated successfully.');
             }
         } catch (\Exception $e) {
-            \Log::error('Error updating teacher: ' . $e->getMessage());
+            Log::error('Error updating teacher: ' . $e->getMessage());
             return redirect()->back()->with('error', 'Failed to update teacher. Please try again.');
         }
     }
@@ -627,7 +628,7 @@ class TeacherController extends Controller
 
             return redirect()->route('teachers.index')->with('success', 'Teacher deleted successfully.');
         } catch (\Exception $e) {
-            \Log::error('Error deleting teacher: ' . $e->getMessage());
+            Log::error('Error deleting teacher: ' . $e->getMessage());
             return redirect()->back()->with('error', 'Failed to delete teacher. Please try again.');
         }
     }

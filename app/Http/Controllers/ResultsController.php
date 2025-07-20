@@ -12,6 +12,7 @@ use App\Models\Teacher;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class ResultsController extends Controller
 {
@@ -43,7 +44,7 @@ class ResultsController extends Controller
             });
             
             // Log the filtering
-            \Log::info('Results filtered by school', [
+            Log::info('Results filtered by school', [
                 'school_id' => $selectedSchoolId,
                 'user_role' => $role
             ]);
@@ -54,7 +55,7 @@ class ResultsController extends Controller
             $teacher = Teacher::where('email', $user->email)->first();
             
             // Debug log to see if teacher is found
-            \Log::info('Teacher lookup by email', [
+            Log::info('Teacher lookup by email', [
                 'user_email' => $user->email,
                 'teacher_found' => $teacher ? 'yes' : 'no',
                 'teacher_id' => $teacher ? $teacher->id : null
@@ -117,7 +118,7 @@ class ResultsController extends Controller
             $loggedInTeacherId = $teacher->id;
             
             // Log that we're sending the teacher ID to the frontend
-            \Log::info('Sending teacher ID to frontend', [
+            Log::info('Sending teacher ID to frontend', [
                 'teacher_id' => $loggedInTeacherId,
                 'user_email' => $user->email
             ]);
@@ -301,34 +302,34 @@ class ResultsController extends Controller
      */
     public function getStudentsByClass($class_id)
     {
-        \Log::info('Fetching students for class_id: ' . $class_id);
+        Log::info('Fetching students for class_id: ' . $class_id);
         
         if (!$class_id) {
-            \Log::error('No class_id provided');
+            Log::error('No class_id provided');
             return response()->json([]);
         }
         
         // Enable query logging
-        \DB::enableQueryLog();
+        DB::enableQueryLog();
         
         $class = Classes::with('students')->find($class_id);
         
         // Log the executed queries
-        $queries = \DB::getQueryLog();
-        \Log::info('SQL Queries:', $queries);
+        $queries = DB::getQueryLog();
+        Log::info('SQL Queries:', $queries);
         
         if (!$class) {
-            \Log::error('Class not found for id: ' . $class_id);
+            Log::error('Class not found for id: ' . $class_id);
             return response()->json([]);
         }
         
-        \Log::info('Found class: ' . $class->name . ' with ' . $class->students->count() . ' students');
+        Log::info('Found class: ' . $class->name . ' with ' . $class->students->count() . ' students');
         
         // Debugging: Fetch students directly and log
-        $directStudents = \DB::table('students')
+        $directStudents = DB::table('students')
             ->where('classId', $class_id)
             ->get();
-        \Log::info('Direct query found ' . count($directStudents) . ' students');
+        Log::info('Direct query found ' . count($directStudents) . ' students');
         
         // Note: Student model uses firstName and lastName (camelCase) instead of first_name and last_name
         $students = $class->students->map(function($student) {
@@ -339,7 +340,7 @@ class ResultsController extends Controller
             ];
         });
         
-        \Log::info('Returning ' . count($students) . ' students');
+        Log::info('Returning ' . count($students) . ' students');
             
         return response()->json($students);
     }
@@ -349,10 +350,10 @@ class ResultsController extends Controller
      */
     public function getResultsByClass($class_id)
     {
-        \Log::info('Fetching results for class_id: ' . $class_id);
+        Log::info('Fetching results for class_id: ' . $class_id);
         
         if (!$class_id) {
-            \Log::error('No class_id provided');
+            Log::error('No class_id provided');
             return response()->json([]);
         }
         
@@ -389,10 +390,10 @@ class ResultsController extends Controller
             }
         }
         
-        \Log::info('Student subjects from memberships:', $studentSubjects);
+        Log::info('Student subjects from memberships:', $studentSubjects);
         
         // Enable query logging
-        \DB::enableQueryLog();
+        DB::enableQueryLog();
         
         // Get all results for this class
         $allResults = Result::with(['student', 'subject'])
@@ -413,15 +414,15 @@ class ResultsController extends Controller
         });
         
         // Log the executed queries
-        $queries = \DB::getQueryLog();
-        \Log::info('Results SQL Queries:', $queries);
+        $queries = DB::getQueryLog();
+        Log::info('Results SQL Queries:', $queries);
         
-        \Log::info('Found ' . $filteredResults->count() . ' results after membership filtering for class ' . $class_id);
+        Log::info('Found ' . $filteredResults->count() . ' results after membership filtering for class ' . $class_id);
         
         // Group filtered results by student ID
         $groupedResults = $filteredResults->groupBy('student_id');
         
-        \Log::info('Returning results for ' . $groupedResults->count() . ' students');
+        Log::info('Returning results for ' . $groupedResults->count() . ' students');
             
         return response()->json($groupedResults);
     }
@@ -482,7 +483,7 @@ class ResultsController extends Controller
     public function updateGrade(Request $request)
     {
         // Log the incoming request data
-        \Log::info('Update grade request received:', $request->all());
+        Log::info('Update grade request received:', $request->all());
 
         try {
             // Validate the request
@@ -494,7 +495,7 @@ class ResultsController extends Controller
                 'value' => 'required|string|max:20',
             ]);
 
-            \Log::info('Validated data:', $validatedData);
+            Log::info('Validated data:', $validatedData);
 
             // Find existing result or create a new one
             $result = Result::firstOrNew([
@@ -503,7 +504,7 @@ class ResultsController extends Controller
                 'class_id' => $validatedData['class_id'],
             ]);
             
-            \Log::info('Result found or created:', [
+            Log::info('Result found or created:', [
                 'exists' => $result->exists,
                 'id' => $result->id,
                 'current_values' => [
@@ -517,7 +518,7 @@ class ResultsController extends Controller
             
             if (!$result->exists) {
                 $result->exam_date = now();
-                \Log::info('Setting exam_date for new result:', ['exam_date' => $result->exam_date]);
+                Log::info('Setting exam_date for new result:', ['exam_date' => $result->exam_date]);
             }
             
             // Update the specified field
@@ -527,7 +528,7 @@ class ResultsController extends Controller
             $oldValue = $result->$field;
             $result->$field = $value;
             
-            \Log::info('Updated field value:', [
+            Log::info('Updated field value:', [
                 'field' => $field,
                 'old_value' => $oldValue,
                 'new_value' => $value
@@ -537,7 +538,7 @@ class ResultsController extends Controller
             if ($field !== 'notes') {
                 $oldFinalGrade = $result->final_grade;
                 $result->calculateFinal();
-                \Log::info('Recalculated final grade:', [
+                Log::info('Recalculated final grade:', [
                     'old_final_grade' => $oldFinalGrade,
                     'new_final_grade' => $result->final_grade
                 ]);
@@ -546,7 +547,7 @@ class ResultsController extends Controller
             // Save the result
             try {
                 $saveResult = $result->save();
-                \Log::info('Result saved:', [
+                Log::info('Result saved:', [
                     'success' => $saveResult, 
                     'id' => $result->id, 
                     'updated_values' => [
@@ -567,7 +568,7 @@ class ResultsController extends Controller
                 ]);
                 
             } catch (\Exception $e) {
-                \Log::error('Error saving result:', [
+                Log::error('Error saving result:', [
                     'message' => $e->getMessage(),
                     'trace' => $e->getTraceAsString()
                 ]);
@@ -578,7 +579,7 @@ class ResultsController extends Controller
                 ], 500);
             }
         } catch (\Illuminate\Validation\ValidationException $e) {
-            \Log::error('Validation failed:', [
+            Log::error('Validation failed:', [
                 'errors' => $e->errors()
             ]);
             
@@ -588,7 +589,7 @@ class ResultsController extends Controller
                 'errors' => $e->errors()
             ], 422);
         } catch (\Exception $e) {
-            \Log::error('Unexpected error in updateGrade:', [
+            Log::error('Unexpected error in updateGrade:', [
                 'message' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
@@ -641,7 +642,7 @@ class ResultsController extends Controller
             });
             
             // Log the filtering
-            \Log::info('Results filtered by school', [
+            Log::info('Results filtered by school', [
                 'school_id' => $selectedSchoolId,
                 'user_role' => $role
             ]);
@@ -652,7 +653,7 @@ class ResultsController extends Controller
             $teacher = Teacher::where('email', $user->email)->first();
             
             // Debug log to see if teacher is found
-            \Log::info('Teacher lookup by email', [
+            Log::info('Teacher lookup by email', [
                 'user_email' => $user->email,
                 'teacher_found' => $teacher ? 'yes' : 'no',
                 'teacher_id' => $teacher ? $teacher->id : null
@@ -768,7 +769,7 @@ class ResultsController extends Controller
             });
             
             // Log the filtering
-            \Log::info('Results filtered by school', [
+            Log::info('Results filtered by school', [
                 'school_id' => $selectedSchoolId,
                 'user_role' => $role
             ]);
@@ -779,7 +780,7 @@ class ResultsController extends Controller
             $teacher = Teacher::where('email', $user->email)->first();
             
             // Debug log to see if teacher is found
-            \Log::info('Teacher lookup by email', [
+            Log::info('Teacher lookup by email', [
                 'user_email' => $user->email,
                 'teacher_found' => $teacher ? 'yes' : 'no',
                 'teacher_id' => $teacher ? $teacher->id : null

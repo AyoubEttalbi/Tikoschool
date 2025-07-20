@@ -415,6 +415,14 @@ const SingleStudentPage = ({
                                             </div>
                                             <div className="flex justify-between border-b border-blue-100 pb-2">
                                                 <div className="text-gray-600 text-sm">
+                                                    Nom du tuteur
+                                                </div>
+                                                <div className="font-medium text-sm">
+                                                    {student.guardianName || "N/A"}
+                                                </div>
+                                            </div>
+                                            <div className="flex justify-between border-b border-blue-100 pb-2">
+                                                <div className="text-gray-600 text-sm">
                                                     CIN
                                                 </div>
                                                 <div className="font-medium text-sm">

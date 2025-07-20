@@ -154,6 +154,11 @@ return [
          * Application Service Providers...
          */
         App\Providers\AppServiceProvider::class,
+        WasenderApi\WasenderApiServiceProvider::class,
+    ],
+
+    'aliases' => [
+        'WasenderApi' => WasenderApi\Facades\WasenderApi::class,
     ],
 
 ];

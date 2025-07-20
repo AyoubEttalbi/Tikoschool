@@ -7,6 +7,9 @@ use App\Models\Invoice;
 use App\Models\Student;
 use App\Models\User;
 use App\Models\Offer;
+use App\Models\Assistant;
+use App\Models\Membership;
+use App\Models\School;
 use Carbon\Carbon;
 use Inertia\Inertia;
 
@@ -26,7 +29,7 @@ if (empty($date)) {
         $isAssistant = $user && $user->role === 'assistant';
         $assistantSchoolIds = [];
         if ($isAssistant) {
-            $assistant = \App\Models\Assistant::where('email', $user->email)->first();
+            $assistant = Assistant::where('email', $user->email)->first();
             if ($assistant) {
                 $assistantSchoolIds = $assistant->schools()->pluck('schools.id')->toArray();
             }
@@ -117,9 +120,9 @@ if (empty($date)) {
         $totalPaid = $invoices->sum('amountPaid');
 
         // For filters: get all memberships with their offers
-        $membershipsQuery = \App\Models\Membership::with('offer')->whereHas('offer');
-        $studentsQuery = \App\Models\Student::select('id', 'firstName', 'lastName');
-        $schoolsQuery = \App\Models\School::select('id', 'name');
+        $membershipsQuery = Membership::with('offer')->whereHas('offer');
+        $studentsQuery = Student::select('id', 'firstName', 'lastName');
+        $schoolsQuery = School::select('id', 'name');
         if ($isAssistant && count($assistantSchoolIds) > 0) {
             $studentsQuery->whereIn('schoolId', $assistantSchoolIds);
             $schoolsQuery->whereIn('id', $assistantSchoolIds);
@@ -136,7 +139,7 @@ if (empty($date)) {
                 'name' => $student->firstName . ' ' . $student->lastName
             ];
         });
-        $creators = \App\Models\User::whereIn('id', Invoice::whereNotNull('created_by')->pluck('created_by')->unique())
+        $creators = User::whereIn('id', Invoice::whereNotNull('created_by')->pluck('created_by')->unique())
             ->select('id', 'name')
             ->orderBy('name')
             ->get()

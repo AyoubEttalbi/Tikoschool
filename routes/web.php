@@ -31,6 +31,7 @@ use App\Http\Controllers\TransactionController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\CashierController;
 use App\Http\Controllers\PerformanceController;
+use App\Http\Controllers\AbsenceController;
 
 // Middleware
 use App\Http\Middleware\AdminMiddleware;
@@ -263,6 +264,7 @@ Route::middleware('auth')->group(function () {
     // Absence Log routes (admin and assistant only)
     Route::get('/absence-log', [AttendanceController::class, 'absenceLogPage'])->name('absence.log.page');
     Route::get('/api/absence-log', [AttendanceController::class, 'absenceLogData'])->name('absence.log.data');
+    Route::post('/absence/{student}/notify', [AttendanceController::class, 'notifyParent'])->name('absence.notify');
 });
 // Route::get('/cashier/daily', [CashierController::class, 'daily'])->name('cashier.daily');
 // Route::post('/cashier/daily', [CashierController::class, 'daily']); // For filtering

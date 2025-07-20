@@ -15,6 +15,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Spatie\Activitylog\Models\Activity;
 use Carbon\Carbon;
+use WasenderApi\Facades\WasenderApi;
 
 class AttendanceController extends Controller
 {
@@ -38,7 +39,7 @@ class AttendanceController extends Controller
             });
             
             // Log the filtering
-            \Log::info('Attendance filtered by school', [
+            Log::info('Attendance filtered by school', [
                 'school_id' => $selectedSchoolId,
                 'user_role' => $request->user()->role
             ]);
@@ -69,26 +70,26 @@ class AttendanceController extends Controller
         
         if ($selectedSchoolId) {
             $studentsQuery->where('schoolId', $selectedSchoolId);
-            \Log::debug('Filtering students by school ID', ['schoolId' => $selectedSchoolId]);
+            Log::debug('Filtering students by school ID', ['schoolId' => $selectedSchoolId]);
         }
         
         if ($classId) {
             $studentsQuery->where('classId', $classId);
-            \Log::debug('Filtering students by class ID', ['classId' => $classId]);
+            Log::debug('Filtering students by class ID', ['classId' => $classId]);
             
             if ($search) {
                 $studentsQuery->where(function ($query) use ($search) {
                     $query->where('firstName', 'like', "%{$search}%")
                         ->orWhere('lastName', 'like', "%{$search}%");
                 });
-                \Log::debug('Filtering students by search', ['search' => $search]);
+                Log::debug('Filtering students by search', ['search' => $search]);
             }
             
             $students = $studentsQuery->get();
-            \Log::debug('Students found', ['count' => $students->count()]);
+            Log::debug('Students found', ['count' => $students->count()]);
         } else {
             $students = collect();
-            \Log::debug('No class ID provided, returning empty student collection');
+            Log::debug('No class ID provided, returning empty student collection');
         }
 
         // Get existing attendance for selected date and class
@@ -199,7 +200,7 @@ class AttendanceController extends Controller
                         'recorded_by' => auth()->id()
                     ]);
                     
-                    \Log::info('Updated existing attendance record', [
+                    Log::info('Updated existing attendance record', [
                         'student_id' => $studentId,
                         'status' => $attendance['status']
                     ]);
@@ -214,7 +215,7 @@ class AttendanceController extends Controller
                         'recorded_by' => auth()->id()
                     ]);
                     
-                    \Log::info('Created new attendance record', [
+                    Log::info('Created new attendance record', [
                         'student_id' => $studentId,
                         'status' => $attendance['status']
                     ]);
@@ -230,7 +231,7 @@ class AttendanceController extends Controller
             DB::commit();
 
             // Log summary of what was processed
-            \Log::info('Attendance saved', [
+            Log::info('Attendance saved', [
                 'class_id' => $validated['class_id'],
                 'date' => $validated['date'],
                 'student_count' => count($validated['attendances']),
@@ -240,7 +241,7 @@ class AttendanceController extends Controller
             
             // Verify students can be retrieved for this class
             $studentCount = Student::where('classId', $validated['class_id'])->count();
-            \Log::info('Found students for this class', [
+            Log::info('Found students for this class', [
                 'class_id' => $validated['class_id'],
                 'student_count' => $studentCount
             ]);
@@ -257,7 +258,7 @@ class AttendanceController extends Controller
             ])->with('success', 'Attendance saved successfully');
         } catch (\Exception $e) {
             DB::rollBack();
-            \Log::error('Error saving attendance', [
+            Log::error('Error saving attendance', [
                 'message' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
@@ -304,7 +305,7 @@ class AttendanceController extends Controller
             ]);
         } catch (\Exception $e) {
             // Log the error
-            \Log::error('Error showing attendance record', [
+            Log::error('Error showing attendance record', [
                 'id' => $id,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
@@ -536,5 +537,18 @@ class AttendanceController extends Controller
             'per_page' => $absences->perPage(),
             'total' => $absences->total(),
         ]);
+    }
+
+    public function notifyParent($studentId)
+    {
+        $student = Student::findOrFail($studentId);
+        // Use guardianNumber as the parent's phone number
+        $fatherPhone = $student->guardianNumber;
+        if (empty($fatherPhone)) {
+            return back()->with('error', "Le numéro de téléphone du tuteur n'est pas renseigné.");
+        }
+        $studentName = trim($student->firstName . ' ' . $student->lastName);
+        WasenderApi::sendText($fatherPhone, "Bonjour, votre enfant {$studentName} est absent aujourd’hui.");
+        return back()->with('success', 'WhatsApp message envoyé au parent.');
     }
 }

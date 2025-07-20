@@ -9,6 +9,7 @@ use Inertia\Inertia;
 use App\Models\Level;
 use App\Models\Subject;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 class OfferController extends Controller
 {
     /**

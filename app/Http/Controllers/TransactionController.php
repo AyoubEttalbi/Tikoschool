@@ -717,7 +717,7 @@ public function index(Request $request)
     {
         try {
             // Log the incoming request data
-            \Log::info('Transaction store request', [
+            Log::info('Transaction store request', [
                 'data' => $request->all(),
                 'client_ip' => $request->ip()
             ]);
@@ -751,7 +751,7 @@ public function index(Request $request)
                 if ($user && $user->role === 'teacher') {
                     $teacher = $user->teacher;
                     if (!$teacher) {
-                        \Log::error('Transaction store failed: Teacher model not found', [
+                        Log::error('Transaction store failed: Teacher model not found', [
                             'user_id' => $user->id,
                             'email' => $user->email
                         ]);
@@ -759,7 +759,7 @@ public function index(Request $request)
                     }
                     // Only prevent payment if wallet is 0
                     if ($teacher->wallet == 0) {
-                        \Log::warning('Transaction store prevented: Teacher wallet zero', [
+                        Log::warning('Transaction store prevented: Teacher wallet zero', [
                             'user_id' => $user->id,
                             'month' => $month,
                             'year' => $year,
@@ -800,7 +800,7 @@ public function index(Request $request)
                 $user = User::find($validated['user_id']);
                 
                 if (!$user) {
-                    \Log::error('Transaction store failed: User not found', [
+                    Log::error('Transaction store failed: User not found', [
                         'user_id' => $validated['user_id']
                     ]);
                     return back()->with('error', 'User not found');
@@ -811,7 +811,7 @@ public function index(Request $request)
                     $teacher = $user->teacher;
                     
                     if (!$teacher) {
-                        \Log::error('Transaction store failed: Teacher model not found', [
+                        Log::error('Transaction store failed: Teacher model not found', [
                             'user_id' => $user->id,
                             'email' => $user->email
                         ]);
@@ -820,7 +820,7 @@ public function index(Request $request)
                     
                     // Check if teacher has 0 wallet
                     if ($teacher->wallet <= 0) {
-                        \Log::warning('Transaction store failed: Teacher has zero wallet balance', [
+                        Log::warning('Transaction store failed: Teacher has zero wallet balance', [
                             'teacher_id' => $teacher->id,
                             'wallet_balance' => $teacher->wallet
                         ]);
@@ -829,7 +829,7 @@ public function index(Request $request)
                     
                     // Check wallet balance
                     if ($teacher->wallet < $validated['amount']) {
-                        \Log::warning('Transaction store failed: Insufficient wallet balance', [
+                        Log::warning('Transaction store failed: Insufficient wallet balance', [
                             'teacher_id' => $teacher->id,
                             'wallet_balance' => $teacher->wallet,
                             'payment_amount' => $validated['amount']
@@ -837,7 +837,7 @@ public function index(Request $request)
                         return back()->with('error', 'Insufficient wallet balance');
                     }
                     
-                    \Log::info('Teacher payment validation passed', [
+                    Log::info('Teacher payment validation passed', [
                         'teacher_id' => $teacher->id,
                         'wallet_balance' => $teacher->wallet,
                         'payment_amount' => $validated['amount']
@@ -871,7 +871,7 @@ public function index(Request $request)
                 $baseSalary = $assistant->salary;
                 $remainingSalary = $baseSalary - $alreadyPaid;
                 
-                \Log::info('Assistant salary check', [
+                Log::info('Assistant salary check', [
                     'assistant_id' => $assistant->id,
                     'base_salary' => $baseSalary,
                     'already_paid' => $alreadyPaid,
@@ -895,7 +895,7 @@ public function index(Request $request)
             $transaction = new Transaction($validated);
             $transaction->save();
 
-            \Log::info('Transaction created successfully', [
+            Log::info('Transaction created successfully', [
                 'transaction_id' => $transaction->id,
                 'type' => $transaction->type,
                 'amount' => $transaction->amount
@@ -907,7 +907,7 @@ public function index(Request $request)
                     $this->updateEmployeeBalance($transaction);
                 } catch (\Exception $e) {
                     // If balance update fails, delete the transaction and return error
-                    \Log::error('Transaction store failed during balance update', [
+                    Log::error('Transaction store failed during balance update', [
                         'transaction_id' => $transaction->id,
                         'error' => $e->getMessage()
                     ]);
@@ -921,7 +921,7 @@ public function index(Request $request)
             return redirect()->route('transactions.index')->with('success', 'Transaction created successfully');
             
         } catch (ValidationException $e) {
-            \Log::warning('Transaction store validation failed', [
+            Log::warning('Transaction store validation failed', [
                 'errors' => $e->errors(),
                 'request_data' => $request->all()
             ]);
@@ -929,7 +929,7 @@ public function index(Request $request)
             return back()->withErrors($e->errors())->withInput();
             
         } catch (\Exception $e) {
-            \Log::error('Transaction store exception', [
+            Log::error('Transaction store exception', [
                 'message' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
                 'request_data' => $request->all()
@@ -1548,7 +1548,7 @@ public function processRecurring()
                     $teacher->wallet += $transaction->amount;
                     $teacher->save();
                 } else {
-                    \Log::error('updateEmployeeBalance: Teacher model not found for user', [
+                    Log::error('updateEmployeeBalance: Teacher model not found for user', [
                         'user_id' => $user->id, 
                         'email' => $user->email
                     ]);

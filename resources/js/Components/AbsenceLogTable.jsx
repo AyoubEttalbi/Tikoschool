@@ -4,6 +4,7 @@ import FormModal from "./FormModal";
 import AttendanceModal from "@/Pages/Attendance/AttendanceModal";
 import { useState } from "react";
 import { Edit } from "lucide-react";
+import { router } from '@inertiajs/react';
 
 const AbsenceLogTable = ({ absences, studentId, studentClassId }) => {
     const [showUpdateModal, setShowUpdateModal] = useState(false);
@@ -89,6 +90,9 @@ const AbsenceLogTable = ({ absences, studentId, studentClassId }) => {
                             <th className="p-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 Motif
                             </th>
+                            <th className="p-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Action
+                            </th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
@@ -111,6 +115,14 @@ const AbsenceLogTable = ({ absences, studentId, studentClassId }) => {
                                 </td>
                                 <td className="p-3 text-sm text-gray-900">
                                     {absence.reason || "---"}
+                                </td>
+                                <td className="p-3 text-sm text-gray-900">
+                                    <button
+                                        className="btn btn-green"
+                                        onClick={() => router.post(route('absence.notify', absence.student_id))}
+                                    >
+                                        Envoyer WhatsApp
+                                    </button>
                                 </td>
                             </tr>
                         ))}

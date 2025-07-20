@@ -8,6 +8,9 @@ use Illuminate\Validation\ValidationException;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Hash;
+use App\Models\Teacher;
+use App\Models\Assistant;
+use Illuminate\Support\Facades\Log;
 
 class UserController extends Controller
 {
@@ -55,14 +58,14 @@ class UserController extends Controller
             // If email is being updated, check uniqueness in related table
             if (isset($validatedData['email']) && $validatedData['email'] !== $oldEmail) {
                 if ($user->role === 'teacher') {
-                    $teacherWithEmail = \App\Models\Teacher::where('email', $validatedData['email'])->first();
+                    $teacherWithEmail = Teacher::where('email', $validatedData['email'])->first();
                     if ($teacherWithEmail) {
                         return redirect()->back()
                             ->withErrors(['email' => 'Cette adresse e-mail est déjà utilisée par un autre enseignant.'])
                             ->withInput();
                     }
                 } elseif ($user->role === 'assistant') {
-                    $assistantWithEmail = \App\Models\Assistant::where('email', $validatedData['email'])->first();
+                    $assistantWithEmail = Assistant::where('email', $validatedData['email'])->first();
                     if ($assistantWithEmail) {
                         return redirect()->back()
                             ->withErrors(['email' => 'Cette adresse e-mail est déjà utilisée par un autre assistant.'])
@@ -81,7 +84,7 @@ class UserController extends Controller
 
             // Update the related teacher or assistant record if needed
             if ($user->role === 'teacher') {
-                $teacher = \App\Models\Teacher::where('email', $oldEmail)->first();
+                $teacher = Teacher::where('email', $oldEmail)->first();
                 if ($teacher) {
                     if (isset($validatedData['email'])) {
                         $teacher->email = $validatedData['email'];
@@ -96,7 +99,7 @@ class UserController extends Controller
                     $teacher->save();
                 }
             } elseif ($user->role === 'assistant') {
-                $assistant = \App\Models\Assistant::where('email', $oldEmail)->first();
+                $assistant = Assistant::where('email', $oldEmail)->first();
                 if ($assistant) {
                     if (isset($validatedData['email'])) {
                         $assistant->email = $validatedData['email'];
@@ -114,7 +117,7 @@ class UserController extends Controller
 
             return redirect()->back()->with('success', 'User updated successfully!');
         } catch (ValidationException $e) {
-            \Log::error('Validation failed', $e->errors());
+            Log::error('Validation failed', $e->errors());
             return redirect()->back()
                 ->withErrors($e->errors())
                 ->withInput();

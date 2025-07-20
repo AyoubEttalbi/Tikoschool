@@ -10,6 +10,8 @@ use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Spatie\Activitylog\Models\Activity;
+use App\Models\Student;
+use App\Models\Offer;
 
 class MembershipController extends Controller
 {
@@ -31,9 +33,9 @@ class MembershipController extends Controller
     public function create()
     {
         // Fetch necessary data for creating a membership
-        $students = \App\Models\Student::all();
-        $offers = \App\Models\Offer::with('subjects')->get();
-        $teachers = \App\Models\Teacher::all();
+        $students = Student::all();
+        $offers = Offer::with('subjects')->get();
+        $teachers = Teacher::all();
 
         return Inertia::render('Memberships/Create', [
             'students' => $students,
@@ -100,9 +102,9 @@ class MembershipController extends Controller
     public function edit($id)
     {
         $membership = Membership::findOrFail($id);
-        $students = \App\Models\Student::all();
-        $offers = \App\Models\Offer::with('subjects')->get();
-        $teachers = \App\Models\Teacher::all();
+        $students = Student::all();
+        $offers = Offer::with('subjects')->get();
+        $teachers = Teacher::all();
 
         return Inertia::render('Memberships/Edit', [
             'membership' => $membership,

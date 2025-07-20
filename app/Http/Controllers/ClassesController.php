@@ -10,6 +10,7 @@ use App\Models\Teacher;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 class ClassesController extends Controller
 {
     /**
@@ -275,7 +276,7 @@ class ClassesController extends Controller
                     $oldTeacherCount != $class->number_of_teachers) {
                     $updatedClasses++;
                     
-                    \Log::info('Fixed class counts', [
+                    Log::info('Fixed class counts', [
                         'class_id' => $class->id,
                         'class_name' => $class->name,
                         'old_student_count' => $oldStudentCount,
@@ -288,7 +289,7 @@ class ClassesController extends Controller
             
             return redirect()->back()->with('success', "Fixed counts for {$updatedClasses} classes.");
         } catch (\Exception $e) {
-            \Log::error('Error fixing class counts', [
+            Log::error('Error fixing class counts', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);

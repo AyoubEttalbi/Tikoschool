@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Inertia\Inertia; // Import Inertia
 use App\Models\Subject;
 use App\Models\School;
+use Illuminate\Support\Facades\Log;
 
 class LevelController extends Controller
 {

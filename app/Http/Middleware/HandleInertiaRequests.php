@@ -79,7 +79,7 @@ class HandleInertiaRequests extends Middleware
             ...parent::share($request),
             'auth' => [
                 'user' => $user,
-                'isViewingAs' => \Session::has('admin_user_id'),
+                'isViewingAs' => Session::has('admin_user_id'),
                 'profile_image' => $this->getUserProfileImage($user),
             ],
             'flash' => [

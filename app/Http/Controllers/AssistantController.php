@@ -20,11 +20,14 @@ use Cloudinary\Api\Upload\UploadApi;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use App\Models\Attendance;
 use App\Models\Invoice;
 use App\Models\Membership;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules;
+use App\Models\Transaction;
+use App\Models\Student;
 
 class AssistantController extends Controller
 {   
@@ -262,17 +265,17 @@ class AssistantController extends Controller
              $assistant = Assistant::with(['schools'])->findOrFail($id);
 
              // Get the assistant's user (for user_id in transactions)
-             $assistantUser = \App\Models\User::where('email', $assistant->email)->first();
+             $assistantUser = User::where('email', $assistant->email)->first();
              $transactions = collect();
              if ($assistantUser) {
-                 $transactions = \App\Models\Transaction::where('user_id', $assistantUser->id)->get();
+                 $transactions = Transaction::where('user_id', $assistantUser->id)->get();
                  // Mark recurring transactions as paid_this_month if a corresponding one-time payment exists
                  $currentMonth = now()->format('Y-m');
-                 $startDate = \Carbon\Carbon::parse($currentMonth . '-01')->startOfMonth();
-                 $endDate = \Carbon\Carbon::parse($currentMonth . '-01')->endOfMonth();
+                 $startDate = Carbon::parse($currentMonth . '-01')->startOfMonth();
+                 $endDate = Carbon::parse($currentMonth . '-01')->endOfMonth();
                  foreach ($transactions as $transaction) {
                      if ($transaction->is_recurring) {
-                         $isPaidThisMonth = \App\Models\Transaction::where('is_recurring', 0)
+                         $isPaidThisMonth = Transaction::where('is_recurring', 0)
                              ->where('description', 'like', '%(Recurring payment from #' . $transaction->id . ')%')
                              ->whereBetween('payment_date', [$startDate, $endDate])
                              ->exists();
@@ -293,7 +296,7 @@ class AssistantController extends Controller
                  : $assistant->schools->pluck('id')->toArray();
 
              // Log assistant and school info
-             \Log::info('Assistant dashboard data fetch started', [
+             Log::info('Assistant dashboard data fetch started', [
                  'assistant_id' => $id,
                  'selected_school_id' => $selectedSchoolId,
                  'assistant_schools' => $assistant->schools->pluck('id')->toArray(),
@@ -347,8 +350,8 @@ class AssistantController extends Controller
 
              // Get statistics
              $statistics = [
-                 'students_count' => \App\Models\Student::whereIn(DB::raw('"schoolId"'), $schoolIds)->count(),
-                 'classes_count' => \App\Models\Classes::whereIn('school_id', $schoolIds)->count(),
+                 'students_count' => Student::whereIn(DB::raw('"schoolId"'), $schoolIds)->count(),
+                 'classes_count' => Classes::whereIn('school_id', $schoolIds)->count(),
              ];
 
              // Get selected school info
@@ -359,17 +362,17 @@ class AssistantController extends Controller
 
              // Add diagnostic logging for students and invoices
              try {
-                 \Log::info('Checking students and invoices for school', [
+                 Log::info('Checking students and invoices for school', [
                      'school_id' => $selectedSchoolId,
                      'school_name' => session('school_name')
                  ]);
 
                  // Specifically check student ID 1
-                 $studentOne = \App\Models\Student::where('id', 1)
+                 $studentOne = Student::where('id', 1)
                      ->whereNull('deleted_at')
                      ->first();
                  
-                 \Log::info('Student ID 1 details', [
+                 Log::info('Student ID 1 details', [
                      'exists' => $studentOne ? true : false,
                      'school_id' => $studentOne ? $studentOne->schoolId : null,
                      'name' => $studentOne ? $studentOne->firstName . ' ' . $studentOne->lastName : null,
@@ -377,8 +380,8 @@ class AssistantController extends Controller
                  ]);
 
                  // Check all students regardless of school
-                 $allStudents = \App\Models\Student::whereNull('deleted_at')->get();
-                 \Log::info('All students in system', [
+                 $allStudents = Student::whereNull('deleted_at')->get();
+                 Log::info('All students in system', [
                      'count' => $allStudents->count(),
                      'students' => $allStudents->map(function($student) {
                          return [
@@ -390,11 +393,11 @@ class AssistantController extends Controller
                  ]);
 
                  // Check students in school
-                 $studentsInSchool = \App\Models\Student::where(DB::raw('"schoolId"'), $selectedSchoolId)
+                 $studentsInSchool = Student::where(DB::raw('"schoolId"'), $selectedSchoolId)
                      ->whereNull('deleted_at')
                      ->get();
                  
-                 \Log::info('Students in school', [
+                 Log::info('Students in school', [
                      'count' => $studentsInSchool->count(),
                      'student_ids' => $studentsInSchool->pluck('id')->toArray(),
                      'student_names' => $studentsInSchool->map(function($student) {
@@ -408,7 +411,7 @@ class AssistantController extends Controller
                          ->whereNull('deleted_at')
                          ->get();
                      
-                     \Log::info('Invoices for student ID 1', [
+                     Log::info('Invoices for student ID 1', [
                          'count' => $invoicesForStudentOne->count(),
                          'invoices' => $invoicesForStudentOne->map(function($invoice) {
                              return [
@@ -431,7 +434,7 @@ class AssistantController extends Controller
                          ->whereNull('deleted_at')
                          ->get();
                      
-                     \Log::info('Invoices for students in school', [
+                     Log::info('Invoices for students in school', [
                          'count' => $invoicesForStudents->count(),
                          'invoices' => $invoicesForStudents->map(function($invoice) {
                              return [
@@ -446,16 +449,16 @@ class AssistantController extends Controller
                          })->toArray()
                      ]);
                  }
-             } catch (\Exception $e) {
-                 \Log::error('Error in diagnostic logging: ' . $e->getMessage(), [
+                         } catch (\Exception $e) {
+                Log::error('Error in diagnostic logging: ' . $e->getMessage(), [
                      'trace' => $e->getTraceAsString()
                  ]);
              }
 
              // FEATURE 1: Recent absences
              try {
-                 \DB::enableQueryLog();
-                 \Log::info('Fetching recent absences', ['school_ids' => $schoolIds]);
+                 DB::enableQueryLog();
+                 Log::info('Fetching recent absences', ['school_ids' => $schoolIds]);
                  
                  $recentAbsences = Attendance::with(['student', 'class'])
                      ->where(function($query) use ($schoolIds) {
@@ -474,12 +477,12 @@ class AssistantController extends Controller
                      ->get();
                  
                  // Log the executed query and results
-                 \Log::info('Recent absences query log', [
-                     'queries' => \DB::getQueryLog(),
+                 Log::info('Recent absences query log', [
+                     'queries' => DB::getQueryLog(),
                      'count' => $recentAbsences->count(),
                      'first_record' => $recentAbsences->first() ? $recentAbsences->first()->toArray() : null
                  ]);
-                 \DB::disableQueryLog();
+                 DB::disableQueryLog();
                  
                  $totalAbsences = Attendance::where(function($query) use ($schoolIds) {
                      $query->whereHas('class', function($classQuery) use ($schoolIds) {
@@ -492,7 +495,7 @@ class AssistantController extends Controller
                  ->where('date', '>=', $today->copy()->subDays(7))
                  ->count();
                  
-                 \Log::info('Total absences count', ['count' => $totalAbsences]);
+                 Log::info('Total absences count', ['count' => $totalAbsences]);
                  
                  $mappedAbsences = $recentAbsences->map(function($attendance) {
                      return [
@@ -507,8 +510,8 @@ class AssistantController extends Controller
                  });
                  
                  $recentAbsences = $mappedAbsences;
-             } catch (\Exception $e) {
-                 \Log::error('Error fetching recent absences: ' . $e->getMessage(), [
+                         } catch (\Exception $e) {
+                Log::error('Error fetching recent absences: ' . $e->getMessage(), [
                      'trace' => $e->getTraceAsString(),
                      'school_ids' => $schoolIds
                  ]);
@@ -518,8 +521,8 @@ class AssistantController extends Controller
              
              // FEATURE 2: Unpaid invoices
              try {
-                 \DB::enableQueryLog();
-                 \Log::info('Fetching unpaid invoices', [
+                 DB::enableQueryLog();
+                 Log::info('Fetching unpaid invoices', [
                      'school_ids' => $schoolIds,
                      'today' => $today->format('Y-m-d'),
                      'seven_days_ago' => $today->copy()->subDays(7)->format('Y-m-d')
@@ -537,13 +540,13 @@ class AssistantController extends Controller
                      ->get();
                  
                  // Log the executed query and results
-                 \Log::info('Unpaid invoices query log', [
-                     'queries' => \DB::getQueryLog(),
+                 Log::info('Unpaid invoices query log', [
+                     'queries' => DB::getQueryLog(),
                      'count' => $unpaidInvoices->count(),
                      'first_record' => $unpaidInvoices->first() ? $unpaidInvoices->first()->toArray() : null,
                      'all_records' => $unpaidInvoices->toArray()
                  ]);
-                 \DB::disableQueryLog();
+                 DB::disableQueryLog();
                  
                  $totalUnpaidInvoices = Invoice::where(function($query) use ($schoolIds) {
                      $query->whereHas('student', function($studentQuery) use ($schoolIds) {
@@ -553,7 +556,7 @@ class AssistantController extends Controller
                  ->where('rest', '>', 0)
                  ->count();
                  
-                 \Log::info('Total unpaid invoices count', ['count' => $totalUnpaidInvoices]);
+                 Log::info('Total unpaid invoices count', ['count' => $totalUnpaidInvoices]);
                  
                  $unpaidInvoices = $unpaidInvoices->map(function($invoice) {
                      $student = $invoice->student;
@@ -581,8 +584,8 @@ class AssistantController extends Controller
                          ]] : [],
                      ];
                  });
-             } catch (\Exception $e) {
-                 \Log::error('Error fetching unpaid invoices: ' . $e->getMessage(), [
+                         } catch (\Exception $e) {
+                Log::error('Error fetching unpaid invoices: ' . $e->getMessage(), [
                      'trace' => $e->getTraceAsString(),
                      'school_ids' => $schoolIds
                  ]);
@@ -592,8 +595,8 @@ class AssistantController extends Controller
              
              // FEATURE 3: Expiring memberships
              try {
-                 \DB::enableQueryLog();
-                 \Log::info('Fetching expiring memberships', ['school_ids' => $schoolIds]);
+                 DB::enableQueryLog();
+                 Log::info('Fetching expiring memberships', ['school_ids' => $schoolIds]);
                  
                  $expiringMemberships = Membership::with(['student'])
                      ->where(function($query) use ($schoolIds) {
@@ -608,12 +611,12 @@ class AssistantController extends Controller
                      ->get();
                  
                  // Log the executed query and results
-                 \Log::info('Expiring memberships query log', [
-                     'queries' => \DB::getQueryLog(),
+                 Log::info('Expiring memberships query log', [
+                     'queries' => DB::getQueryLog(),
                      'count' => $expiringMemberships->count(),
                      'first_record' => $expiringMemberships->first() ? $expiringMemberships->first()->toArray() : null
                  ]);
-                 \DB::disableQueryLog();
+                 DB::disableQueryLog();
                  
                  $totalExpiringMemberships = Membership::where(function($query) use ($schoolIds) {
                      $query->whereHas('student', function($studentQuery) use ($schoolIds) {
@@ -624,7 +627,7 @@ class AssistantController extends Controller
                  ->where('end_date', '<=', $today->copy()->addDays(30))
                  ->count();
                  
-                 \Log::info('Total expiring memberships count', ['count' => $totalExpiringMemberships]);
+                 Log::info('Total expiring memberships count', ['count' => $totalExpiringMemberships]);
                  
                  $expiringMemberships = $expiringMemberships->map(function($membership) use ($today) {
                      $endDate = Carbon::parse($membership->end_date);
@@ -639,8 +642,8 @@ class AssistantController extends Controller
                          'days_left' => max(0, $daysLeft)
                      ];
                  });
-             } catch (\Exception $e) {
-                 \Log::error('Error fetching expiring memberships: ' . $e->getMessage(), [
+                         } catch (\Exception $e) {
+                Log::error('Error fetching expiring memberships: ' . $e->getMessage(), [
                      'trace' => $e->getTraceAsString(),
                      'school_ids' => $schoolIds
                  ]);
@@ -650,8 +653,8 @@ class AssistantController extends Controller
              
              // FEATURE 4: Recent payments
              try {
-                 \DB::enableQueryLog();
-                 \Log::info('Fetching recent payments', [
+                 DB::enableQueryLog();
+                 Log::info('Fetching recent payments', [
                      'school_ids' => $schoolIds,
                      'today' => $today->format('Y-m-d'),
                      'thirty_days_ago' => $today->copy()->subDays(30)->format('Y-m-d')
@@ -669,13 +672,13 @@ class AssistantController extends Controller
                      ->get();
                  
                  // Log the executed query and results
-                 \Log::info('Recent payments query log', [
-                     'queries' => \DB::getQueryLog(),
+                 Log::info('Recent payments query log', [
+                     'queries' => DB::getQueryLog(),
                      'count' => $recentPayments->count(),
                      'first_record' => $recentPayments->first() ? $recentPayments->first()->toArray() : null,
                      'all_records' => $recentPayments->toArray()
                  ]);
-                 \DB::disableQueryLog();
+                 DB::disableQueryLog();
                  
                  $totalRecentPayments = Invoice::where(function($query) use ($schoolIds) {
                      $query->whereHas('student', function($studentQuery) use ($schoolIds) {
@@ -685,7 +688,7 @@ class AssistantController extends Controller
                  ->where('amountPaid', '>', 0)
                  ->count();
                  
-                 \Log::info('Total recent payments count', ['count' => $totalRecentPayments]);
+                 Log::info('Total recent payments count', ['count' => $totalRecentPayments]);
                  
                  $recentPayments = $recentPayments->map(function($invoice) {
                      $student = $invoice->student;
@@ -701,8 +704,8 @@ class AssistantController extends Controller
                          'offer_name' => $offerName
                      ];
                  });
-             } catch (\Exception $e) {
-                 \Log::error('Error fetching recent payments: ' . $e->getMessage(), [
+                         } catch (\Exception $e) {
+                Log::error('Error fetching recent payments: ' . $e->getMessage(), [
                      'trace' => $e->getTraceAsString(),
                      'school_ids' => $schoolIds
                  ]);
@@ -711,7 +714,7 @@ class AssistantController extends Controller
              }
 
              // Log final data being sent to view
-             \Log::info('Assistant dashboard data being sent to view', [
+             Log::info('Assistant dashboard data being sent to view', [
                  'recent_absences_count' => count($recentAbsences),
                  'unpaid_invoices_count' => count($unpaidInvoices),
                  'expiring_memberships_count' => count($expiringMemberships),
@@ -737,8 +740,8 @@ class AssistantController extends Controller
                  'selectedSchool' => $selectedSchool,
                  'statistics' => $statistics
              ]);
-         } catch (\Exception $e) {
-             \Log::error('Error in assistant dashboard: ' . $e->getMessage(), [
+                 } catch (\Exception $e) {
+            Log::error('Error in assistant dashboard: ' . $e->getMessage(), [
                  'trace' => $e->getTraceAsString(),
                  'assistant_id' => $id
              ]);
@@ -753,7 +756,7 @@ class AssistantController extends Controller
         $subjects = Subject::all();
         $classes = Classes::all();
         $schools = School::all();
-        $assistantUser = \App\Models\User::where('email', $assistant->email)->first();
+        $assistantUser = User::where('email', $assistant->email)->first();
         return Inertia::render('Assistants/Edit', [
             'assistant' => $assistantUser ? array_merge($assistant->toArray(), ['user_id' => $assistantUser->id]) : $assistant,
             'subjects' => $subjects,
@@ -796,10 +799,10 @@ class AssistantController extends Controller
             ]);
 
             // Check for duplicate email in users table (except for the user with the old email)
-            $userWithEmail = \App\Models\User::where('email', $validatedData['email'])
+            $userWithEmail = User::where('email', $validatedData['email'])
                 ->where('email', '!=', $oldEmail)
                 ->first();
-            $assistantWithEmail = \App\Models\Assistant::where('email', $validatedData['email'])
+            $assistantWithEmail = Assistant::where('email', $validatedData['email'])
                 ->where('id', '!=', $assistant->id)
                 ->first();
             if ($userWithEmail || $assistantWithEmail) {
@@ -826,7 +829,7 @@ class AssistantController extends Controller
             $assistant->schools()->sync($request->schools ?? []);
 
             // Update the corresponding user (if exists)
-            $user = \App\Models\User::where('email', $oldEmail)->first();
+            $user = User::where('email', $oldEmail)->first();
             if ($user) {
                 $user->name = $validatedData['first_name'] . ' ' . $validatedData['last_name'];
                 $user->email = $validatedData['email'];

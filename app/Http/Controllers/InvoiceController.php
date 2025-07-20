@@ -514,7 +514,7 @@ class InvoiceController extends Controller
      */
     public function generateInvoicePdf($id)
     {
-        $invoice = \App\Models\Invoice::with(['membership.offer', 'student'])
+        $invoice = Invoice::with(['membership.offer', 'student'])
             ->findOrFail($id);
 
         // Extract membership, student, and offer details
@@ -566,7 +566,7 @@ class InvoiceController extends Controller
         }
 
         // Log for debugging
-        \Log::info('Selected Invoice IDs:', $invoiceIds);
+        Log::info('Selected Invoice IDs:', $invoiceIds);
 
         $invoices = Invoice::with(['student', 'offer'])
             ->whereIn('id', $invoiceIds)

@@ -21,6 +21,7 @@ use Cloudinary\Configuration\Configuration;
 use Cloudinary\Api\Upload\UploadApi;
 use Illuminate\Support\Facades\DB;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Support\Facades\Log;
 
 class StudentsController extends Controller
 {
@@ -29,10 +30,10 @@ class StudentsController extends Controller
      */
     public function downloadPdf($id)
     {
-        $student = \App\Models\Student::with(['level', 'class', 'school', 'memberships.offer'])
+        $student = Student::with(['level', 'class', 'school', 'memberships.offer'])
             ->findOrFail($id);
         
-        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('students_pdf', [
+        $pdf = Pdf::loadView('students_pdf', [
             'student' => $student
         ]);
         $fileName = 'student_' . $student->id . '_' . now()->format('Ymd_His') . '.pdf';
@@ -243,6 +244,7 @@ protected function transformStudentData($student)
         'status' => $student->status,
         'assurance' => $student->assurance,
         'guardianNumber' => $student->guardianNumber,
+        'guardianName' => $student->guardianName,
         'profile_image' => $student->profile_image ?? null,
         'phoneNumber' => $student->phoneNumber,
         'hasDisease' => $student->hasDisease,
@@ -270,6 +272,7 @@ protected function transformStudentData($student)
                 'billingDate' => 'required|date',
                 'address' => 'nullable|string',
                 'guardianNumber' => 'nullable|string|max:255',
+                'guardianName' => 'nullable|string|max:255',
                 'CIN' => 'nullable|string|max:50|unique:students,CIN',
                 'phoneNumber' => 'nullable|string|max:20',
                 'email' => 'nullable|string|email|max:255|unique:students,email',
@@ -513,6 +516,7 @@ protected function transformStudentData($student)
             'status' => $student->status,
             'assurance' => $student->assurance,
             'guardianNumber' => $student->guardianNumber,
+            'guardianName' => $student->guardianName,
             'profile_image' => $student->profile_image ?? null,
             'hasDisease' => $student->hasDisease,
             'diseaseName' => $student->diseaseName,
@@ -578,6 +582,7 @@ protected function transformStudentData($student)
                 'billingDate' => 'required|date',
                 'address' => 'nullable|string',
                 'guardianNumber' => 'nullable|string|max:255',
+                'guardianName' => 'nullable|string|max:255',
                 'CIN' => 'nullable|string|max:50|unique:students,CIN,' . $student->id,
                 'phoneNumber' => 'nullable|string|max:20',
                 'email' => 'nullable|string|email|max:255|unique:students,email,' . $student->id,
@@ -659,7 +664,7 @@ protected function transformStudentData($student)
 
             // Direct database update to ensure correct values are set
             // This bypasses Eloquent's casting which might be causing issues
-            \DB::table('students')
+            DB::table('students')
                 ->where('id', $student->id)
                 ->update($validatedData);
                 
@@ -689,22 +694,43 @@ protected function transformStudentData($student)
             // Log the activity with old and new data
             $this->logActivity('updated', $student, $oldData, $student->toArray());
 
-            // Insert assurance invoice if needed (on update)
-            if ($validatedData['assurance'] == 1 && $request->filled('assuranceAmount') && floatval($request->input('assuranceAmount')) > 0) {
-                Invoice::create([
-                    'type' => 'assurance',
-                    'assurance_amount' => $request->input('assuranceAmount'),
-                    'membership_id' => null,
-                    'offer_id' => null,
-                    'student_id' => $student->id,
-                    'amountPaid' => $request->input('assuranceAmount'),
-                    'totalAmount' => $request->input('assuranceAmount'),
-                    'rest' => 0,
-                    'billDate' => $validatedData['billingDate'],
-                    'creationDate' => now(),
-                    'created_by' => auth()->id(),
-                    'months' => 1,
-                ]);
+            // Insert or update assurance invoice if needed (on update)
+            if ($validatedData['assurance'] == 1) {
+                // Find the latest assurance invoice for this student
+                $assuranceInvoice = Invoice::where('student_id', $student->id)
+                    ->where('type', 'assurance')
+                    ->orderByDesc('created_at')
+                    ->first();
+                $amount = $request->input('assuranceAmount', 0);
+                if ($assuranceInvoice) {
+                    // Update the existing invoice
+                    $assuranceInvoice->update([
+                        'assurance_amount' => $amount,
+                        'amountPaid' => $amount,
+                        'totalAmount' => $amount,
+                        'rest' => 0,
+                        'billDate' => $validatedData['billingDate'],
+                        'creationDate' => now(),
+                        'created_by' => auth()->id(),
+                        'months' => 1,
+                    ]);
+                } else {
+                    // Create a new invoice
+                    Invoice::create([
+                        'type' => 'assurance',
+                        'assurance_amount' => $amount,
+                        'membership_id' => null,
+                        'offer_id' => null,
+                        'student_id' => $student->id,
+                        'amountPaid' => $amount,
+                        'totalAmount' => $amount,
+                        'rest' => 0,
+                        'billDate' => $validatedData['billingDate'],
+                        'creationDate' => now(),
+                        'created_by' => auth()->id(),
+                        'months' => 1,
+                    ]);
+                }
             }
 
             return redirect()->route('students.show', $student->id)->with('success', 'Student updated successfully.');

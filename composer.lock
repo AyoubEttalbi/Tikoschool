@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "4d931515f2da613b9c156b301126849b",
+    "content-hash": "40b4dc55f82617f80dcd1cbed8faf740",
     "packages": [
         {
             "name": "barryvdh/laravel-dompdf",
@@ -7771,6 +7771,53 @@
                 }
             ],
             "time": "2024-11-21T01:49:47+00:00"
+        },
+        {
+            "name": "wasenderapi/wasenderapi-laravel",
+            "version": "v1.0.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/wasenderapi/wasenderapi-laravel.git",
+                "reference": "5e3763339f189883d4752c12a43b31cee2684518"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/wasenderapi/wasenderapi-laravel/zipball/5e3763339f189883d4752c12a43b31cee2684518",
+                "reference": "5e3763339f189883d4752c12a43b31cee2684518",
+                "shasum": ""
+            },
+            "require": {
+                "illuminate/http": ">=9.0",
+                "illuminate/support": ">=9.0",
+                "php": ">=8.0"
+            },
+            "require-dev": {
+                "orchestra/testbench": "^7.0 || ^8.0 || ^9.0",
+                "pestphp/pest": "^2.0"
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "WasenderApi\\WasenderApiServiceProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "WasenderApi\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "description": "Laravel SDK for WasenderAPI  with event dispatching and webhook route",
+            "support": {
+                "issues": "https://github.com/wasenderapi/wasenderapi-laravel/issues",
+                "source": "https://github.com/wasenderapi/wasenderapi-laravel/tree/v1.0.0"
+            },
+            "time": "2025-05-27T19:06:46+00:00"
         },
         {
             "name": "webmozart/assert",

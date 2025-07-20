@@ -28,6 +28,7 @@ const schema = z
         guardianNumber: z
             .string()
             .min(1, { message: "Le numéro du tuteur est requis !" }),
+        guardianName: z.string().max(255, { message: "Nom du tuteur trop long (255 caractères max)" }).optional(),
         CIN: z.string().optional(),
         phoneNumber: z.string().optional(),
         email: z.string().optional(),
@@ -38,11 +39,7 @@ const schema = z
         status: z.enum(["active", "inactive"]).optional(),
         assurance: z.any().optional(),
         assuranceAmount: z
-            .union([
-                z.string().regex(/^\d+(\.\d{1,2})?$/, { message: "Le montant doit être un nombre positif." }),
-                z.number().positive({ message: "Le montant doit être positif." })
-            ])
-            .optional(),
+            .any(),
         profile_image: z.any().optional(),
         hasDisease: z
             .union([z.literal(1), z.literal(0), z.literal("1"), z.literal("0")])
@@ -64,12 +61,20 @@ const schema = z
             });
         }
         // Only validate assuranceAmount if assurance is "1"
-        if (data.assurance === "1" && (!data.assuranceAmount || isNaN(Number(data.assuranceAmount)) || Number(data.assuranceAmount) <= 0)) {
-            ctx.addIssue({
-                code: z.ZodIssueCode.custom,
-                message: "Le montant de l'assurance est requis et doit être positif.",
-                path: ["assuranceAmount"],
-            });
+        if (data.assurance === "1") {
+            if (
+                data.assuranceAmount === undefined ||
+                data.assuranceAmount === null ||
+                data.assuranceAmount === "" ||
+                isNaN(Number(data.assuranceAmount)) ||
+                Number(data.assuranceAmount) < 0
+            ) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: "Le montant de l'assurance est requis et doit être supérieur ou égal à 0.",
+                    path: ["assuranceAmount"],
+                });
+            }
         }
     });
 
@@ -219,6 +224,7 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
         formDataObj.append("billingDate", formData.billingDate);
         formDataObj.append("address", formData.address);
         formDataObj.append("guardianNumber", formData.guardianNumber);
+        formDataObj.append("guardianName", formData.guardianName || "");
         formDataObj.append("CIN", formData.CIN || "");
         formDataObj.append("phoneNumber", formData.phoneNumber || "");
         formDataObj.append("email", formData.email || "");
@@ -270,6 +276,7 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
         setLoading(true);
         if (type === "create") {
             // Send a POST request to create a new student
+            
             router.post("/students", formDataObj, {
                 preserveScroll: true,
                 forceFormData: true,
@@ -282,16 +289,20 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
                     setLoading(false);
                 },
             });
+            console.log(formDataObj);
         } else if (type === "update") {
             // For update, we need to use the proper method spoofing with Inertia
             // Add the _method field to the formData for Laravel to recognize it as PUT
             formDataObj.append("_method", "PUT");
-
+            for (let pair of formDataObj.entries()) {
+                console.log(pair[0]+ ': ' + pair[1]);
+            }
             // Then use post() instead of put() because file uploads require POST
             router.post(`/students/${data.id}`, formDataObj, {
                 preserveScroll: true,
                 forceFormData: true,
                 onSuccess: () => {
+                    console.log(formDataObj);
                     setOpen(false);
                     setLoading(false);
                 },
@@ -300,6 +311,7 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
                     setLoading(false);
                 },
             });
+               
         }
     });
 
@@ -363,6 +375,13 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
                     register={register}
                     error={errors.guardianNumber}
                     defaultValue={data?.guardianNumber}
+                />
+                <InputField
+                    label="Nom du tuteur"
+                    name="guardianName"
+                    register={register}
+                    error={errors.guardianName}
+                    defaultValue={data?.guardianName}
                 />
             </div>
             <span className="text-xs text-gray-400 font-medium">
@@ -608,6 +627,9 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
                             if (value === "0") {
                                 setAssuranceAmount("");
                                 setValue("assuranceAmount", "");
+                            } else if (value === "1" && (!assuranceAmount || assuranceAmount === "")) {
+                                setAssuranceAmount("0");
+                                setValue("assuranceAmount", "0");
                             }
                         }}
                     >
@@ -638,7 +660,7 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
                                     setAssuranceAmount(e.target.value);
                                     setValue("assuranceAmount", e.target.value);
                                 }}
-                                placeholder="Ex: 200.00"
+                                placeholder="Ex: 0.00"
                             />
                             {errors.assuranceAmount && (
                                 <p className="text-xs text-red-400 mt-1">{errors.assuranceAmount.message}</p>

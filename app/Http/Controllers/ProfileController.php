@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Redirect;
 use Inertia\Inertia;
 use Inertia\Response;
 use Illuminate\Support\Facades\Session;
+use App\Models\Assistant;
 
 class ProfileController extends Controller
 {
@@ -105,7 +106,7 @@ class ProfileController extends Controller
             ]);
         } 
         elseif ($user->role === 'assistant') {
-            $assistant = \App\Models\Assistant::with('schools')->where('email', $user->email)->first();
+            $assistant = Assistant::with('schools')->where('email', $user->email)->first();
 
             if (!$assistant || $assistant->schools->isEmpty()) {
                 abort(403, 'No schools found for this assistant.');
@@ -176,7 +177,7 @@ class ProfileController extends Controller
             return redirect()->route('teachers.show', $teacher->id);
         }
         elseif ($user->role === 'assistant') {
-            $assistant = \App\Models\Assistant::where('email', $user->email)->firstOrFail();
+            $assistant = Assistant::where('email', $user->email)->firstOrFail();
 
             // Verify the assistant has access to this school
             if (!$assistant->schools()->where('schools.id', $request->school_id)->exists()) {

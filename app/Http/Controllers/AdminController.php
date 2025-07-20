@@ -6,8 +6,8 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
-use Illuminate\Support\Facades\Log;
 use App\Models\Teacher;
+use App\Models\Assistant;
 class AdminController extends Controller
 {
     /**
@@ -47,7 +47,7 @@ class AdminController extends Controller
         }
         // If inspecting an assistant, check for schools and redirect to selection page
         if ($user->role === 'assistant') {
-            $assistant = \App\Models\Assistant::with('schools')->where('email', $user->email)->first();
+            $assistant = Assistant::with('schools')->where('email', $user->email)->first();
             if ($assistant && !$assistant->schools->isEmpty()) {
                 return redirect()->route('profiles.select');
             }

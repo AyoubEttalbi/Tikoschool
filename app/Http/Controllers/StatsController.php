@@ -17,6 +17,7 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use App\Models\Membership;
 use App\Models\Transaction;
+use Illuminate\Support\Facades\Log;
 
 class StatsController extends Controller
 {
