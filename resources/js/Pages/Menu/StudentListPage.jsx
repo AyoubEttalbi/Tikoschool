@@ -67,6 +67,7 @@ const StudentListPage = ({
         class: initialFilters.class || "",
         level: initialFilters.level || "",
         search: initialFilters.search || "",
+        membership_status: initialFilters.membership_status || "all",
     });
 
     const [showFilters, setShowFilters] = useState(false);
@@ -112,6 +113,7 @@ const StudentListPage = ({
             class: "",
             level: "",
             search: "",
+            membership_status: "all",
         });
 
         // Navigate to the index route without any query parameters

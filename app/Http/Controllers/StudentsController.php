@@ -120,7 +120,7 @@ class StudentsController extends Controller
      public function index(Request $request)
      {
          // Initialize the query with eager loading for relationships
-         $query = Student::with(['class', 'school', 'level']);
+         $query = Student::with(['class', 'school', 'level', 'memberships']);
          
          // Get the selected school from session and apply filter
          $selectedSchoolId = session('school_id');
@@ -139,11 +139,45 @@ class StudentsController extends Controller
      
          // Apply additional filters (e.g., school, class, level)
          $this->applyFilters($query, $request->only(['school', 'class', 'level']));
-     
-         // Fetch paginated and filtered students, newest first
-        $students = $query->orderBy('created_at', 'desc')->paginate(10)->withQueryString()->through(function ($student) {
-            return $this->transformStudentData($student);
-        });
+
+         // Membership status filter
+         $membershipStatus = $request->input('membership_status');
+         $studentsCollection = $query->orderBy('created_at', 'desc')->get();
+         if ($membershipStatus && $membershipStatus !== 'all') {
+             $studentsCollection = $studentsCollection->filter(function ($student) use ($membershipStatus) {
+                 $allMemberships = $student->memberships;
+                 if ($allMemberships->isEmpty()) {
+                     // If no memberships, only show for unpaid/rest
+                     return $membershipStatus === 'unpaid' || $membershipStatus === 'rest';
+                 }
+                 $paidCount = $allMemberships->where('payment_status', 'paid')->count();
+                 $totalCount = $allMemberships->count();
+                 if ($membershipStatus === 'paid') {
+                     return $paidCount === $totalCount;
+                 }
+                 if ($membershipStatus === 'unpaid') {
+                     return $paidCount === 0;
+                 }
+                 if ($membershipStatus === 'rest') {
+                     return $paidCount > 0 && $paidCount < $totalCount;
+                 }
+                 return false;
+             });
+         }
+         // Paginate the filtered collection manually
+         $perPage = 10;
+         $currentPage = $request->input('page', 1);
+         $students = new \Illuminate\Pagination\LengthAwarePaginator(
+             $studentsCollection->slice(($currentPage - 1) * $perPage, $perPage)->values(),
+             $studentsCollection->count(),
+             $perPage,
+             $currentPage,
+             ['path' => $request->url(), 'query' => $request->query()]
+         );
+         // Transform for frontend
+         $students = $students->through(function ($student) {
+             return $this->transformStudentData($student);
+         });
          
          // Get all classes for filters, but filter them by selected school if applicable
          $classesQuery = Classes::query();
@@ -158,7 +192,7 @@ class StudentsController extends Controller
              'Allclasses' => $classes,
              'Allschools' => School::all(),
              'search' => $request->search,
-             'filters' => $request->only(['school', 'class', 'level']),
+             'filters' => $request->only(['school', 'class', 'level', 'membership_status']),
              'Allmemberships' => Membership::all(),
              'selectedSchool' => $selectedSchoolId ? [
                  'id' => $selectedSchoolId,

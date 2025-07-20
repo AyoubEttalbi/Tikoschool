@@ -94,6 +94,27 @@ export default function FilterForm({
                     </SelectContent>
                 </Select>
             </div>
+
+            {/* Membership Status Filter */}
+            <div>
+                <label className="block text-sm font-medium mb-2">Statut d’adhésion</label>
+                <Select
+                    value={filters.membership_status || "all"}
+                    onValueChange={(value) =>
+                        handleSelectChange("membership_status", value)
+                    }
+                >
+                    <SelectTrigger className="w-full bg-white">
+                        <SelectValue placeholder="Tous" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">Tous</SelectItem>
+                        <SelectItem value="paid">Payé</SelectItem>
+                        <SelectItem value="unpaid">Non payé</SelectItem>
+                        <SelectItem value="rest">Partiel</SelectItem>
+                    </SelectContent>
+                </Select>
+            </div>
         </div>
     );
 }
