@@ -13,11 +13,11 @@
         .red-line { border-top: 2px solid #a00; margin: 8px 0 6px 0; }
         .info-row { width: 100%; font-size: 1em; font-weight: bold; margin-bottom: 6px; }
         .info-row td { padding: 2px 6px; }
-        table.absence-list { width: 100%; border-collapse: collapse; font-size: 10px; table-layout: fixed; }
+        table.absence-list { width: 100%; border-collapse: collapse; font-size: 10px; }
         table.absence-list th, table.absence-list td { border: 1px solid #bbb; padding: 2px 2px; text-align: center; }
         table.absence-list th { background: #f8f8f8; font-weight: bold; }
-        table.absence-list td.name { text-align: left; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        table.absence-list td.billing { font-size: 9px; }
+        table.absence-list td.name, table.absence-list th.name { min-width: 140px; max-width: 200px; }
+        table.absence-list td.billing, table.absence-list th.billing { min-width: 90px; max-width: 120px; }
         table.absence-list td.st { font-weight: bold; }
         .st-paid { color: #1a7f37; font-size: 13px; }
         .st-unpaid { color: #a00; }
@@ -48,8 +48,8 @@
     <table class="absence-list">
         <thead>
             <tr>
-                <th style="width: 80px;">Name</th>
-                <th style="width: 80px;">Billing Date</th>
+                <th class="name">Name</th>
+                <th class="billing">Billing Date</th>
                 <th style="width: 18px;">ST</th>
                 @php
                     // Determine number of days in the selected month
@@ -71,8 +71,8 @@
         <tbody>
             @foreach($students as $student)
             <tr>
-                <td class="name" style="width: 80px;">{{ strtoupper($student->lastName . ' ' . $student->firstName) }}</td>
-                <td class="billing" style="width: 80px;">{{ $student->billingDate ?? '' }}</td>
+                <td class="name">{{ strtoupper($student->lastName . ' ' . $student->firstName) }}</td>
+                <td class="billing">{{ $student->billingDate ?? '' }}</td>
                 <td class="st">
                     @php
                         $icons = [];
