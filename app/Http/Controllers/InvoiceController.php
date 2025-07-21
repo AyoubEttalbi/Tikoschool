@@ -173,15 +173,16 @@ class InvoiceController extends Controller
                 }
             }
 
-            // Update membership status if fully paid
-            if ($validated['amountPaid'] >= $validated['totalAmount']) {
-                $membership->update([
-                    'payment_status' => 'paid',
-                    'is_active' => true,
-                    'start_date' => $validated['billDate'],
-                    'end_date' => $validated['endDate'],
-                ]);
+            // Always update start_date. Only update end_date if new endDate > old end_date (or if end_date is null)
+            $updateData = [
+                'start_date' => $validated['billDate'],
+                'payment_status' => ($validated['amountPaid'] >= $validated['totalAmount']) ? 'paid' : 'pending',
+                'is_active' => ($validated['amountPaid'] >= $validated['totalAmount']),
+            ];
+            if (empty($membership->end_date) || (isset($validated['endDate']) && $validated['endDate'] > $membership->end_date)) {
+                $updateData['end_date'] = $validated['endDate'];
             }
+            $membership->update($updateData);
 
             DB::commit();
             return redirect()->back()->with('success', 'Invoice created successfully!');
@@ -471,15 +472,16 @@ class InvoiceController extends Controller
                 }
             }
 
-            // Update membership status if fully paid
-            if ($validated['amountPaid'] >= $validated['totalAmount']) {
-                $membership->update([
-                    'payment_status' => 'paid',
-                    'is_active' => true,
-                    'start_date' => $validated['billDate'],
-                    'end_date' => $validated['endDate'],
-                ]);
+            // Always update start_date. Only update end_date if new endDate > old end_date (or if end_date is null)
+            $updateData = [
+                'start_date' => $validated['billDate'],
+                'payment_status' => ($validated['amountPaid'] >= $validated['totalAmount']) ? 'paid' : 'pending',
+                'is_active' => ($validated['amountPaid'] >= $validated['totalAmount']),
+            ];
+            if (empty($membership->end_date) || (isset($validated['endDate']) && $validated['endDate'] > $membership->end_date)) {
+                $updateData['end_date'] = $validated['endDate'];
             }
+            $membership->update($updateData);
 
             DB::commit();
             return redirect()->back()->with('success', 'Invoice updated successfully!');
