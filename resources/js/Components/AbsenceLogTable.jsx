@@ -5,6 +5,7 @@ import AttendanceModal from "@/Pages/Attendance/AttendanceModal";
 import { useState } from "react";
 import { Edit } from "lucide-react";
 import { router } from '@inertiajs/react';
+import Table from './Table';
 
 const AbsenceLogTable = ({ absences, studentId, studentClassId }) => {
     const [showUpdateModal, setShowUpdateModal] = useState(false);
@@ -63,73 +64,48 @@ const AbsenceLogTable = ({ absences, studentId, studentClassId }) => {
         setShowUpdateModal(true);
     };
 
+    // Define columns for the Table component
+    const columns = [
+        { header: "Nom de l'élève", accessor: "student_name" },
+        { header: "Date", accessor: "date" },
+        { header: "Classe", accessor: "class" },
+        { header: "Enregistré par", accessor: "recorded_by" },
+        { header: "Statut", accessor: "status" },
+        { header: "Motif", accessor: "reason" },
+        { header: "Action", accessor: "action" },
+    ];
+
+    // Render a row for the Table component
+    const renderRow = (absence) => (
+        <tr key={absence.id} className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight">
+            <td className="p-4">
+                {(
+                    (absence.first_name && absence.last_name && `${absence.first_name} ${absence.last_name}`) ||
+                    (absence.student_first_name && absence.student_last_name && `${absence.student_first_name} ${absence.student_last_name}`) ||
+                    absence.student_name || absence.studentName || '-'
+                )}
+            </td>
+            <td className="p-4">{formatDate(absence.date)}</td>
+            <td className="p-4">{absence.class_name || absence.class || "-"}</td>
+            <td className="p-4">{absence.recorded_by_name || absence.recorded_by || absence.recordedBy || "-"}</td>
+            <td className="p-4">{getStatusBadge(absence.status)}</td>
+            <td className="p-4">{absence.reason || "---"}</td>
+            <td className="p-4">
+                <button
+                    className="btn btn-green"
+                    onClick={() => router.post(route('absence.notify', absence.student_id))}
+                >
+                    Envoyer WhatsApp
+                </button>
+            </td>
+        </tr>
+    );
+
     return (
-        <div className="mb-8 bg-white rounded-lg shadow-md overflow-hidden">
-            <div className="p-4 bg-gray-200 text-black">
-                <h2 className="text-xl font-bold flex items-center">
-                    <FaCalendarAlt className="mr-2" /> Journal des absences
-                </h2>
-            </div>
-
+        <div className="mb-8 bg-white  overflow-hidden">
             <div className="overflow-x-auto">
-                <table className="w-full border-collapse">
-                    <thead>
-                        <tr className="bg-gray-50 border-b border-gray-200">
-                            <th className="p-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Date
-                            </th>
-                            <th className="p-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Classe
-                            </th>
-                            <th className="p-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Enregistré par
-                            </th>
-                            <th className="p-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Statut
-                            </th>
-                            <th className="p-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Motif
-                            </th>
-                            <th className="p-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Action
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                        {enrichedAbsences.map((absence) => (
-                            <tr
-                                key={absence.id}
-                                className="hover:bg-gray-50 transition-colors duration-150"
-                            >
-                                <td className="p-3 text-sm text-gray-900">
-                                    {formatDate(absence.date)}
-                                </td>
-                                <td className="p-3 text-sm text-gray-900">
-                                    {absence.class_name || absence.class || "-"}
-                                </td>
-                                <td className="p-3 text-sm text-gray-900">
-                                    {absence.recorded_by_name || absence.recorded_by || absence.recordedBy || "-"}
-                                </td>
-                                <td className="p-3 text-sm text-gray-900">
-                                    {getStatusBadge(absence.status)}
-                                </td>
-                                <td className="p-3 text-sm text-gray-900">
-                                    {absence.reason || "---"}
-                                </td>
-                                <td className="p-3 text-sm text-gray-900">
-                                    <button
-                                        className="btn btn-green"
-                                        onClick={() => router.post(route('absence.notify', absence.student_id))}
-                                    >
-                                        Envoyer WhatsApp
-                                    </button>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
+                <Table columns={columns} data={enrichedAbsences} renderRow={renderRow} />
             </div>
-
             {/* Empty state */}
             {(safeAbsences.length === 0) && (
                 <div className="p-8 text-center text-gray-500">

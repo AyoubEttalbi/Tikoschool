@@ -139,7 +139,7 @@ class StudentsController extends Controller
      
          // Apply additional filters (e.g., school, class, level)
          $this->applyFilters($query, $request->only(['school', 'class', 'level']));
-
+     
          // Membership status filter
          $membershipStatus = $request->input('membership_status');
          $studentsCollection = $query->orderBy('created_at', 'desc')->get();
@@ -176,8 +176,8 @@ class StudentsController extends Controller
          );
          // Transform for frontend
          $students = $students->through(function ($student) {
-             return $this->transformStudentData($student);
-         });
+            return $this->transformStudentData($student);
+        });
          
          // Get all classes for filters, but filter them by selected school if applicable
          $classesQuery = Classes::query();
