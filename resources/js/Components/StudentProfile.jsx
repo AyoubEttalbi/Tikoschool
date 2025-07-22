@@ -1,5 +1,5 @@
 import React, { Suspense } from "react";
-const AbsenceLogTable = React.lazy(() => import("./AbsenceLogTable"));
+const AbsenceLogTableForStudent = React.lazy(() => import("./AbsenceLogTableForStudent"));
 const InvoicesTable = React.lazy(() => import("./InvoicesTable"));
 const ScoresTable = React.lazy(() => import("./ScoresTable"));
 
@@ -21,7 +21,7 @@ const StudentProfile = ({
                 />
             </Suspense>
             <Suspense fallback={<div>Chargement des absences...</div>}>
-                <AbsenceLogTable
+                <AbsenceLogTableForStudent
                     absences={attendances}
                     studentId={studentId}
                     studentClassId={studentClassId}

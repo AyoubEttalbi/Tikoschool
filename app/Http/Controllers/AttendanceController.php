@@ -220,6 +220,34 @@ class AttendanceController extends Controller
                         'status' => $attendance['status']
                     ]);
                 }
+
+                // Send WhatsApp message if absent
+                if ($attendance['status'] === 'absent') {
+                    $student = Student::find($studentId);
+                    if ($student) {
+                        $fatherPhone = $student->guardianNumber;
+                        if (!empty($fatherPhone)) {
+                            $studentName = trim($student->firstName . ' ' . $student->lastName);
+                            try {
+                                WasenderApi::sendText($fatherPhone, "Bonjour, votre enfant {$studentName} est absent aujourd’hui.");
+                                Log::info('WhatsApp message sent to parent', [
+                                    'student_id' => $studentId,
+                                    'phone' => $fatherPhone
+                                ]);
+                            } catch (\Exception $e) {
+                                Log::error('Failed to send WhatsApp message', [
+                                    'student_id' => $studentId,
+                                    'phone' => $fatherPhone,
+                                    'error' => $e->getMessage()
+                                ]);
+                            }
+                        } else {
+                            Log::warning('No guardian phone number for student', [
+                                'student_id' => $studentId
+                            ]);
+                        }
+                    }
+                }
             }
 
             // Remove any existing present records
