@@ -13,9 +13,10 @@ const columns = [
     { header: "Étudiant", accessor: "student" },
     { header: "Classe", accessor: "class" },
     { header: "Date", accessor: "date", className: "hidden md:table-cell" },
+    { header: "Matière", accessor: "subject" },
     { header: "Statut", accessor: "status" },
     { header: "Raison", accessor: "reason", className: "hidden lg:table-cell" },
-    { header: "Enregistré par", accessor: "teacher" },
+    { header: "Enregistré par", accessor: "recorded_by_name" },
 ];
 
 const AttendancePage = ({
@@ -27,35 +28,75 @@ const AttendancePage = ({
     teachers,
     filters,
     levels,
+    allSubjects: allSubjectsProp,
 }) => {
     const { auth, errors } = usePage().props;
     const [attendanceData, setAttendanceData] = useState([]);
+    const [selectedSubject, setSelectedSubject] = useState(filters.subject || "");
+    const [subjectError, setSubjectError] = useState("");
     const [formDate, setFormDate] = useState(
         filters.date || new Date().toISOString().split("T")[0],
     );
 
+
+    // Use allSubjects prop if provided, otherwise compute from students
+    const allSubjects = allSubjectsProp && Array.isArray(allSubjectsProp)
+        ? allSubjectsProp
+        : Array.from(new Set(
+            (students || []).flatMap(student => student.subjects || [])
+        )).filter(Boolean);
+
+    // Filtered students by selected subject
+    const filteredStudents = selectedSubject
+        ? (students || []).filter(student => (student.subjects || []).includes(selectedSubject))
+        : students || [];
+
     useEffect(() => {
         if (students?.length > 0) {
+            // Always use the status/reason from the backend if present, otherwise default to 'present'
             const newAttendanceData = students.map((student) => {
                 return {
                     student_id: student.student_id || student.id,
-                    status: student.status || "present",
-                    reason: student.reason || "",
-                    date:
-                        filters.date || new Date().toISOString().split("T")[0],
-                    class_id: filters.class_id,
+                    status: typeof student.status !== 'undefined' ? student.status : "present",
+                    reason: typeof student.reason !== 'undefined' ? student.reason : "",
+                    date: student.date || filters.date || new Date().toISOString().split("T")[0],
+                    class_id: student.classId || filters.class_id,
+                    teacher_id: student.teacher_id || filters.teacher_id,
                 };
             });
 
             setAttendanceData(newAttendanceData);
+
+            // Pre-select subject if only one subject is available for the teacher in this class
+            const allSubjects = Array.from(new Set(
+                (students || []).flatMap(student => student.subjects || [])
+            )).filter(Boolean);
+            if (allSubjects.length === 1 && !filters.subject) {
+                setSelectedSubject(allSubjects[0]);
+            }
         }
     }, [students, filters.date, filters.class_id]);
 
+
+    // Always update filters with selected subject when it changes
     useEffect(() => {
-        if (filters.date && filters.date !== formDate) {
-            setFormDate(filters.date);
+        // Only reload if the selected subject is different from the filter
+        if (
+            selectedSubject &&
+            selectedSubject !== (filters.subject || "")
+        ) {
+            router.visit(route('attendances.index', {
+                ...filters,
+                subject: selectedSubject,
+                date: formDate,
+                _timestamp: new Date().getTime(),
+            }), {
+                preserveScroll: true,
+                preserveState: true,
+                only: ['students', 'filters'],
+            });
         }
-    }, [filters.date]);
+    }, [selectedSubject]);
 
     useEffect(() => {
         console.log("Students data changed:", {
@@ -67,7 +108,6 @@ const AttendancePage = ({
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        console.log('attendence data', attendanceData)
         if (
             !attendanceData ||
             attendanceData.length === 0 ||
@@ -77,10 +117,22 @@ const AttendancePage = ({
             return;
         }
 
+        if (!selectedSubject) {
+            setSubjectError("Veuillez sélectionner une matière.");
+            document.getElementById('subject-dropdown')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+        }
+        setSubjectError("");
+        // Ensure subject is included for each attendance entry
         const payload = {
-            attendances: attendanceData,
+            attendances: attendanceData.map(entry => ({
+                ...entry,
+                subject: selectedSubject,
+            })),
             date: formDate,
             class_id: filters.class_id,
+            teacher_id: filters.teacher_id,
+            subject: selectedSubject,
         };
 
         router.post(route("attendances.store"), payload, {
@@ -90,7 +142,6 @@ const AttendancePage = ({
                     date: formDate,
                     _timestamp: new Date().getTime(),
                 });
-                
             },
             onError: (errors) => {
                 console.log("errors", errors);
@@ -140,6 +191,7 @@ const AttendancePage = ({
                         day: "numeric",
                     })}
                 </td>
+                <td>{selectedSubject || '-'}</td>
                 <td>
                     <div className="flex gap-2 items-center">
                         <button
@@ -176,14 +228,13 @@ const AttendancePage = ({
                             value={att.reason || ""}
                             onChange={(e) => handleReasonChange(student.student_id || student.id, e.target.value)}
                             className="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
-                            
                         />
                     ) : (
                         <span>-</span>
                     )}
                 </td>
                 <td className="text-gray-600">
-                    {auth.user.name} ({auth.user.role})
+                    {student.recorded_by_name || "-"}
                 </td>
             </tr>
         );
@@ -204,6 +255,8 @@ const AttendancePage = ({
         );
     }
 
+    // allSubjects is now defined above, always from the full students list
+
     return (
         <div className="bg-white p-6 rounded-lg shadow-sm flex-1 m-4 mt-0">
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 gap-4">
@@ -215,24 +268,44 @@ const AttendancePage = ({
                         routeName="attendances.index"
                         filters={filters}
                     />
+                    <div>
+                        <select
+                            id="subject-dropdown"
+                            value={selectedSubject}
+                            onChange={e => {
+                                setSelectedSubject(e.target.value);
+                                setSubjectError("");
+                            }}
+                            required
+                            className="p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
+                        >
+                            <option value="" disabled>Choisir la matière</option>
+                            {allSubjects.map(subject => (
+                                <option key={subject} value={subject}>{subject}</option>
+                            ))}
+                        </select>
+                        {subjectError && (
+                            <div className="text-red-500 text-xs mt-1">{subjectError}</div>
+                        )}
+                    </div>
                 </div>
             </div>
             <form onSubmit={handleSubmit}>
                 <Table
                     columns={columns}
                     renderRow={renderRow}
-                    data={students}
+                    data={filteredStudents}
                     headerClassName="bg-gray-50 text-gray-600 text-sm font-medium"
                 />
                 <div className="flex justify-end gap-2 mt-4">
-                                <button
-                                    type="submit"
-                                    className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-                                >
-                                    Enregistrer la présence
-                                </button>
-                            </div>
-                        </form>
+                    <button
+                        type="submit"
+                        className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+                    >
+                        Enregistrer la présence
+                    </button>
+                </div>
+            </form>
         </div>
     );
 };

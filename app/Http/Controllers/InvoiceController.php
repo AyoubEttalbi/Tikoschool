@@ -450,27 +450,48 @@ class InvoiceController extends Controller
             // Log the activity
             $this->logActivity('updated', $invoice, $oldData, $invoice->toArray());
 
-            // Calculate the amount that should be included in teacher percentages
-            $amountForTeacherPercentage = $validated['totalAmount'];
-            if ($validated['includePartialMonth'] && $validated['partialMonthAmount']) {
-                // Subtract the partial month amount from the total for teacher percentage calculation
-                $amountForTeacherPercentage -= $validated['partialMonthAmount'];
+            // --- REVERSE AND RE-APPLY TEACHER WALLET LOGIC ---
+
+            // Step 1: Reverse the old commission from teacher wallets
+            $oldAmountForTeacherPercentage = $oldData['totalAmount'] ?? 0;
+            if (($oldData['includePartialMonth'] ?? false) && ($oldData['partialMonthAmount'] ?? 0)) {
+                $oldAmountForTeacherPercentage -= $oldData['partialMonthAmount'];
             }
 
-            // Calculate the percentage of the amount paid (excluding partial month)
-            $paymentPercentage = ($validated['amountPaid'] / $amountForTeacherPercentage) * 100;
+            if ($oldAmountForTeacherPercentage > 0 && !empty($membership->teachers)) {
+                foreach ($membership->teachers as $teacherData) {
+                    $teacher = Teacher::find($teacherData['teacherId']);
+                    if ($teacher) {
+                        $oldTotalTeacherCommission = ($teacherData['amount'] * ($oldData['months'] ?? 1));
+                        $oldCommissionPaid = ($oldTotalTeacherCommission * ($oldData['amountPaid'] / $oldAmountForTeacherPercentage));
 
-            // Update teachers' wallets based on the payment percentage
-            foreach ($membership->teachers as $teacherData) {
-                $teacher = Teacher::find($teacherData['teacherId']);
-                if ($teacher) {
-                    // Calculate the teacher's amount for the paid percentage (excluding partial month)
-                    $teacherAmount = ($teacherData['amount'] * $validated['months']) * ($paymentPercentage / 100);
-
-                    // Update the teacher's wallet
-                    $teacher->increment('wallet', $teacherAmount);
+                        if ($oldCommissionPaid > 0) {
+                            $teacher->decrement('wallet', $oldCommissionPaid);
+                        }
+                    }
                 }
             }
+
+            // Step 2: Apply the new, correct commission
+            $newAmountForTeacherPercentage = $validated['totalAmount'];
+            if ($validated['includePartialMonth'] && $validated['partialMonthAmount']) {
+                $newAmountForTeacherPercentage -= $validated['partialMonthAmount'];
+            }
+
+            if ($newAmountForTeacherPercentage > 0 && !empty($membership->teachers)) {
+                foreach ($membership->teachers as $teacherData) {
+                    $teacher = Teacher::find($teacherData['teacherId']);
+                    if ($teacher) {
+                        $newTotalTeacherCommission = ($teacherData['amount'] * $validated['months']);
+                        $newCommissionToPay = ($newTotalTeacherCommission * ($validated['amountPaid'] / $newAmountForTeacherPercentage));
+
+                        if ($newCommissionToPay > 0) {
+                            $teacher->increment('wallet', $newCommissionToPay);
+                        }
+                    }
+                }
+            }
+            // --- END REVERSE AND RE-APPLY ---
 
             // Always update start_date. Only update end_date if new endDate > old end_date (or if end_date is null)
             $updateData = [
@@ -502,6 +523,33 @@ class InvoiceController extends Controller
 
             // Log the activity before deletion
             $this->logActivity('deleted', $invoice, $invoice->toArray(), null);
+
+            // --- NEW LOGIC: Update membership and teacher wallets ---
+            $membership = $invoice->membership;
+            if ($membership) {
+                // Update membership status
+                $membership->payment_status = 'expired';
+                $membership->is_active = 0;
+                $membership->save();
+
+                // Decrement each teacher's wallet by their proportional share
+                if (is_array($membership->teachers)) {
+                    foreach ($membership->teachers as $teacherData) {
+                        if (!isset($teacherData['teacherId']) || !isset($teacherData['amount'])) continue;
+                        $teacher = \App\Models\Teacher::find($teacherData['teacherId']);
+                        if ($teacher && $invoice->totalAmount > 0) {
+                            // Calculate the total commission for the invoice duration
+                            $totalCommissionForInvoice = $teacherData['amount'] * $invoice->months;
+                            // Calculate the portion of the commission that was actually paid
+                            $share = $totalCommissionForInvoice * ($invoice->amountPaid / $invoice->totalAmount);
+                            if ($share > 0) {
+                                $teacher->decrement('wallet', $share);
+                            }
+                        }
+                    }
+                }
+            }
+            // --- END NEW LOGIC ---
 
             $invoice->delete();
             return redirect()->back()->with('success', 'Invoice deleted successfully.');

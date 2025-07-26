@@ -171,22 +171,27 @@ const InvoicesTable = ({
                                         )}
                                     </td>
                                     <td className="p-3 text-sm text-gray-900">
-                                        <div className="flex items-center">
-                                            {Student_memberships.find(
-                                                (membership) =>
-                                                    membership.id ===
-                                                    invoice.membership_id,
-                                            )?.offer_name || "---"}
-                                            {invoice.rest > 0 ? (
-                                                <span className="ml-2 bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded-full">
-                                                    Non payé
-                                                </span>
-                                            ) : (
-                                                <span className="ml-2 bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full">
-                                                    Payé
-                                                </span>
-                                            )}
-                                        </div>
+                                        {invoice.type === 'assurance' ? (
+                                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-50 text-yellow-700 border border-yellow-200">
+                                                Assurance
+                                            </span>
+                                        ) : (
+                                            <div className="flex items-center">
+                                                {Student_memberships.find(
+                                                    (membership) =>
+                                                        membership.id === invoice.membership_id,
+                                                )?.offer_name || "---"}
+                                                {invoice.rest > 0 ? (
+                                                    <span className="ml-2 bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded-full">
+                                                        Non payé
+                                                    </span>
+                                                ) : (
+                                                    <span className="ml-2 bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full">
+                                                        Payé
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
                                     </td>
                                     <td className="p-3 text-sm text-gray-900">
                                         <div className="flex items-center gap-2">

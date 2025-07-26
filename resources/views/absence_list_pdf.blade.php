@@ -41,7 +41,7 @@
         <tr>
             <td style="text-align:left;">Absence List</td>
             <td style="text-align:center;">Teacher: {{ $teacher->first_name }} {{ $teacher->last_name }}</td>
-            <td style="text-align:center;">Level: {{ optional($class->level)->name }}</td>
+            <td style="text-align:center;">Level: {{ optional($class->level)->name }} | Class: {{ $class->name ?? '' }}</td>
             <td style="text-align:right;">Date: {{ $date ? substr($date,0,7) : date('Y-m') }}</td>
         </tr>
     </table>
@@ -91,7 +91,11 @@
                     @endphp
                 </td>
                 @for ($d = 1; $d <= $daysInMonth; $d++)
-                    <td></td>
+                    <td>
+                        @if(isset($studentAbsences[$student->id][$d]))
+                            <span style="color:#a00;font-weight:bold;">&#10007;</span>
+                        @endif
+                    </td>
                 @endfor
             </tr>
             @endforeach

@@ -298,4 +298,16 @@ class ClassesController extends Controller
         }
     }
   
+    /**
+     * Return all classes as JSON (for filters, etc.)
+     */
+    public function listJson(Request $request)
+    {
+        $query = Classes::query();
+        if ($request->has('school_id')) {
+            $query->where('school_id', $request->school_id);
+        }
+        $classes = $query->get(['id', 'name']);
+        return response()->json($classes);
+    }
 }

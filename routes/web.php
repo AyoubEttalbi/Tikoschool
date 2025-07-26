@@ -250,7 +250,7 @@ Route::middleware('auth')->group(function () {
 
         // Add after other teacher routes, inside the admin middleware group if possible
         Route::post('/teachers-with-user', [TeacherController::class, 'storeWithUser'])->name('teachers.storeWithUser');
-        Route::post('/assistants-with-user', [\App\Http\Controllers\AssistantController::class, 'storeWithUser'])->name('assistants.storeWithUser');
+        Route::post('/assistants-with-user', [AssistantController::class, 'storeWithUser'])->name('assistants.storeWithUser');
     });
 
     // Performance routes
@@ -279,7 +279,7 @@ Route::get('/cashier/daily', function (\Illuminate\Http\Request $request) {
     if ($user && $user->role === 'teacher') {
         return redirect('/dashboard')->with('error', 'Accès refusé.');
     }
-    return app(\App\Http\Controllers\CashierController::class)->daily($request);
+    return app(CashierController::class)->daily($request);
 })->name('cashier.daily');
 
 // Redirect /cashier to today's view
@@ -383,6 +383,18 @@ Route::middleware('auth')->get('/api/upcoming-announcements', function () {
     $announcements = $query->get();
     return response()->json(['announcements' => $announcements]);
 });
+
+// API: Teacher earnings per month (paid only)
+Route::middleware('auth')->get('/teacher-earnings-report', [TransactionController::class, 'teacherMonthlyEarningsReport']);
+
+// API: Teacher invoice breakdown for a given month
+Route::middleware('auth')->get('/teacher-invoice-breakdown', [TransactionController::class, 'teacherInvoiceBreakdown']);
+
+// Route to fetch all schools as JSON for filters (for frontend dropdowns)
+Route::middleware('auth')->get('/schoolsForFilters', [SchoolController::class, 'listJson']);
+
+// Route to fetch all classes as JSON for filters (for frontend dropdowns)
+Route::middleware('auth')->get('/classesForFilters', [ClassesController::class, 'listJson']);
 
 // Global fallback route: redirect any not found route to dashboard
 Route::fallback(function () {

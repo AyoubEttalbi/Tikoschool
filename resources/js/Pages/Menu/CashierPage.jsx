@@ -6,6 +6,9 @@ import DashboardLayout from "@/Layouts/DashboardLayout"
 import { Bar } from "react-chartjs-2"
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from "chart.js"
 import { SchoolIcon } from "lucide-react"
+import InvoiceDetails from "@/Components/InvoiceDetails" // Import the component
+import InvoiceModal from "@/Components/InvoiceModal" // Import the modal component
+import { downloadInvoicePdf } from "@/lib/invoiceUtils" // Import the utility
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 
@@ -205,6 +208,10 @@ const CashierPage = ({
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [activeDropdown, setActiveDropdown] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [selectedInvoice, setSelectedInvoice] = useState(null);
+  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
+  const [downloadLoading, setDownloadLoading] = useState(false);
+
 
   const isAssistant = role === 'assistant';
 
@@ -338,6 +345,28 @@ const CashierPage = ({
     a.click()
     URL.revokeObjectURL(url)
   }
+
+  const handleShowDetails = async (invoiceId) => {
+      setIsLoading(true);
+      try {
+          const response = await fetch(`/api/invoices/${invoiceId}`);
+          if (!response.ok) {
+              throw new Error('Network response was not ok');
+          }
+          const data = await response.json();
+          setSelectedInvoice(data.invoice);
+          setIsDetailsModalOpen(true);
+      } catch (error) {
+          console.error("Failed to fetch invoice details:", error);
+          // Optionally, show an error message to the user
+      } finally {
+          setIsLoading(false);
+      }
+  };
+
+  const handlePrintReceipt = (invoiceId) => {
+      downloadInvoicePdf(invoiceId, setDownloadLoading);
+  };
 
   const activeFiltersCount = Object.values(localFilters).filter((v) => v && v !== "").length - 1
 
@@ -700,7 +729,11 @@ const CashierPage = ({
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        {invoice.membership ? (
+                        {invoice.type === 'assurance' ? (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-50 text-yellow-700 border border-yellow-200">
+                            Assurance
+                          </span>
+                        ) : invoice.membership ? (
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
                             {invoice.membership.name}
                           </span>
@@ -736,11 +769,17 @@ const CashierPage = ({
                         </button>
                         {activeDropdown === invoice.id && (
                           <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-10">
-                            <button className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2">
+                            <button
+                                onClick={() => handleShowDetails(invoice.id)}
+                                className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                            >
                               <EyeIcon className="h-4 w-4" />
                               Voir détails
                             </button>
-                            <button className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2">
+                            <button
+                                onClick={() => handlePrintReceipt(invoice.id)}
+                                className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                            >
                               <ReceiptIcon className="h-4 w-4" />
                               Imprimer reçu
                             </button>
@@ -818,8 +857,22 @@ const CashierPage = ({
         </div>
       </div>
 
+        {/* Invoice Details Modal */}
+        <InvoiceModal
+            isOpen={isDetailsModalOpen && !!selectedInvoice}
+            closeModal={() => setIsDetailsModalOpen(false)}
+            invoice={selectedInvoice}
+        />
+
       {/* Click outside to close dropdown */}
       {activeDropdown && <div className="fixed inset-0 z-0" onClick={() => setActiveDropdown(null)} />}
+
+        {/* Download Loading Overlay */}
+        {downloadLoading && (
+            <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50 transition-opacity duration-300">
+                <div className="w-12 h-12 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
+            </div>
+        )}
     </div>
   )
 }

@@ -13,6 +13,32 @@ import {
 } from "@/Components/ui/select";
 import { Upload } from "lucide-react";
 
+// Phone input component for Moroccan numbers
+const PhoneInput = ({ label, name, value, onChange, error }) => (
+    <div className="flex flex-col gap-2 w-full">
+        <label className="text-xs text-gray-600">{label}</label>
+        <div className="flex items-center">
+            <span className="px-2 py-2 bg-gray-100 border border-gray-300 rounded-l-md text-gray-700 select-none">+212</span>
+            <input
+                type="text"
+                name={name}
+                maxLength={9}
+                minLength={9}
+                pattern="[0-9]{9}"
+                inputMode="numeric"
+                className="w-full px-3 py-2 border-t border-b border-r border-gray-300 rounded-r-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-gray-900 font-semibold"
+                value={value}
+                onChange={onChange}
+                placeholder="Ex: 630439566"
+            />
+        </div>
+        {error && <p className="text-xs text-red-400">{error.message}</p>}
+    </div>
+);
+
+// Add phoneRegex definition here
+const phoneRegex = /^[678]\d{8}$/;
+
 // Update schema to include disease information
 const schema = z
     .object({
@@ -27,10 +53,14 @@ const schema = z
         address: z.string().min(1, { message: "L'adresse est requise !" }),
         guardianNumber: z
             .string()
-            .min(1, { message: "Le numéro du tuteur est requis !" }),
+            .min(9, { message: "Le numéro du tuteur est requis !" })
+            .regex(phoneRegex, { message: "Le numéro doit commencer par 6, 7 ou 8 et comporter 9 chiffres." }),
         guardianName: z.string().max(255, { message: "Nom du tuteur trop long (255 caractères max)" }).optional(),
         CIN: z.any().optional(),
-        phoneNumber: z.any().optional(),
+        phoneNumber: z
+            .string()
+            .min(9, { message: "Le numéro de téléphone est requis !" })
+            .regex(phoneRegex, { message: "Le numéro doit commencer par 6, 7 ou 8 et comporter 9 chiffres." }),
         email: z.any().optional(),
         massarCode: z.any().optional(),
         levelId: z.string().min(1, { message: "Le niveau est requis !" }),
@@ -81,6 +111,10 @@ const schema = z
 const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
     const defaultBillingDate = new Date().toISOString().split("T")[0];
 
+    // Helper functions for phone numbers
+    const stripPrefix = (num) => (num ? num.replace(/^\+212/, "") : "");
+    const addPrefix = (num) => (num ? `+212${num}` : "");
+
     // State to track selected values for shadcn/ui Select components
     const [selectedLevel, setSelectedLevel] = useState(
         data?.levelId?.toString() || "",
@@ -101,6 +135,10 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
     const [selectedHasDisease, setSelectedHasDisease] = useState(
         data?.hasDisease === 1 ? "1" : "0",
     );
+
+    // State for phone numbers
+    const [localGuardianNumber, setLocalGuardianNumber] = useState(stripPrefix(data?.guardianNumber || ""));
+    const [localPhoneNumber, setLocalPhoneNumber] = useState(stripPrefix(data?.phoneNumber || ""));
 
     // State for image preview
     const [imagePreview, setImagePreview] = useState(
@@ -173,6 +211,8 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
             if (data.profile_image) {
                 setImagePreview(data.profile_image);
             }
+            setLocalGuardianNumber(stripPrefix(data.guardianNumber || ""));
+            setLocalPhoneNumber(stripPrefix(data.phoneNumber || ""));
         }
     }, [data, setValue]);
 
@@ -223,10 +263,10 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
         formDataObj.append("dateOfBirth", formData.dateOfBirth);
         formDataObj.append("billingDate", formData.billingDate);
         formDataObj.append("address", formData.address);
-        formDataObj.append("guardianNumber", formData.guardianNumber);
+        formDataObj.append("guardianNumber", addPrefix(localGuardianNumber));
         formDataObj.append("guardianName", formData.guardianName || "");
         formDataObj.append("CIN", formData.CIN || "");
-        formDataObj.append("phoneNumber", formData.phoneNumber || "");
+        formDataObj.append("phoneNumber", addPrefix(localPhoneNumber));
         formDataObj.append("email", formData.email || "");
         formDataObj.append("massarCode", formData.massarCode || "");
         formDataObj.append("levelId", formData.levelId.toString());
@@ -369,12 +409,16 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
                     error={errors.address}
                     defaultValue={data?.address}
                 />
-                <InputField
+                <PhoneInput
                     label="Numéro du tuteur"
                     name="guardianNumber"
-                    register={register}
+                    value={localGuardianNumber}
+                    onChange={e => {
+                        const val = e.target.value.replace(/\D/g, "").slice(0, 9);
+                        setLocalGuardianNumber(val);
+                        setValue("guardianNumber", val);
+                    }}
                     error={errors.guardianNumber}
-                    defaultValue={data?.guardianNumber}
                 />
                 <InputField
                     label="Nom du tuteur"
@@ -395,12 +439,16 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
                     error={errors.CIN}
                     defaultValue={data?.CIN}
                 />
-                <InputField
+                <PhoneInput
                     label="Numéro de téléphone"
                     name="phoneNumber"
-                    register={register}
+                    value={localPhoneNumber}
+                    onChange={e => {
+                        const val = e.target.value.replace(/\D/g, "").slice(0, 9);
+                        setLocalPhoneNumber(val);
+                        setValue("phoneNumber", val);
+                    }}
                     error={errors.phoneNumber}
-                    defaultValue={data?.phoneNumber}
                 />
                 <InputField
                     label="E-mail"

@@ -181,6 +181,8 @@ if (empty($date)) {
                     'id' => $invoice->membership->id,
                     'name' => $invoice->membership->offer ? $invoice->membership->offer->offer_name : 'No Offer'
                 ] : null,
+                'type' => $invoice->type,
+                'assurance_amount' => $invoice->assurance_amount,
             ];
         });
 

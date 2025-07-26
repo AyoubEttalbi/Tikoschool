@@ -10,6 +10,14 @@ import {
 } from "lucide-react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 
+// Add WhatsApp SVG icon
+const WhatsAppIcon = () => (
+    <svg width="22" height="22" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="32" height="32" rx="16" fill="#25D366"/>
+        <path d="M21.6 10.4c-1.2-1.2-2.8-1.9-4.6-1.9-3.6 0-6.5 2.9-6.5 6.5 0 1.1.3 2.1.8 3l-1 3.7 3.8-1c.8.4 1.7.6 2.7.6 3.6 0 6.5-2.9 6.5-6.5 0-1.7-.7-3.3-1.9-4.4zm-4.6 10.2c-.8 0-1.6-.2-2.3-.5l-.2-.1-2.2.6.6-2.1-.1-.2c-.5-.7-.8-1.6-.8-2.5 0-2.7 2.2-4.9 4.9-4.9 1.3 0 2.5.5 3.4 1.4.9.9 1.4 2.1 1.4 3.4 0 2.7-2.2 4.9-4.9 4.9zm2.7-3.7c-.1-.1-.5-.2-1-.4-.2-.1-.4-.1-.5.1-.1.1-.2.3-.3.4-.1.1-.2.1-.4.1-.2 0-.7-.2-1.3-.7-.5-.4-.8-.9-.9-1.1-.1-.2 0-.3.1-.4.1-.1.2-.2.2-.3.1-.1.1-.2.2-.3.1-.1.1-.2 0-.4-.1-.1-.5-1.2-.7-1.6-.2-.4-.4-.3-.5-.3h-.4c-.1 0-.3 0-.5.2-.2.2-.6.6-.6 1.4 0 .8.6 1.6.9 1.9.1.1 1.7 2.6 4.1 3.4.6.2 1 .3 1.3.2.4-.1 1.2-.5 1.3-1 .1-.5.1-.9.1-1z" fill="#fff"/>
+    </svg>
+);
+
 const Announcements = React.lazy(
     () => import("@/Pages/Menu/Announcements/Announcements"),
 );
@@ -70,6 +78,26 @@ const SingleStudentPage = ({
                                 >
                                     <Printer className="w-5 h-5 group-hover:text-blue-600 transition-colors" />
                                 </a>
+
+                                {/* WhatsApp Button */}
+                                {(() => {
+                                    const rawNumber = student.guardianNumber || student.phoneNumber;
+                                    const waNumber = rawNumber ? rawNumber.replace(/\D/g, "") : "";
+                                    // Prefer WhatsApp Web for desktop
+                                    const waLink = waNumber ? `https://web.whatsapp.com/send?phone=${waNumber}` : null;
+                                    return waLink ? (
+                                        <a
+                                            href={waLink}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            title="Contacter le tuteur sur WhatsApp"
+                                            className="inline-flex items-center justify-center w-9 h-9 rounded-full hover:bg-green-600 transition-colors"
+                                        >
+                                            <WhatsAppIcon />
+                                        </a>
+                                    ) : null;
+                                })()}
+
                                 {/* Bouton Modifier (admin/assistant uniquement) */}
                                 {(role === "admin" || role === "assistant") && (
                                     <div className="relative">
@@ -170,7 +198,7 @@ const SingleStudentPage = ({
                                               }).format(
                                                   new Date(student.created_at),
                                               )
-                                            : "03 janvier 2025"}
+                                            : "N/A"}
                                     </span>
                                 </div>
                                 <div className="w-full md:w-1/3 lg:w-full 2xl:w-1/3 flex items-center gap-2">
@@ -182,7 +210,7 @@ const SingleStudentPage = ({
                                     />
                                     <span>
                                         {student.email ||
-                                            "utilisateur@gmail.com"}
+                                            "N/A"}
                                     </span>
                                 </div>
                                 <div className="w-full md:w-1/3 lg:w-full 2xl:w-1/3 flex items-center gap-2">
@@ -193,7 +221,7 @@ const SingleStudentPage = ({
                                         height={14}
                                     />
                                     <span>
-                                        {student.phoneNumber || "+1 234 567"}
+                                        {student.guardianNumber || "N/A"}
                                     </span>
                                 </div>
                             </div>
@@ -406,10 +434,10 @@ const SingleStudentPage = ({
                                             </div>
                                             <div className="flex justify-between border-b border-blue-100 pb-2">
                                                 <div className="text-gray-600 text-sm">
-                                                    Numéro du tuteur
+                                                    Numéro de l'élève
                                                 </div>
                                                 <div className="font-medium text-sm">
-                                                    {student.guardianNumber ||
+                                                    { student.phoneNumber||
                                                         "N/A"}
                                                 </div>
                                             </div>
@@ -587,7 +615,7 @@ const SingleStudentPage = ({
                 {/* Adhésions section: use flex-col and w-full ONLY on small screens, revert to old flex-row and spacing for md+. */}
                 <div className="mt-4 bg-white rounded-md p-4">
                     {/* Adhésions Heading for mobile */}
-                    
+
                     <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-2 md:gap-0">
                         <div className="flex flex-col md:flex-row md:items-center md:mb-6 gap-2 md:gap-2 text-blue-600 font-medium mr-4">
                             <span className="flex flex-row items-center">

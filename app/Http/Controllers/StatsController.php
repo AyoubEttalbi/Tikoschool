@@ -31,7 +31,35 @@ class StatsController extends Controller
         $schoolId = null;
     }
     $month = $request->get('month');
+    $studentStatsMonth = $request->get('student_stats_month');
     $membershipStats = $this->getMembershipStats($month, $schoolId);
+
+    // --- Combined Student Monthly Stats ---
+    $selectedMonth = $studentStatsMonth ? Carbon::parse($studentStatsMonth) : Carbon::now();
+    $startOfMonth = $selectedMonth->copy()->startOfMonth();
+    $endOfMonth = $selectedMonth->copy()->endOfMonth();
+
+    // Students inscribed this month
+    $inscribedQuery = Student::whereBetween('billingDate', [$startOfMonth, $endOfMonth]);
+    if ($schoolId) {
+        $inscribedQuery->where('schoolId', $schoolId);
+    }
+    $inscribedCount = $inscribedQuery->count();
+
+    // Students abandoned this month (status changed to inactive and updated_at in this month)
+    $abandonedQuery = Student::where('status', 'inactive')
+        ->whereBetween('updated_at', [$startOfMonth, $endOfMonth]);
+    if ($schoolId) {
+        $abandonedQuery->where('schoolId', $schoolId);
+    }
+    $abandonedCount = $abandonedQuery->count();
+
+    $studentMonthlyStats = [
+        'inscribed' => $inscribedCount,
+        'abandoned' => $abandonedCount,
+        'month' => $selectedMonth->format('Y-m'),
+        'school_id' => $schoolId,
+    ];
 
     // --- Optimized Teacher Counts ---
     // Get all teacher counts per school in one query
@@ -252,6 +280,7 @@ class StatsController extends Controller
         'userRole' => $userRole,
         'membershipStats' => $membershipStats,
         'selectedSchoolId' => $schoolId,
+        'studentMonthlyStats' => $studentMonthlyStats,
     ]);
 }
 

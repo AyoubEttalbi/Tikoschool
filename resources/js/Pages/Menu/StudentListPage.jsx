@@ -136,9 +136,10 @@ const StudentListPage = ({
             className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
         >
             <td
-                onClick={() => router.visit(`/students/${item.id}`)}
+                onClick={role !== "teacher" ? () => router.visit(`/students/${item.id}`) : undefined}
                 className="flex items-center gap-4 p-4"
             >
+
                 <img
                     src={
                         item.profile_image
@@ -160,11 +161,11 @@ const StudentListPage = ({
                     </p>
                 </div>
             </td>
-            <td className="hidden md:table-cell">{item.studentId}</td>
+            <td className="hidden md:table-cell">{item.id}</td>
             <td className="hidden md:table-cell">
                 {Allclasses.find((group) => group.id === item.classId)?.name}
             </td>
-            <td className="hidden md:table-cell">{item.phone}</td>
+            <td className="hidden md:table-cell">{item.guardianNumber}</td>
             <td className="hidden md:table-cell">{item.address}</td>
             <td className="hidden md:table-cell w-1/12">
                 {Allmemberships.filter(
@@ -179,9 +180,9 @@ const StudentListPage = ({
                                         Allmemberships.filter(
                                             (membership) =>
                                                 membership.student_id ===
-                                                    item.id &&
+                                                item.id &&
                                                 membership.payment_status ===
-                                                    "paid",
+                                                "paid",
                                         ).length
                                     }
                                 </span>
@@ -237,13 +238,14 @@ const StudentListPage = ({
             </td>
             <td className=" p-4">
                 <div className="flex items-center gap-2 justify-center">
-                    <Link href={`students/${item.id}`}>
-                        <button className="w-7 h-7 flex items-center justify-center rounded-full bg-lamaSky">
-                            <Eye className="w-4 h-4 text-white" />
-                        </button>
-                    </Link>
+
                     {(role === "admin" || role === "assistant") && (
                         <>
+                            <Link href={`students/${item.id}`}>
+                                <button className="w-7 h-7 flex items-center justify-center rounded-full bg-lamaSky">
+                                    <Eye className="w-4 h-4 text-white" />
+                                </button>
+                            </Link>
                             <FormModal
                                 table="student"
                                 type="update"

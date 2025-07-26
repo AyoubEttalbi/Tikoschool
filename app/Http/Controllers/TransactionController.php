@@ -1981,4 +1981,124 @@ public function processMonthRecurringTransactions(Request $request)
         $transaction->next_payment_date = $nextPaymentDate;
         $transaction->save();
     }
+
+    /**
+     * API: Get teacher earnings per month (paid only)
+     * Optional filters: teacher_id, month (YYYY-MM)
+     * Returns: [{teacherId, teacherName, month, year, totalEarned}]
+     */
+    public function teacherMonthlyEarningsReport(Request $request)
+    {
+        $teacherId = $request->input('teacher_id');
+        $month = $request->input('month'); // format: YYYY-MM
+        $schoolId = $request->input('school_id');
+        $classId = $request->input('class_id');
+
+        // Get all paid invoices
+        $invoices = \App\Models\Invoice::whereNull('deleted_at')
+            ->whereColumn('amountPaid', '>=', 'totalAmount')
+            ->when($schoolId, function($q) use ($schoolId) {
+                $q->whereHas('student', function($q2) use ($schoolId) {
+                    $q2->where('schoolId', $schoolId);
+                });
+            })
+            ->when($classId, function($q) use ($classId) {
+                $q->whereHas('student', function($q2) use ($classId) {
+                    $q2->where('classId', $classId);
+                });
+            })
+            ->get();
+
+        $earnings = [];
+        foreach ($invoices as $invoice) {
+            $membership = $invoice->membership;
+            if (!$membership || !is_array($membership->teachers)) continue;
+            $invoiceMonth = $invoice->billDate ? $invoice->billDate->format('Y-m') : null;
+            $invoiceYear = $invoice->billDate ? $invoice->billDate->format('Y') : null;
+            foreach ($membership->teachers as $teacherData) {
+                if (!isset($teacherData['teacherId']) || !isset($teacherData['amount'])) continue;
+                if ($teacherId && $teacherData['teacherId'] != $teacherId) continue;
+                if (!empty($month) && $invoiceMonth !== $month) continue;
+                $teacher = \App\Models\Teacher::find($teacherData['teacherId']);
+                if (!$teacher) continue;
+                $key = $teacher->id . '-' . $invoiceMonth;
+                if (!isset($earnings[$key])) {
+                    $earnings[$key] = [
+                        'teacherId' => $teacher->id,
+                        'teacherName' => $teacher->first_name . ' ' . $teacher->last_name,
+                        'month' => $invoiceMonth,
+                        'year' => $invoiceYear,
+                        'totalEarned' => 0,
+                        'invoiceCount' => 0,
+                        'lastPaymentDate' => null,
+                    ];
+                }
+                $earnings[$key]['totalEarned'] += $teacherData['amount'];
+                $earnings[$key]['invoiceCount'] += 1;
+                // Update lastPaymentDate if this invoice is newer
+                $currentDate = $invoice->billDate ? $invoice->billDate->format('Y-m-d') : null;
+                if ($currentDate && ($earnings[$key]['lastPaymentDate'] === null || $currentDate > $earnings[$key]['lastPaymentDate'])) {
+                    $earnings[$key]['lastPaymentDate'] = $currentDate;
+                }
+            }
+        }
+        // Return as array
+        return response()->json(array_values($earnings));
+    }
+
+    /**
+     * API: Get invoice breakdown for a teacher and month (paid only)
+     * Params: teacher_id (required), month (YYYY-MM, required)
+     * Returns: [{invoiceId, date, studentName, offerName, amountPaid, teacherShare}]
+     */
+    public function teacherInvoiceBreakdown(Request $request)
+    {
+        $teacherId = $request->input('teacher_id');
+        $month = $request->input('month'); // format: YYYY-MM
+        $schoolId = $request->input('school_id');
+        $classId = $request->input('class_id');
+        if (!$teacherId || !$month) {
+            return response()->json(['error' => 'teacher_id and month are required'], 400);
+        }
+        $invoices = \App\Models\Invoice::whereNull('deleted_at')
+            ->whereColumn('amountPaid', '>=', 'totalAmount')
+            ->when($schoolId, function($q) use ($schoolId) {
+                $q->whereHas('student', function($q2) use ($schoolId) {
+                    $q2->where('schoolId', $schoolId);
+                });
+            })
+            ->when($classId, function($q) use ($classId) {
+                $q->whereHas('student', function($q2) use ($classId) {
+                    $q2->where('classId', $classId);
+                });
+            })
+            ->whereHas('membership', function($q) use ($teacherId) {
+                $q->whereJsonContains('teachers', [['teacherId' => (string)$teacherId]]);
+            })
+            ->get();
+        $result = [];
+        foreach ($invoices as $invoice) {
+            if (!empty($month) && (!$invoice->billDate || $invoice->billDate->format('Y-m') !== $month)) continue;
+            $membership = $invoice->membership;
+            if (!$membership || !is_array($membership->teachers)) continue;
+            $teacherShare = null;
+            foreach ($membership->teachers as $teacherData) {
+                if (isset($teacherData['teacherId']) && $teacherData['teacherId'] == $teacherId && isset($teacherData['amount'])) {
+                    $teacherShare = $teacherData['amount'];
+                    break;
+                }
+            }
+            $student = $invoice->student;
+            $offer = $invoice->offer;
+            $result[] = [
+                'invoiceId' => $invoice->id,
+                'date' => $invoice->billDate ? $invoice->billDate->format('Y-m-d') : null,
+                'studentName' => $student ? ($student->firstName . ' ' . $student->lastName) : '',
+                'offerName' => $offer ? $offer->offer_name : '',
+                'amountPaid' => $invoice->amountPaid,
+                'teacherShare' => $teacherShare,
+            ];
+        }
+        return response()->json($result);
+    }
 }

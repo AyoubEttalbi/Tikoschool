@@ -18,6 +18,8 @@ const AttendanceModal = ({
         reason: data?.reason || "",
         date: data?.date || new Date().toISOString().split("T")[0],
         class_id: data?.classId || "",
+        teacher_id: data?.teacher_id || filters?.teacher_id || "",
+        subject: data?.subject || "",
     });
 
     const handleSubmit = (e) => {
@@ -29,23 +31,23 @@ const AttendanceModal = ({
                 router.post(
                     route("attendances.store"),
                     {
-                        // Top-level date and class_id
                         date: formData.date,
                         class_id: data.classId,
-                        teacher_id: filters?.teacher_id,
-                        // Attendances array structure
+                        teacher_id: formData.teacher_id,
+                        subject: formData.subject,
                         attendances: [
                             {
                                 student_id: data.student_id,
                                 status: formData.status,
                                 reason: formData.reason,
+                                teacher_id: formData.teacher_id,
+                                subject: formData.subject,
                             },
                         ],
                     },
                     {
                         onSuccess: () => {
                             onClose();
-                            // Force full page reload with timestamp to prevent caching
                             window.location.href = route("attendances.index", {
                                 ...filters,
                                 date: formData.date,
@@ -64,15 +66,19 @@ const AttendanceModal = ({
                 router.post(
                     route(`${table}.store`),
                     {
-                        attendances: [formData],
+                        attendances: [{
+                            ...formData,
+                            teacher_id: formData.teacher_id,
+                            subject: formData.subject,
+                        }],
                         date: formData.date,
                         class_id: formData.class_id,
-                        teacher_id: filters?.teacher_id,
+                        teacher_id: formData.teacher_id,
+                        subject: formData.subject,
                     },
                     {
                         onSuccess: () => {
                             onClose();
-                            // Force full page reload with timestamp to prevent caching
                             window.location.href = route("attendances.index", {
                                 ...filters,
                                 date: formData.date,
@@ -86,12 +92,12 @@ const AttendanceModal = ({
                     route(`${table}.update`, id),
                     {
                         ...formData,
-                        teacher_id: filters?.teacher_id,
+                        teacher_id: formData.teacher_id,
+                        subject: formData.subject,
                     },
                     {
                         onSuccess: () => {
                             onClose();
-                            // Force full page reload with timestamp to prevent caching
                             window.location.href = route("attendances.index", {
                                 ...filters,
                                 date: formData.date,

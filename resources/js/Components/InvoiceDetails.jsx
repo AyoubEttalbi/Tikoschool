@@ -13,10 +13,12 @@ import {
     User,
     X,
 } from "lucide-react";
+import { downloadInvoicePdf } from "@/lib/invoiceUtils" // Import the utility
 
 const InvoiceDetails = ({ invoice, onClose }) => {
     const [showPayments, setShowPayments] = useState(false);
     const [isDataLoaded, setIsDataLoaded] = useState(false);
+    const [downloadLoading, setDownloadLoading] = useState(false);
 
     useEffect(() => {
         // Check if all necessary data is loaded
@@ -350,19 +352,20 @@ const InvoiceDetails = ({ invoice, onClose }) => {
                 </div>
                 <div>
                     <button
-                        onClick={() =>
-                            window.open(
-                                `/invoices/${invoice.id}/download`,
-                                "_blank",
-                            )
-                        }
+                        onClick={() => downloadInvoicePdf(invoice.id, setDownloadLoading)}
                         className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center"
+                        disabled={downloadLoading}
                     >
                         <Download className="w-4 h-4 mr-1" />
                         Télécharger la facture
                     </button>
                 </div>
             </div>
+            {downloadLoading && (
+                <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50 transition-opacity duration-300">
+                    <div className="w-12 h-12 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
+                </div>
+            )}
             {!isDataLoaded && (
                 <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center">
                     <div className="text-gray-500">Chargement des données de la facture...</div>

@@ -67,13 +67,23 @@ const AbsenceLogTable = ({ absences, studentId, studentClassId }) => {
     // Define columns for the Table component
     const columns = [
         { header: "Nom de l'élève", accessor: "student_name" },
-        { header: "Date", accessor: "date" },
+        { header: "Date & Heure", accessor: "date" }, // updated header
         { header: "Classe", accessor: "class" },
+        { header: "Enseignant", accessor: "teacher" }, // new
+        { header: "Matière", accessor: "subject" },   // new
         { header: "Enregistré par", accessor: "recorded_by" },
         { header: "Statut", accessor: "status" },
         { header: "Motif", accessor: "reason" },
         { header: "Action", accessor: "action" },
     ];
+
+    const formatDateTime = (dateString) => {
+        try {
+            return format(new Date(dateString), "dd MMM yyyy HH:mm");
+        } catch (error) {
+            return dateString;
+        }
+    };
 
     // Render a row for the Table component
     const renderRow = (absence) => (
@@ -85,8 +95,10 @@ const AbsenceLogTable = ({ absences, studentId, studentClassId }) => {
                     absence.student_name || absence.studentName || '-'
                 )}
             </td>
-            <td className="p-4">{formatDate(absence.date)}</td>
+            <td className="p-4">{formatDateTime(absence.date)}</td>
             <td className="p-4">{absence.class_name || absence.class || "-"}</td>
+            <td className="p-4">{absence.teacher_name || absence.teacher || "-"}</td>  {/* new */}
+            <td className="p-4">{absence.subject_name || absence.subject || "-"}</td>  {/* new */}
             <td className="p-4">{absence.recorded_by_name || absence.recorded_by || absence.recordedBy || "-"}</td>
             <td className="p-4">{getStatusBadge(absence.status)}</td>
             <td className="p-4">{absence.reason || "---"}</td>

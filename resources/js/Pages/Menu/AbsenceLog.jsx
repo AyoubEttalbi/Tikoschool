@@ -35,6 +35,7 @@ const AbsenceLog = () => {
                 per_page: json.data.per_page,
                 total: json.data.total,
             });
+            console.log('Absence API data:', json.data.data);
         } catch (e) {
             setError(e.message);
         } finally {

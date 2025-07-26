@@ -6,12 +6,14 @@ use Illuminate\Database\Eloquent\Model;
 class Attendance extends Model
 {
     protected $fillable = [
-        'student_id', 
-        'classId', 
-        'date', 
-        'status', 
-        'reason', 
-        'recorded_by'
+        'student_id',
+        'classId',
+        'date',
+        'status',
+        'reason',
+        'recorded_by',
+        'teacher_id', // allow mass assignment
+        'subject',
     ];
 
     public function student()

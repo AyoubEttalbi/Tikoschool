@@ -20,6 +20,7 @@ use WasenderApi\Facades\WasenderApi;
 class AttendanceController extends Controller
 {
     public function index(Request $request)
+        // ...existing code...
     {
         // Get parameters from request
         $date = $request->input('date', now()->format('Y-m-d'));
@@ -98,13 +99,75 @@ class AttendanceController extends Controller
                 ->where('classId', $classId)
                 ->whereDate('date', $date)
                 ->get()
-                ->keyBy('student_id')
+                ->groupBy(function($att) {
+                    return $att->student_id . '|' . $att->teacher_id . '|' . $att->subject;
+                })
             : collect();
 
         // Merge students with attendance status and class info
-        $studentsWithAttendance = $students->map(function ($student) use ($existingAttendances, $date) {
-            $attendance = $existingAttendances->get($student->id);
+        $currentTeacherId = $request->user()->role === 'teacher' ? $request->user()->teacher->id ?? null : ($request->input('teacher_id') ?? null);
 
+        $selectedSubject = $request->input('subject');
+
+        // Debug: Log all attendance keys available for this request (after $existingAttendances is defined)
+        if (config('app.debug')) {
+            $attendanceKeys = $existingAttendances->keys();
+            Log::info('Attendance lookup debug', [
+                'teacher_id' => $currentTeacherId,
+                'subject' => $selectedSubject,
+                'attendance_keys' => $attendanceKeys,
+            ]);
+        }
+
+        $studentsWithAttendance = $students->filter(function ($student) use ($currentTeacherId, $selectedSubject) {
+            // Get all active memberships for this student
+            $memberships = $student->memberships()->where('is_active', 1)->get();
+            foreach ($memberships as $membership) {
+                $teacherArr = is_array($membership->teachers)
+                    ? $membership->teachers
+                    : json_decode($membership->teachers, true);
+                if (is_array($teacherArr)) {
+                    foreach ($teacherArr as $t) {
+                        if ((string)($t['teacherId'] ?? null) === (string)$currentTeacherId && (!isset($selectedSubject) || (isset($t['subject']) && $t['subject'] == $selectedSubject))) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        })->map(function ($student) use ($existingAttendances, $date, $currentTeacherId, $selectedSubject) {
+            // Debug: Log the attendance key being looked up for each student
+            $attendanceKey = $student->id . '|' . $currentTeacherId . '|' . $selectedSubject;
+            if (config('app.debug')) {
+                Log::info('Attendance lookup for student', [
+                    'student_id' => $student->id,
+                    'attendance_key' => $attendanceKey,
+                ]);
+            }
+            // Only fetch attendance for this teacher and subject
+            $attendanceList = $existingAttendances[$attendanceKey] ?? collect();
+            $attendance = $attendanceList->first();
+            $recordedByName = null;
+            if ($attendance && $attendance->recorded_by) {
+                $user = \App\Models\User::find($attendance->recorded_by);
+                $recordedByName = $user ? $user->name : null;
+            }
+            // Get all active memberships for this student
+            $memberships = $student->memberships()->where('is_active', 1)->get();
+            $subjects = collect();
+            foreach ($memberships as $membership) {
+                $teacherArr = is_array($membership->teachers)
+                    ? $membership->teachers
+                    : json_decode($membership->teachers, true);
+                if (is_array($teacherArr)) {
+                    foreach ($teacherArr as $t) {
+                        if ((string)($t['teacherId'] ?? null) === (string)$currentTeacherId && !empty($t['subject'])) {
+                            $subjects->push($t['subject']);
+                        }
+                    }
+                }
+            }
+            $subjects = $subjects->unique()->values()->all();
             return [
                 'id' => $attendance ? $attendance->id : null,
                 'student_id' => $student->id,
@@ -115,13 +178,37 @@ class AttendanceController extends Controller
                 'date' => $date,
                 'classId' => $student->classId,
                 'class' => $student->class,
-                'exists_in_db' => (bool)$attendance
+                'exists_in_db' => (bool)$attendance,
+                'recorded_by_name' => $recordedByName,
+                'subjects' => $subjects,
             ];
-        });
+        })->values();
 
         // Fetch assistants and levels data
         $assistants = Assistant::with('schools')->get();
         $levels = Level::all();
+
+        // Collect all subjects for the selected class and teacher, regardless of filter
+        $allSubjects = collect();
+        if ($classId && $teacherId) {
+            $classStudents = Student::where('classId', $classId)->get();
+            foreach ($classStudents as $student) {
+                $memberships = $student->memberships()->where('is_active', 1)->get();
+                foreach ($memberships as $membership) {
+                    $teacherArr = is_array($membership->teachers)
+                        ? $membership->teachers
+                        : json_decode($membership->teachers, true);
+                    if (is_array($teacherArr)) {
+                        foreach ($teacherArr as $t) {
+                            if ((string)($t['teacherId'] ?? null) === (string)$teacherId && !empty($t['subject'])) {
+                                $allSubjects->push($t['subject']);
+                            }
+                        }
+                    }
+                }
+            }
+            $allSubjects = $allSubjects->unique()->values()->all();
+        }
 
         return Inertia::render('Menu/AttendancePage', [
             'teachers' => $teachers->map(fn($teacher) => [
@@ -140,6 +227,7 @@ class AttendanceController extends Controller
                 'school_id' => $class->school_id
             ]),
             'students' => $studentsWithAttendance,
+            'allSubjects' => $allSubjects,
             'filters' => [
                 'date' => $date,
                 'teacher_id' => $teacherId,
@@ -169,59 +257,92 @@ class AttendanceController extends Controller
             'attendances.*.student_id' => 'required|exists:students,id',
             'attendances.*.status' => 'required|in:present,absent,late',
             'attendances.*.reason' => 'nullable|string|max:255',
+            'attendances.*.subject' => 'nullable|string|max:255',
             'date' => 'required|date',
             'class_id' => 'required|exists:classes,id',
             'teacher_id' => 'nullable|exists:teachers,id',
         ]);
- 
+
         try {
             DB::beginTransaction();
 
             $filtered = collect($validated['attendances'])->filter(fn($att) => $att['status'] !== 'present');
-            
-            // Track which students have records
             $processedStudentIds = [];
+
+            // Always get teacher_id from validated or request
+            $teacherId = $validated['teacher_id'] ?? $request->input('teacher_id');
 
             foreach ($filtered as $attendance) {
                 $studentId = $attendance['student_id'];
                 $processedStudentIds[] = $studentId;
-                
-                // Add classId condition
+
+                $subjectName = $attendance['subject'] ?? null;
+                $teacherIdForRecord = $attendance['teacher_id'] ?? $teacherId;
+
+                // If subject is missing, try to get the only available subject for this student/teacher/class
+                if (empty($subjectName)) {
+                    $student = \App\Models\Student::find($studentId);
+                    $memberships = $student ? $student->memberships()->where('is_active', 1)->get() : collect();
+                    $subjects = collect();
+                    foreach ($memberships as $membership) {
+                        $teacherArr = is_array($membership->teachers)
+                            ? $membership->teachers
+                            : json_decode($membership->teachers, true);
+                        if (is_array($teacherArr)) {
+                            foreach ($teacherArr as $t) {
+                                if ((string)($t['teacherId'] ?? null) === (string)$teacherIdForRecord && !empty($t['subject'])) {
+                                    $subjects->push($t['subject']);
+                                }
+                            }
+                        }
+                    }
+                    $subjects = $subjects->unique()->values();
+                    if ($subjects->count() === 1) {
+                        $subjectName = $subjects->first();
+                    }
+                }
+
+                // Fetch attendance for this student, teacher, subject, class, and date
                 $attendanceModel = Attendance::where('student_id', $studentId)
                     ->where('date', $validated['date'])
                     ->where('classId', $validated['class_id'])
+                    ->where('teacher_id', $teacherIdForRecord)
+                    ->where('subject', $subjectName)
                     ->first();
-                    
+
                 if ($attendanceModel) {
-                    // Update existing record
                     $attendanceModel->update([
                         'status' => $attendance['status'],
                         'reason' => $attendance['reason'],
-                        'recorded_by' => auth()->id()
+                        'recorded_by' => auth()->id(),
+                        'teacher_id' => $teacherIdForRecord,
+                        'subject' => $subjectName,
                     ]);
-                    
                     Log::info('Updated existing attendance record', [
                         'student_id' => $studentId,
-                        'status' => $attendance['status']
+                        'status' => $attendance['status'],
+                        'teacher_id' => $teacherIdForRecord,
+                        'subject' => $subjectName
                     ]);
                 } else {
-                    // Create new record
                     Attendance::create([
                         'student_id' => $studentId,
                         'date' => $validated['date'],
                         'classId' => $validated['class_id'],
                         'status' => $attendance['status'],
                         'reason' => $attendance['reason'],
-                        'recorded_by' => auth()->id()
+                        'recorded_by' => auth()->id(),
+                        'teacher_id' => $teacherIdForRecord,
+                        'subject' => $subjectName,
                     ]);
-                    
                     Log::info('Created new attendance record', [
                         'student_id' => $studentId,
-                        'status' => $attendance['status']
+                        'status' => $attendance['status'],
+                        'teacher_id' => $teacherIdForRecord,
+                        'subject' => $subjectName
                     ]);
                 }
 
-                // Send WhatsApp message if absent
                 if ($attendance['status'] === 'absent') {
                     $student = Student::find($studentId);
                     if ($student) {
@@ -229,7 +350,7 @@ class AttendanceController extends Controller
                         if (!empty($fatherPhone)) {
                             $studentName = trim($student->firstName . ' ' . $student->lastName);
                             try {
-                                WasenderApi::sendText($fatherPhone, "Bonjour, votre enfant {$studentName} est absent aujourd’hui.");
+                                // WasenderApi::sendText($fatherPhone, "Bonjour, votre enfant {$studentName} est absent aujourd’hui.");
                                 Log::info('WhatsApp message sent to parent', [
                                     'student_id' => $studentId,
                                     'phone' => $fatherPhone
@@ -250,7 +371,6 @@ class AttendanceController extends Controller
                 }
             }
 
-            // Remove any existing present records
             Attendance::where('classId', $validated['class_id'])
                 ->whereDate('date', $validated['date'])
                 ->where('status', 'present')
@@ -258,7 +378,6 @@ class AttendanceController extends Controller
 
             DB::commit();
 
-            // Log summary of what was processed
             Log::info('Attendance saved', [
                 'class_id' => $validated['class_id'],
                 'date' => $validated['date'],
@@ -266,23 +385,19 @@ class AttendanceController extends Controller
                 'non_present_count' => $filtered->count(),
                 'processed_student_ids' => $processedStudentIds
             ]);
-            
-            // Verify students can be retrieved for this class
+
             $studentCount = Student::where('classId', $validated['class_id'])->count();
             Log::info('Found students for this class', [
                 'class_id' => $validated['class_id'],
                 'student_count' => $studentCount
             ]);
 
-            // Get the teacher_id, either from validation or request
-            $teacherId = $validated['teacher_id'] ?? $request->input('teacher_id');
-
             // Redirect with explicit parameters to ensure data is properly loaded
             return redirect()->route('attendances.index', [
                 'date' => $validated['date'],
                 'class_id' => $validated['class_id'],
                 'teacher_id' => $teacherId,
-                '_timestamp' => time() // Add timestamp to prevent caching
+                '_timestamp' => time()
             ])->with('success', 'Attendance saved successfully');
         } catch (\Exception $e) {
             DB::rollBack();
@@ -354,6 +469,8 @@ class AttendanceController extends Controller
             'reason' => 'nullable|string|max:255',
             'date' => 'required|date',
             'class_id' => 'required|exists:classes,id',
+            'teacher_id' => 'nullable|exists:teachers,id',
+            'subject' => 'nullable|string|max:255',
         ]);
     
         try {
@@ -378,6 +495,8 @@ class AttendanceController extends Controller
                 'reason' => $validated['status'] !== 'present' ? $validated['reason'] : null,
                 'date' => $validated['date'],
                 'recorded_by' => auth()->id(),
+                'teacher_id' => $validated['teacher_id'] ?? $attendance->teacher_id,
+                'subject' => $validated['subject'] ?? $attendance->subject,
             ]);
     
             // Log the activity for the updated record
@@ -593,12 +712,41 @@ class AttendanceController extends Controller
         $teacher = \App\Models\Teacher::findOrFail($request->teacher_id);
         $class = \App\Models\Classes::with('level')->findOrFail($request->class_id);
         $students = $class->students()->orderBy('lastName')->get();
-        $date = $request->input('date', now()->format('d/m/Y'));
+        $date = $request->input('date', now()->format('Y-m-d'));
+
+        // Parse year and month
+        $year = date('Y');
+        $month = 1;
+        if (!empty($date)) {
+            $parts = explode('-', substr($date, 0, 10));
+            if (count($parts) >= 2) {
+                $year = (int)$parts[0];
+                $month = (int)$parts[1];
+            }
+        }
+        $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $month, $year);
+
+        // Fetch all absences for this class and month
+        $absences = \App\Models\Attendance::where('classId', $class->id)
+            ->where('status', 'absent')
+            ->whereYear('date', $year)
+            ->whereMonth('date', $month)
+            ->get();
+
+        // Build a map: [student_id][day] = true if absent
+        $studentAbsences = [];
+        foreach ($absences as $absence) {
+            $day = (int)date('j', strtotime($absence->date));
+            $studentAbsences[$absence->student_id][$day] = true;
+        }
+
         $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('absence_list_pdf', [
             'teacher' => $teacher,
             'class' => $class,
             'students' => $students,
             'date' => $date,
+            'studentAbsences' => $studentAbsences,
+            'daysInMonth' => $daysInMonth,
         ])->setPaper('A4', 'landscape');
         $filename = 'Liste-absence-' . $class->name . '-' . $teacher->last_name . '-' . now()->format('Ymd_His') . '.pdf';
         return $pdf->download($filename);

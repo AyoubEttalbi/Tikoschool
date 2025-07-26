@@ -407,6 +407,10 @@ protected function transformStudentData($student)
  */
     public function show($id)
     {
+        // Block teachers from accessing student profiles
+        if (auth()->user() && auth()->user()->role === 'teacher') {
+            abort(403, 'Access denied. Teachers are not allowed to view student profiles.');
+        }
         // Fetch the student from the database
         $student = Student::find($id);
 
@@ -472,6 +476,8 @@ protected function transformStudentData($student)
                     'last_payment' => $invoice->updated_at,
                     'created_at' => $invoice->created_at,
                     'selectedMonths' => $selectedMonths,
+                    'type' => $invoice->type,
+                    'assurance_amount' => $invoice->assurance_amount,
                 ];
             });
 

@@ -140,6 +140,14 @@ class SchoolController extends Controller
     }
 
     /**
+     * Return all schools as JSON (for filters, etc.)
+     */
+    public function listJson()
+    {
+        return response()->json(School::all());
+    }
+
+    /**
      * Get statistics for a school
      */
     private function getSchoolStatistics(School $school)

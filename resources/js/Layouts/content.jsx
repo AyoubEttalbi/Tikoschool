@@ -6,6 +6,7 @@ const FinanceChart = lazy(() => import("@/Components/FinanceChart"));
 const UserCard = lazy(() => import("@/Components/UserCard"));
 const EventCalendar = lazy(() => import("@/Components/EventCalendar"));
 const MostSellingOffersChart = lazy(() => import("@/Components/MostSellingOffersChart"));
+import CombinedUserCard from "@/Components/CombinedUserCard";
 import { usePage, router } from "@inertiajs/react";
 import { School } from "lucide-react";
 
@@ -53,6 +54,7 @@ const Content = () => {
                 <div className="w-full lg:w-full lg:px-12 flex flex-col gap-8">
                     {/* USER CARDS */}
                     <div className="flex gap-4 justify-between bg-white flex-wrap">
+                        
                         <Suspense fallback={<div>Chargement...</div>}>
                             <UserCard
                                 type="student"
@@ -75,6 +77,13 @@ const Content = () => {
                                 counts={props.assistantCounts}
                                 totalCount={props.totalAssistantCount}
                                 schoolId={selectedSchool}
+                            />
+                        </Suspense>
+                        <Suspense fallback={<div>Chargement...</div>}>
+                            <CombinedUserCard
+                                stats={props.studentMonthlyStats}
+                                schools={props.schools}
+                                selectedSchool={selectedSchool}
                             />
                         </Suspense>
                     </div>

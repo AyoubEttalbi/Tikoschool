@@ -5,6 +5,14 @@ import InputField from "../InputField";
 import { router } from "@inertiajs/react";
 import React, { useEffect, useState } from "react";
 
+// Helper function to format date to 'YYYY-MM-DD' without timezone issues
+const formatDateToYYYYMMDD = (date) => {
+    const d = new Date(date);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
 // Define the schema for the form (after imports)
 const invoiceSchema = z.object({
     membership_id: z.any().optional(),
@@ -40,10 +48,8 @@ const InvoicesForm = ({
         today.getMonth() + 1,
         1,
     );
-    const formattedFirstOfNextMonth = firstOfNextMonth
-        .toISOString()
-        .split("T")[0];
-    const todayFormatted = today.toISOString().split("T")[0];
+    const formattedFirstOfNextMonth = formatDateToYYYYMMDD(firstOfNextMonth);
+    const todayFormatted = formatDateToYYYYMMDD(today);
 
     // State to track whether to include partial month
     const [includePartialMonth, setIncludePartialMonth] = useState(
@@ -80,7 +86,7 @@ const InvoicesForm = ({
             membership_id: data?.membership_id || "",
             months: data?.months || 1,
             billDate: data?.billDate
-                ? new Date(data.billDate).toISOString().split("T")[0]
+                ? formatDateToYYYYMMDD(data.billDate)
                 : formattedFirstOfNextMonth,
             creationDate: data?.creationDate || todayFormatted,
             totalAmount: data?.totalAmount || 0,
@@ -238,7 +244,7 @@ const InvoicesForm = ({
             const [year, month] = selectedMonths[0].split("-").map(Number);
             if (!isNaN(year) && !isNaN(month)) {
                 const firstDay = new Date(year, month - 1, 1);
-                return firstDay.toISOString().split("T")[0];
+                return formatDateToYYYYMMDD(firstDay);
             }
         }
         return formattedFirstOfNextMonth;
@@ -254,16 +260,25 @@ const InvoicesForm = ({
             if (!isNaN(year) && !isNaN(month)) {
                 const lastDay = new Date(year, month, 0); // month is 1-based
                 if (!isNaN(lastDay.getTime())) {
-                    return lastDay.toISOString().split("T")[0];
+                    return formatDateToYYYYMMDD(lastDay);
                 }
             }
         }
         if (includePartialMonth) {
             const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-            return lastDay.toISOString().split("T")[0];
+            return formatDateToYYYYMMDD(lastDay);
         }
-        const lastDay = new Date(today.getFullYear(), today.getMonth() + 2, 0);
-        return lastDay.toISOString().split("T")[0];
+        // Fallback: End of the first selected month or next month if none selected
+        if (selectedMonths.length > 0) {
+            const lastMonth = selectedMonths[selectedMonths.length - 1];
+            const [year, month] = lastMonth.split("-").map(Number);
+            if (!isNaN(year) && !isNaN(month)) {
+                const lastDay = new Date(year, month, 0);
+                return formatDateToYYYYMMDD(lastDay);
+            }
+        }
+        const lastDayOfNextMonth = new Date(today.getFullYear(), today.getMonth() + 2, 0);
+        return formatDateToYYYYMMDD(lastDayOfNextMonth);
     };
 
     const onSubmit = (formData) => {
@@ -362,7 +377,7 @@ const InvoicesForm = ({
     const currentMonthSelected = selectedMonths.includes(currentMonthValue);
     const invalidPartialAndCurrentMonth = includePartialMonth && currentMonthSelected;
 
-    // ...existing code...
+    const isAssurance = data?.type === 'assurance';
 
     return (
         <form
@@ -425,208 +440,206 @@ const InvoicesForm = ({
                     </h2>
 
                     <div className="space-y-4">
-                        {/* Membership Select Field */}
-                        <div className="flex flex-col gap-2">
-                            <label
-                                htmlFor="membership_id"
-                                className="text-sm font-medium text-gray-700"
-                            >
-                                Sélectionner l'adhésion{" "}
-                                <span className="text-red-500">*</span>
-                            </label>
-                            <select
-                                id="membership_id"
-                                {...register("membership_id")}
-                                className="p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            >
-                                {type === "update" ? (
-                                    <option value={data.membership_id}>
-                                        {
-                                            StudentMemberships.find(
-                                                (membership) =>
-                                                    membership.id ===
-                                                    data.membership_id,
-                                            ).offer_name
-                                        }{" "}
-                                        (Prix :{" "}
-                                        {Math.round(
-                                            StudentMemberships.find(
-                                                (membership) =>
-                                                    membership.id ===
-                                                    data.membership_id,
-                                            ).price,
-                                        )}{" "}
-                                        DH)
-                                    </option>
-                                ) : (
-                                    <>
-                                        <option value="">
-                                            Sélectionnez une adhésion
+                        {/* Membership Select Field or Assurance Badge */}
+                        {isAssurance ? (
+                            <div className="flex flex-col gap-2">
+                                <label className="text-sm font-medium text-gray-700">Type de facture</label>
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-50 text-yellow-700 border border-yellow-200">Assurance</span>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col gap-2">
+                                <label
+                                    htmlFor="membership_id"
+                                    className="text-sm font-medium text-gray-700"
+                                >
+                                    Sélectionner l'adhésion{" "}
+                                    <span className="text-red-500">*</span>
+                                </label>
+                                <select
+                                    id="membership_id"
+                                    {...register("membership_id")}
+                                    className="p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    disabled={isAssurance}
+                                >
+                                    {type === "update" ? (
+                                        <option value={data.membership_id}>
+                                            {
+                                                StudentMemberships.find(
+                                                    (membership) =>
+                                                        membership.id ===
+                                                        data.membership_id,
+                                                ).offer_name
+                                            }{" "}
+                                            (Prix :{" "}
+                                            {Math.round(
+                                                StudentMemberships.find(
+                                                    (membership) =>
+                                                        membership.id ===
+                                                        data.membership_id,
+                                                ).price,
+                                            )}{" "}
+                                            DH)
                                         </option>
-                                        {StudentMemberships.map(
-                                            (membership) => (
-                                                <option
-                                                    key={membership.id}
-                                                    value={membership.id}
-                                                    className={
-                                                        membership.payment_status !==
-                                                        "paid"
-                                                            ? "bg-amber-50 font-medium"
-                                                            : ""
-                                                    }
-                                                >
-                                                    {membership.offer_name}{" "}
-                                                    (Prix :{" "}
-                                                    {Math.round(
-                                                        membership.price,
-                                                    )}{" "}
-                                                    DH)
-                                                    {membership.payment_status !==
-                                                        "paid" && " - Impayé"}
-                                                </option>
-                                            ),
-                                        )}
-                                    </>
+                                    ) : (
+                                        <>
+                                            <option value="">
+                                                Sélectionnez une adhésion
+                                            </option>
+                                            {StudentMemberships.map(
+                                                (membership) => (
+                                                    <option
+                                                        key={membership.id}
+                                                        value={membership.id}
+                                                        className={
+                                                            membership.payment_status !==
+                                                            "paid"
+                                                                ? "bg-amber-50 font-medium"
+                                                                : ""
+                                                        }
+                                                    >
+                                                        {membership.offer_name}{" "}
+                                                        (Prix :{" "}
+                                                        {Math.round(
+                                                            membership.price,
+                                                        )}{" "}
+                                                        DH)
+                                                        {membership.payment_status !==
+                                                            "paid" && " - Impayé"}
+                                                    </option>
+                                                ),
+                                            )}
+                                        </>
+                                    )}
+                                </select>
+                                {errors.membership_id && (
+                                    <span className="text-sm text-red-500">
+                                        {errors.membership_id.message}
+                                    </span>
                                 )}
-                            </select>
-                            {errors.membership_id && (
-                                <span className="text-sm text-red-500">
-                                    {errors.membership_id.message}
-                                </span>
-                            )}
-                        </div>
+                            </div>
+                        )}
 
-                        {/* Only show membership details and rest of form if a membership is selected (in create mode) */}
-                        {(type === "update" || selectedMembership) && (
+                        {/* Membership Details or Assurance Details */}
+                        {(isAssurance || type === "update" || selectedMembership) && (
                             <>
                                 <div className="bg-white p-3 rounded-md border border-gray-200 mt-2">
                                     <h3 className="font-medium text-gray-700 mb-2">
                                         Résumé de l'adhésion sélectionnée
                                     </h3>
                                     <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                                        <div className="text-gray-600">
-                                            Adhésion :
-                                        </div>
+                                        <div className="text-gray-600">Adhésion :</div>
                                         <div className="font-medium">
-                                            {selectedMembership?.offer_name}
+                                            {isAssurance ? 'Assurance' : selectedMembership?.offer_name}
                                         </div>
-                                        <div className="text-gray-600">
-                                            Prix mensuel :
-                                        </div>
+                                        <div className="text-gray-600">Prix :</div>
                                         <div className="font-medium">
-                                            {selectedMembership ? Math.round(selectedMembership.price) : ''}{" "}
-                                            DH
+                                            {isAssurance ? (data?.assurance_amount || 0) : (selectedMembership ? Math.round(selectedMembership.price) : '')} DH
                                         </div>
-                                        {selectedMembership && selectedMembership.payment_status !== "paid" && (
-                                            <>
-                                                <div className="text-gray-600">
-                                                    Statut du paiement :
-                                                </div>
-                                                <div className="font-medium text-amber-600">
-                                                    Impayé
-                                                </div>
-                                            </>
-                                        )}
                                     </div>
                                 </div>
-                                {/* Months Checkbox List (starts from current month, default checked) */}
-                                <div className="flex flex-col gap-2 mt-4">
-                                    <label className="text-sm font-medium text-gray-700">
-                                        Mois à facturer {!includePartialMonth && <span className="text-red-500">*</span>}
-                                    </label>
-                                    <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto border border-gray-300 rounded-md p-2 bg-white">
-                                        {monthsList.map((month, idx) => {
-                                            const checked = selectedMonths.includes(month.value);
-                                            return (
-                                                <label key={month.value} className="flex items-center gap-2 cursor-pointer">
-                                                    <input
-                                                        type="checkbox"
-                                                        value={month.value}
-                                                        checked={checked}
-                                                        onChange={e => {
-                                                            let newSelected;
-                                                            if (e.target.checked) {
-                                                                newSelected = [...selectedMonths, month.value];
-                                                            } else {
-                                                                newSelected = selectedMonths.filter(m => m !== month.value);
-                                                            }
-                                                            setSelectedMonths(Array.from(new Set(newSelected)).sort());
-                                                        }}
-                                                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                                                    />
-                                                    {month.label}
-                                                </label>
-                                            );
-                                        })}
-                                    </div>
-                                    {/* Only show error if partial month is NOT checked and no months are selected */}
-                                    {!includePartialMonth && selectedMonths.length === 0 && (
-                                        <span className="text-sm text-red-500">Veuillez sélectionner au moins un mois ou inclure le mois partiel.</span>
-                                    )}
-                                    {!monthsAreConsecutive && selectedMonths.length > 1 && (
-                                        <span className="text-sm text-red-500">Les mois sélectionnés doivent être consécutifs.</span>
-                                    )}
-                                    {/* Show error if current month and partial month are both selected */}
-                                    {invalidPartialAndCurrentMonth && (
-                                        <div className="mt-2 p-3 rounded-md bg-red-50 border border-red-200 flex items-center gap-2">
-                                            <svg className="w-5 h-5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-1.414-1.414A9 9 0 105.636 18.364l1.414 1.414A9 9 0 1018.364 5.636z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01" /></svg>
-                                            <span className="text-red-700 font-medium">Vous ne pouvez pas sélectionner le mois courant et inclure le paiement du mois partiel en même temps.</span>
-                                        </div>
-                                    )}
-                                </div>
-                                {/* Partial Month Option (single instance) */}
-                                <div className="mt-2">
-                                    <div className="flex items-center gap-2">
-                                        <input
-                                            type="checkbox"
-                                            id="includePartialMonth"
-                                            checked={includePartialMonth}
-                                            onChange={handlePartialMonthChange}
-                                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                                        />
-                                        <label
-                                            htmlFor="includePartialMonth"
-                                            className="text-sm font-medium text-gray-700"
-                                        >
-                                            Inclure le paiement du mois partiel (aujourd'hui jusqu'à la fin de ce mois)
-                                        </label>
-                                    </div>
-                                    {/* Partial Month Amount Display */}
-                                    {includePartialMonth && selectedMembership && (
-                                        <div className="bg-blue-50 p-3 rounded-md border border-blue-200 mt-2">
-                                            <div className="flex items-center">
-                                                <svg
-                                                    className="h-5 w-5 text-blue-500 mr-2"
-                                                    xmlns="http://www.w3.org/2000/svg"
-                                                    fill="none"
-                                                    viewBox="0 0 24 24"
-                                                    stroke="currentColor"
-                                                >
-                                                    <path
-                                                        strokeLinecap="round"
-                                                        strokeLinejoin="round"
-                                                        strokeWidth={2}
-                                                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                                                    />
-                                                </svg>
-                                                <div>
-                                                    <p className="text-sm text-blue-800">
-                                                        Paiement du mois partiel :{" "}
-                                                        <span className="font-medium">
-                                                            {partialMonthAmount} DH
-                                                        </span>
-                                                        (" "
-                                                        {Math.ceil(
-                                                            (firstOfNextMonth - today) /
-                                                            (1000 * 60 * 60 * 24),
-                                                        )}{" "}
-                                                        jours restants dans le mois courant)
-                                                    </p>
-                                                </div>
+                                {/* Only show months/partial month for non-assurance */}
+                                {!isAssurance && (
+                                    <>
+                                        {/* Months Checkbox List */}
+                                        <div className="flex flex-col gap-2 mt-4">
+                                            <label className="text-sm font-medium text-gray-700">
+                                                Mois à facturer {!includePartialMonth && <span className="text-red-500">*</span>}
+                                            </label>
+                                            <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto border border-gray-300 rounded-md p-2 bg-white">
+                                                {monthsList.map((month, idx) => {
+                                                    const checked = selectedMonths.includes(month.value);
+                                                    return (
+                                                        <label key={month.value} className="flex items-center gap-2 cursor-pointer">
+                                                            <input
+                                                                type="checkbox"
+                                                                value={month.value}
+                                                                checked={checked}
+                                                                onChange={e => {
+                                                                    let newSelected;
+                                                                    if (e.target.checked) {
+                                                                        newSelected = [...selectedMonths, month.value];
+                                                                    } else {
+                                                                        newSelected = selectedMonths.filter(m => m !== month.value);
+                                                                    }
+                                                                    setSelectedMonths(Array.from(new Set(newSelected)).sort());
+                                                                }}
+                                                                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                                            />
+                                                            {month.label}
+                                                        </label>
+                                                    );
+                                                })}
                                             </div>
+                                            {/* Only show error if partial month is NOT checked and no months are selected */}
+                                            {!includePartialMonth && selectedMonths.length === 0 && (
+                                                <span className="text-sm text-red-500">Veuillez sélectionner au moins un mois ou inclure le mois partiel.</span>
+                                            )}
+                                            {!monthsAreConsecutive && selectedMonths.length > 1 && (
+                                                <span className="text-sm text-red-500">Les mois sélectionnés doivent être consécutifs.</span>
+                                            )}
+                                            {/* Show error if current month and partial month are both selected */}
+                                            {invalidPartialAndCurrentMonth && (
+                                                <div className="mt-2 p-3 rounded-md bg-red-50 border border-red-200 flex items-center gap-2">
+                                                    <svg className="w-5 h-5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-1.414-1.414A9 9 0 105.636 18.364l1.414 1.414A9 9 0 1018.364 5.636z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01" /></svg>
+                                                    <span className="text-red-700 font-medium">Vous ne pouvez pas sélectionner le mois courant et inclure le paiement du mois partiel en même temps.</span>
+                                                </div>
+                                            )}
                                         </div>
-                                    )}
-                                </div>
+                                        {/* Partial Month Option (single instance) */}
+                                        <div className="mt-2">
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    type="checkbox"
+                                                    id="includePartialMonth"
+                                                    checked={includePartialMonth}
+                                                    onChange={handlePartialMonthChange}
+                                                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                                />
+                                                <label
+                                                    htmlFor="includePartialMonth"
+                                                    className="text-sm font-medium text-gray-700"
+                                                >
+                                                    Inclure le paiement du mois partiel (aujourd'hui jusqu'à la fin de ce mois)
+                                                </label>
+                                            </div>
+                                            {/* Partial Month Amount Display */}
+                                            {includePartialMonth && selectedMembership && (
+                                                <div className="bg-blue-50 p-3 rounded-md border border-blue-200 mt-2">
+                                                    <div className="flex items-center">
+                                                        <svg
+                                                            className="h-5 w-5 text-blue-500 mr-2"
+                                                            xmlns="http://www.w3.org/2000/svg"
+                                                            fill="none"
+                                                            viewBox="0 0 24 24"
+                                                            stroke="currentColor"
+                                                        >
+                                                            <path
+                                                                strokeLinecap="round"
+                                                                strokeLinejoin="round"
+                                                                strokeWidth={2}
+                                                                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                                                            />
+                                                        </svg>
+                                                        <div>
+                                                            <p className="text-sm text-blue-800">
+                                                                Paiement du mois partiel :{" "}
+                                                                <span className="font-medium">
+                                                                    {partialMonthAmount} DH
+                                                                </span>
+                                                                (" "
+                                                                {Math.ceil(
+                                                                    (firstOfNextMonth - today) /
+                                                                    (1000 * 60 * 60 * 24),
+                                                                )}{" "}
+                                                                jours restants dans le mois courant)
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </>
+                                )}
                             </>
                         
                         )}
@@ -654,6 +667,7 @@ const InvoicesForm = ({
                                 id="billDate"
                                 {...register("billDate")}
                                 className="p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                readOnly={isAssurance}
                             />
                             {errors.billDate && (
                                 <span className="text-sm text-red-500">
@@ -684,105 +698,105 @@ const InvoicesForm = ({
                         </div>
 
                         {/* Amount Fields */}
-                        {selectedMembership && (
-                            <div className="space-y-4">
-                                {/* Total Amount (Read-only) */}
-                                <div className="flex flex-col gap-2">
-                                    <label
-                                        htmlFor="totalAmount"
-                                        className="text-sm font-medium text-gray-700"
-                                    >
-                                        Montant total (DH)
-                                    </label>
+                        <div className="space-y-4">
+                            {/* Total Amount (Read-only) */}
+                            <div className="flex flex-col gap-2">
+                                <label
+                                    htmlFor="totalAmount"
+                                    className="text-sm font-medium text-gray-700"
+                                >
+                                    Montant total (DH)
+                                </label>
+                                <input
+                                    type="number"
+                                    id="totalAmount"
+                                    {...register("totalAmount")}
+                                    className="p-2 border border-gray-200 rounded-md bg-gray-100"
+                                    readOnly
+                                    value={isAssurance ? data?.assurance_amount || 0 : totalAmount}
+                                />
+                                <p className="text-xs text-gray-500">
+                                    {includePartialMonth && partialMonthAmount > 0 && (
+                                        <>
+                                            {partialMonthAmount} DH (mois partiel)
+                                            {monthsCount > 0 && ' + '}
+                                        </>
+                                    )}
+                                    {monthsCount > 0 && (
+                                        <>
+                                            {fullMonthsAmount} DH ({monthsCount} mois)
+                                        </>
+                                    )}
+                                    {(!includePartialMonth && monthsCount === 0) && (
+                                        <>Aucun mois sélectionné.</>
+                                    )}
+                                </p>
+                            </div>
+
+                            {/* Amount Paid Field */}
+                            <div className="flex flex-col gap-2">
+                                {/* Label */}
+                                <label
+                                    htmlFor="amountPaid"
+                                    className="text-sm font-medium text-gray-700"
+                                >
+                                    Montant payé (DH)
+                                </label>
+
+                                {/* Input Container */}
+                                <div className="relative">
+                                    {/* Amount Paid Input */}
                                     <input
                                         type="number"
-                                        id="totalAmount"
-                                        {...register("totalAmount")}
-                                        className="p-2 border border-gray-200 rounded-md bg-gray-100"
-                                        readOnly
+                                        id="amountPaid"
+                                        placeholder="0"
+                                        {...register("amountPaid")}
+                                        className="block w-full p-2 pr-10 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                                     />
-                                    <p className="text-xs text-gray-500">
-                                        {includePartialMonth && partialMonthAmount > 0 && (
-                                            <>
-                                                {partialMonthAmount} DH (mois partiel)
-                                                {monthsCount > 0 && ' + '}
-                                            </>
-                                        )}
-                                        {monthsCount > 0 && (
-                                            <>
-                                                {fullMonthsAmount} DH ({monthsCount} mois)
-                                            </>
-                                        )}
-                                        {(!includePartialMonth && monthsCount === 0) && (
-                                            <>Aucun mois sélectionné.</>
-                                        )}
-                                    </p>
-                                </div>
 
-                                {/* Amount Paid Field */}
-                                <div className="flex flex-col gap-2">
-                                    {/* Label */}
-                                    <label
-                                        htmlFor="amountPaid"
-                                        className="text-sm font-medium text-gray-700"
+                                    {/* Button with Icon */}
+                                    <button
+                                        type="button"
+                                        onClick={handleAutoFill}
+                                        id="autoFillButton"
+                                        className="absolute inset-y-0 right-0 px-3 py-2 bg-blue-600 text-white rounded-r-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                                     >
-                                        Montant payé (DH)
-                                    </label>
-
-                                    {/* Input Container */}
-                                    <div className="relative">
-                                        {/* Amount Paid Input */}
-                                        <input
-                                            type="number"
-                                            id="amountPaid"
-                                            placeholder="0"
-                                            {...register("amountPaid")}
-                                            className="block w-full p-2 pr-10 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                        />
-
-                                        {/* Button with Icon */}
-                                        <button
-                                            type="button"
-                                            onClick={handleAutoFill}
-                                            id="autoFillButton"
-                                            className="absolute inset-y-0 right-0 px-3 py-2 bg-blue-600 text-white rounded-r-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            className="h-5 w-5"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
                                         >
-                                            <svg
-                                                xmlns="http://www.w3.org/2000/svg"
-                                                className="h-5 w-5"
-                                                fill="none"
-                                                viewBox="0 0 24 24"
-                                                stroke="currentColor"
-                                            >
-                                                <path
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    strokeWidth="2"
-                                                    d="M8 7h12m0 0l-4 4m4-4l-4-4m0 10H4m0 0l4 4m-4-4l4-4"
-                                                />
-                                            </svg>
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* Remaining Amount (Read-only) */}
-                                <div className="flex flex-col gap-2">
-                                    <label
-                                        htmlFor="rest"
-                                        className="text-sm font-medium text-gray-700"
-                                    >
-                                        Montant restant (DH)
-                                    </label>
-                                    <input
-                                        type="number"
-                                        id="rest"
-                                        {...register("rest")}
-                                        className="p-2 border border-gray-200 rounded-md bg-gray-100"
-                                        readOnly
-                                    />
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                strokeWidth="2"
+                                                d="M8 7h12m0 0l-4 4m4-4l-4-4m0 10H4m0 0l4 4m-4-4l4-4"
+                                            />
+                                        </svg>
+                                    </button>
                                 </div>
                             </div>
-                        )}
+
+                            {/* Remaining Amount (Read-only) */}
+                            <div className="flex flex-col gap-2">
+                                <label
+                                    htmlFor="rest"
+                                    className="text-sm font-medium text-gray-700"
+                                >
+                                    Montant restant (DH)
+                                </label>
+                                <input
+                                    type="number"
+                                    id="rest"
+                                    {...register("rest")}
+                                    className="p-2 border border-gray-200 rounded-md bg-gray-100"
+                                    readOnly
+                                    value={isAssurance ? (data?.assurance_amount || 0) - (amountPaid ? Math.round(Number(amountPaid)) : 0) : restAmount}
+                                />
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
