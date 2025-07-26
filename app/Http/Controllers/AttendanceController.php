@@ -13,6 +13,7 @@ use App\Models\School;
 use App\Models\Teacher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
 use Spatie\Activitylog\Models\Activity;
 use Carbon\Carbon;
 use WasenderApi\Facades\WasenderApi;
@@ -21,7 +22,7 @@ use App\Jobs\SendWhatsAppNotification;
 class AttendanceController extends Controller
 {
     public function index(Request $request)
-        // ...existing code...
+        
     {
         // Get parameters from request
         $date = $request->input('date', now()->format('Y-m-d'));
@@ -267,13 +268,13 @@ class AttendanceController extends Controller
         try {
             DB::beginTransaction();
 
-            $filtered = collect($validated['attendances'])->filter(fn($att) => $att['status'] !== 'present');
+            // Process ALL attendance records, including present ones
             $processedStudentIds = [];
 
             // Always get teacher_id from validated or request
             $teacherId = $validated['teacher_id'] ?? $request->input('teacher_id');
 
-            foreach ($filtered as $attendance) {
+            foreach ($validated['attendances'] as $attendance) {
                 $studentId = $attendance['student_id'];
                 $processedStudentIds[] = $studentId;
 
@@ -315,7 +316,7 @@ class AttendanceController extends Controller
                     $attendanceModel->update([
                         'status' => $attendance['status'],
                         'reason' => $attendance['reason'],
-                        'recorded_by' => auth()->id(),
+                        'recorded_by' => Auth::id(),
                         'teacher_id' => $teacherIdForRecord,
                         'subject' => $subjectName,
                     ]);
@@ -332,7 +333,7 @@ class AttendanceController extends Controller
                         'classId' => $validated['class_id'],
                         'status' => $attendance['status'],
                         'reason' => $attendance['reason'],
-                        'recorded_by' => auth()->id(),
+                        'recorded_by' => Auth::id(),
                         'teacher_id' => $teacherIdForRecord,
                         'subject' => $subjectName,
                     ]);
@@ -371,10 +372,11 @@ class AttendanceController extends Controller
                 }
             }
 
-            Attendance::where('classId', $validated['class_id'])
-                ->whereDate('date', $validated['date'])
-                ->where('status', 'present')
-                ->delete();
+            // Remove the problematic line that deletes present records
+            // Attendance::where('classId', $validated['class_id'])
+            //     ->whereDate('date', $validated['date'])
+            //     ->where('status', 'present')
+            //     ->delete();
 
             DB::commit();
 
@@ -382,7 +384,6 @@ class AttendanceController extends Controller
                 'class_id' => $validated['class_id'],
                 'date' => $validated['date'],
                 'student_count' => count($validated['attendances']),
-                'non_present_count' => $filtered->count(),
                 'processed_student_ids' => $processedStudentIds
             ]);
 
@@ -494,7 +495,7 @@ class AttendanceController extends Controller
                 'status' => $validated['status'],
                 'reason' => $validated['status'] !== 'present' ? $validated['reason'] : null,
                 'date' => $validated['date'],
-                'recorded_by' => auth()->id(),
+                'recorded_by' => Auth::id(),
                 'teacher_id' => $validated['teacher_id'] ?? $attendance->teacher_id,
                 'subject' => $validated['subject'] ?? $attendance->subject,
             ]);
@@ -550,7 +551,7 @@ class AttendanceController extends Controller
         'TargetName' => $model->student->firstName . ' ' . $model->student->lastName,
         'action' => $action,
         'table' => $tableName,
-        'user' => auth()->user()->name,
+        'user' => Auth::user()->name,
     ];
 
     if ($action === 'updated' && $oldData && $newData) {
@@ -576,7 +577,7 @@ class AttendanceController extends Controller
     }
 
     activity()
-        ->causedBy(auth()->user())
+        ->causedBy(Auth::user())
         ->performedOn($model)
         ->withProperties($properties)
         ->log($description);
