@@ -178,8 +178,8 @@ class UserController extends Controller
             $query->where('role', $request->role);
         }
 
-        // Get users as simple array, newest first
-        $users = $query->orderBy('created_at', 'desc')->get();
+        // Paginate users (10 per page)
+        $users = $query->orderBy('created_at', 'desc')->paginate(10)->withQueryString();
 
         // Get all roles for filter dropdown
         $roles = ['admin', 'assistant', 'teacher', 'student'];

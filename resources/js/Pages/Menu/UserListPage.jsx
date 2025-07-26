@@ -173,6 +173,9 @@ const UserListPage = ({ users, filters: initialFilters = {}, roles = [] }) => {
         </tr>
     );
 
+    // Use paginated data
+    const paginatedUsers = Array.isArray(users.data) ? users.data : users;
+
     return (
         <div className="bg-white p-4 rounded-md flex-1 m-4 mt-0">
             {/* TOP */}
@@ -243,11 +246,15 @@ const UserListPage = ({ users, filters: initialFilters = {}, roles = [] }) => {
             )}
             <Table
                 columns={columns}
-                data={users}
+                data={paginatedUsers}
                 renderRow={renderRow}
                 filters={filters}
                 emptyText="Aucun utilisateur trouvé."
             />
+            {/* PAGINATION */}
+            {users.links && (
+                <Pagination links={users.links} filters={filters} />
+            )}
         </div>
     );
 };

@@ -98,7 +98,7 @@ export default function DashboardLayout({ children }) {
     };
 
     // Enhance users with online status
-    const usersWithStatus = (users || []).map((user) => ({
+    const usersWithStatus = (users.data || []).map((user) => ({
         ...user,
         status: onlineUsers.includes(user.id) ? "online" : "offline",
     }));
