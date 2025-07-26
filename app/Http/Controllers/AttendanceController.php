@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\DB;
 use Spatie\Activitylog\Models\Activity;
 use Carbon\Carbon;
 use WasenderApi\Facades\WasenderApi;
+use App\Jobs\SendWhatsAppNotification;
 
 class AttendanceController extends Controller
 {
@@ -344,29 +345,28 @@ class AttendanceController extends Controller
                 }
 
                 if ($attendance['status'] === 'absent') {
+                    // Queue WhatsApp notifications instead of sending immediately
                     $student = Student::find($studentId);
-                    if ($student) {
-                        $fatherPhone = $student->guardianNumber;
-                        if (!empty($fatherPhone)) {
-                            $studentName = trim($student->firstName . ' ' . $student->lastName);
-                            try {
-                                // WasenderApi::sendText($fatherPhone, "Bonjour, votre enfant {$studentName} est absent aujourd’hui.");
-                                Log::info('WhatsApp message sent to parent', [
-                                    'student_id' => $studentId,
-                                    'phone' => $fatherPhone
-                                ]);
-                            } catch (\Exception $e) {
-                                Log::error('Failed to send WhatsApp message', [
-                                    'student_id' => $studentId,
-                                    'phone' => $fatherPhone,
-                                    'error' => $e->getMessage()
-                                ]);
-                            }
-                        } else {
-                            Log::warning('No guardian phone number for student', [
-                                'student_id' => $studentId
-                            ]);
-                        }
+                    if ($student && !empty($student->guardianNumber)) {
+                        $studentName = trim($student->firstName . ' ' . $student->lastName);
+                        $message = "Bonjour, votre enfant {$studentName} est absent aujourd'hui.";
+                        // Queue job on dedicated WhatsApp queue
+                        $job = (new SendWhatsAppNotification(
+                            $student->guardianNumber,
+                            $message,
+                            $studentId
+                        ))->onQueue('whatsapp');
+                        dispatch($job);
+                        // Optionally, you can log the queueing event
+                        Log::info('WhatsApp notification queued', [
+                            'student_id' => $studentId,
+                            'phone' => $student->guardianNumber,
+                            'queued_at' => now()->toDateTimeString()
+                        ]);
+                    } else {
+                        Log::warning('No guardian phone number for student', [
+                            'student_id' => $studentId
+                        ]);
                     }
                 }
             }
