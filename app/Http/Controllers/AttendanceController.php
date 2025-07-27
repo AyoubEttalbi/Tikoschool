@@ -312,6 +312,21 @@ class AttendanceController extends Controller
                     ->where('subject', $subjectName)
                     ->first();
 
+                if ($attendance['status'] === 'present') {
+                    // If status is present and a record exists, delete it
+                    if ($attendanceModel) {
+                        $attendanceModel->delete();
+                        Log::info('Deleted attendance record (marked as present)', [
+                            'student_id' => $studentId,
+                            'teacher_id' => $teacherIdForRecord,
+                            'subject' => $subjectName
+                        ]);
+                    }
+                    // Do not create a record for present
+                    continue;
+                }
+
+                // Only absent or late are recorded
                 if ($attendanceModel) {
                     $attendanceModel->update([
                         'status' => $attendance['status'],
