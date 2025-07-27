@@ -54,13 +54,6 @@ const StudentListPage = ({
     filters: initialFilters,
     Allmemberships,
 }) => {
-    // Ensure students is always an array
-    const safeStudents = Array.isArray(students?.data) ? students.data : [];
-    // Sort students by created_at descending (latest first)
-    const sortedStudents = [...safeStudents].sort(
-        (a, b) => new Date(b.created_at) - new Date(a.created_at),
-    );
-    const role = usePage().props.auth.user.role;
     // State for filters and search
     const [filters, setFilters] = useState({
         school: initialFilters.school || "",
@@ -69,6 +62,42 @@ const StudentListPage = ({
         search: initialFilters.search || "",
         membership_status: initialFilters.membership_status || "all",
     });
+    // Ensure students is always an array
+    const safeStudents = Array.isArray(students?.data) ? students.data : [];
+    // Sort students by created_at descending (latest first)
+    const sortedStudents = [...safeStudents].sort(
+        (a, b) => new Date(b.created_at) - new Date(a.created_at),
+    );
+
+    // Custom search filter for parent phone and parent name (client-side fallback)
+    const filteredStudents = filters.search
+        ? sortedStudents.filter((student) => {
+              const search = filters.search.toLowerCase();
+              // Helper to normalize phone numbers (remove spaces, dashes, parentheses, leading +, etc.)
+              const normalizePhone = (phone) =>
+                  phone
+                      ?.replace(/\D/g, "") // Remove all non-digits
+                      .replace(/^212/, "0") // Convert +212 or 212 to 0
+                      .replace(/^0+/, "0"); // Ensure only one leading zero
+
+              const normalizedSearch = normalizePhone(search);
+              const normalizedStudentPhone = normalizePhone(student.phone || "");
+              const normalizedGuardianPhone = normalizePhone(student.guardianNumber || "");
+
+              // Also check original phone for partial matches (for +212... search)
+              return (
+                  (student.name && student.name.toLowerCase().includes(search)) ||
+                  (student.studentId && student.studentId.toLowerCase().includes(search)) ||
+                  (student.phone && student.phone.toLowerCase().includes(search)) ||
+                  (student.address && student.address.toLowerCase().includes(search)) ||
+                  (student.guardianNumber && student.guardianNumber.toLowerCase().includes(search)) ||
+                  (student.guardianName && student.guardianName.toLowerCase().includes(search)) ||
+                  (normalizedSearch && normalizedStudentPhone.includes(normalizedSearch)) ||
+                  (normalizedSearch && normalizedGuardianPhone.includes(normalizedSearch))
+              );
+          })
+        : sortedStudents;
+    const role = usePage().props.auth.user.role;
 
     const [showFilters, setShowFilters] = useState(false);
     // Debounced function to apply filters
@@ -337,7 +366,7 @@ const StudentListPage = ({
             {/* LIST */}
             <Table
                 columns={columns}
-                data={students.data}
+                data={filteredStudents}
                 renderRow={renderRow}
                 emptyText="Aucun étudiant trouvé."
             />

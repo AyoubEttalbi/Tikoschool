@@ -22,14 +22,30 @@ const AttendanceChart = ({ schoolId }) => {
                 const response = await axios.get("/attendance/stats", {
                     params: schoolId ? { school_id: schoolId } : {},
                 });
-                setData(response.data);
+                // Map date to French day name
+                const daysFr = [
+                    "Dimanche",
+                    "Lundi",
+                    "Mardi",
+                    "Mercredi",
+                    "Jeudi",
+                    "Vendredi",
+                    "Samedi",
+                ];
+                const mapped = response.data.map((item) => {
+                    const d = new Date(item.date);
+                    return {
+                        ...item,
+                        day: daysFr[d.getDay()],
+                    };
+                });
+                setData(mapped);
             } catch (error) {
                 console.error("Error fetching attendance data:", error);
             } finally {
                 setLoading(false);
             }
         };
-
         fetchData();
     }, [schoolId]);
 
@@ -61,7 +77,7 @@ const AttendanceChart = ({ schoolId }) => {
                             stroke="#ddd"
                         />
                         <XAxis
-                            dataKey="name"
+                            dataKey="day"
                             axisLine={false}
                             tick={{ fill: "#d1d5db" }}
                             tickLine={false}

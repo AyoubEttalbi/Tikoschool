@@ -37,7 +37,7 @@ const PhoneInput = ({ label, name, value, onChange, error }) => (
 );
 
 // Add phoneRegex definition here
-const phoneRegex = /^[678]\d{8}$/;
+const phoneRegex = /^[5678]\d{8}$/;
 
 // Update schema to include disease information
 const schema = z
@@ -54,13 +54,29 @@ const schema = z
         guardianNumber: z
             .string()
             .min(9, { message: "Le numéro du tuteur est requis !" })
-            .regex(phoneRegex, { message: "Le numéro doit commencer par 6, 7 ou 8 et comporter 9 chiffres." }),
+            .refine(
+                (val) => {
+                    // Accept +212 or 0 prefix, but validate only the last 9 digits
+                    const digits = val.replace(/^\+212/, "");
+                    return phoneRegex.test(digits);
+                },
+                { message: "Le numéro doit commencer par 5, 6, 7 ou 8 et comporter 9 chiffres." }
+            )
+            .transform((val) => val.replace(/^\+212/, "")),
         guardianName: z.string().max(255, { message: "Nom du tuteur trop long (255 caractères max)" }).optional(),
         CIN: z.any().optional(),
         phoneNumber: z
-            .string()
-            .min(9, { message: "Le numéro de téléphone est requis !" })
-            .regex(phoneRegex, { message: "Le numéro doit commencer par 6, 7 ou 8 et comporter 9 chiffres." }),
+            .any()
+            .optional()
+            .refine(
+                (val) => {
+                    // Accept +212 or 0 prefix, but validate only the last 9 digits
+                    const digits = val.replace(/^\+212/, "");
+                    return phoneRegex.test(digits);
+                },
+                { message: "Le numéro doit commencer par 5, 6, 7 ou 8 et comporter 9 chiffres." }
+            )
+            .transform((val) => val.replace(/^\+212/, "")),
         email: z.any().optional(),
         massarCode: z.any().optional(),
         levelId: z.string().min(1, { message: "Le niveau est requis !" }),
@@ -334,10 +350,11 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
             // For update, we need to use the proper method spoofing with Inertia
             // Add the _method field to the formData for Laravel to recognize it as PUT
             formDataObj.append("_method", "PUT");
-            for (let pair of formDataObj.entries()) {
-                console.log(pair[0]+ ': ' + pair[1]);
-            }
+            // for (let pair of formDataObj.entries()) {
+            //     console.log(pair[0]+ ': ' + pair[1]);
+            // }
             // Then use post() instead of put() because file uploads require POST
+            // console.log("formDataObj", formDataObj);
             router.post(`/students/${data.id}`, formDataObj, {
                 preserveScroll: true,
                 forceFormData: true,

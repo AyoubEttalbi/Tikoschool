@@ -13,7 +13,10 @@ export default function UpdateUser({
 }) {
     const { auth } = usePage().props;
     const isAdmin = auth?.user?.role === "admin";
-    const updateUserData = userData.data.find((user) => user.id === isUpdateOpen.id);
+    // Safely get updateUserData only if userData.data exists
+    const updateUserData = Array.isArray(userData?.data)
+        ? userData.data.find((user) => user.id === isUpdateOpen.id)
+        : undefined;
     const [showPassword, setShowPassword] = React.useState(false);
     const { data, setData, put, processing, errors, reset } = useForm({
         name: updateUserData?.name || "",

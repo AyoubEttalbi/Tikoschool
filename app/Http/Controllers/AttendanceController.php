@@ -69,7 +69,7 @@ class AttendanceController extends Controller
         $classes = $classesQuery->get();
 
         // Get students for selected class (with search filter)
-        $studentsQuery = Student::with('class');
+        $studentsQuery = Student::with('class')->where('status', 'active');
         
         if ($selectedSchoolId) {
             $studentsQuery->where('schoolId', $selectedSchoolId);
@@ -121,22 +121,9 @@ class AttendanceController extends Controller
             ]);
         }
 
-        $studentsWithAttendance = $students->filter(function ($student) use ($currentTeacherId, $selectedSubject) {
-            // Get all active memberships for this student
-            $memberships = $student->memberships()->where('is_active', 1)->get();
-            foreach ($memberships as $membership) {
-                $teacherArr = is_array($membership->teachers)
-                    ? $membership->teachers
-                    : json_decode($membership->teachers, true);
-                if (is_array($teacherArr)) {
-                    foreach ($teacherArr as $t) {
-                        if ((string)($t['teacherId'] ?? null) === (string)$currentTeacherId && (!isset($selectedSubject) || (isset($t['subject']) && $t['subject'] == $selectedSubject))) {
-                            return true;
-                        }
-                    }
-                }
-            }
-            return false;
+        $studentsWithAttendance = $students->filter(function ($student) {
+            // Only include students with status 'active'
+            return $student->status === 'active';
         })->map(function ($student) use ($existingAttendances, $date, $currentTeacherId, $selectedSubject) {
             // Debug: Log the attendance key being looked up for each student
             $attendanceKey = $student->id . '|' . $currentTeacherId . '|' . $selectedSubject;
@@ -154,8 +141,8 @@ class AttendanceController extends Controller
                 $user = \App\Models\User::find($attendance->recorded_by);
                 $recordedByName = $user ? $user->name : null;
             }
-            // Get all active memberships for this student
-            $memberships = $student->memberships()->where('is_active', 1)->get();
+            // Get all subjects for this student/teacher
+            $memberships = $student->memberships()->get();
             $subjects = collect();
             foreach ($memberships as $membership) {
                 $teacherArr = is_array($membership->teachers)
@@ -193,9 +180,9 @@ class AttendanceController extends Controller
         // Collect all subjects for the selected class and teacher, regardless of filter
         $allSubjects = collect();
         if ($classId && $teacherId) {
-            $classStudents = Student::where('classId', $classId)->get();
+            $classStudents = Student::where('classId', $classId)->where('status', 'active')->get();
             foreach ($classStudents as $student) {
-                $memberships = $student->memberships()->where('is_active', 1)->get();
+                $memberships = $student->memberships()->get();
                 foreach ($memberships as $membership) {
                     $teacherArr = is_array($membership->teachers)
                         ? $membership->teachers

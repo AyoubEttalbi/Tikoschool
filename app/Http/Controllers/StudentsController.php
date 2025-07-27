@@ -207,13 +207,15 @@ class StudentsController extends Controller
 protected function applySearchFilter($query, $searchTerm)
 {
     $query->where(function ($q) use ($searchTerm) {
-        // Search by student fields
+        // Search by student fields, including parent phone and parent name
         $q->where('firstName', 'LIKE', "%{$searchTerm}%")
           ->orWhere('lastName', 'LIKE', "%{$searchTerm}%")
           ->orWhere('massarCode', 'LIKE', "%{$searchTerm}%")
           ->orWhere('phoneNumber', 'LIKE', "%{$searchTerm}%")
           ->orWhere('email', 'LIKE', "%{$searchTerm}%")
-          ->orWhere('address', 'LIKE', "%{$searchTerm}%");
+          ->orWhere('address', 'LIKE', "%{$searchTerm}%")
+          ->orWhere('guardianNumber', 'LIKE', "%{$searchTerm}%")
+          ->orWhere('guardianName', 'LIKE', "%{$searchTerm}%");
 
         // Search by class, school, and level names
         $this->applyRelationshipSearch($q, $searchTerm);
@@ -394,7 +396,7 @@ protected function transformStudentData($student)
                 ]);
             }
 
-            return redirect()->route('students.index')->with('success', 'Student created successfully.');
+            return redirect()->route('students.show', $student->id)->with('success', 'Student created successfully.');
         } catch (\Exception $e) {
             return redirect()->back()->with('error', 'Failed to create student. Please try again.');
         }
