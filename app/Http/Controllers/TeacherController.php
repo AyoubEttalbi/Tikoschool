@@ -332,6 +332,12 @@ class TeacherController extends Controller
             abort(404);
         }
         
+        // Calculate total students for this teacher
+        $totalStudents = Membership::whereIn('payment_status', ['paid', 'pending'])
+            ->whereJsonContains('teachers', [['teacherId' => (string) $teacher->id]])
+            ->distinct('student_id')
+            ->count('student_id');
+        
         // Fetch all memberships where the teacher is involved
         $memberships = Membership::whereIn('payment_status', ['paid', 'pending'])
             ->whereJsonContains('teachers', [['teacherId' => (string) $teacher->id]])
@@ -346,18 +352,38 @@ class TeacherController extends Controller
             }
             
             return $membership->invoices->map(function ($invoice) use ($membership, $teacher) {
-                // Calculate the payment percentage
-                $paymentPercentage = ($invoice->amountPaid / $invoice->totalAmount) * 100;
-                
                 // Find the teacher's data in the membership
                 $teacherData = collect($membership->teachers)->first(function($item) use ($teacher) {
                     return isset($item['teacherId']) && $item['teacherId'] == $teacher->id;
                 });
                 
-                // Calculate the teacher's share
-                $teacherAmount = $teacherData && isset($teacherData['amount']) 
-                    ? ($teacherData['amount'] * $invoice->months) * ($paymentPercentage / 100) 
-                    : 0;
+                // Calculate the teacher's total share (not distributed per month)
+                $teacherAmount = 0;
+                $monthsCount = 0;
+                if ($teacherData && isset($teacherData['subject'])) {
+                    $offer = $invoice->offer;
+                    $teacherSubject = $teacherData['subject'];
+                    
+                    if ($offer && $teacherSubject && is_array($offer->percentage)) {
+                        // Get teacher percentage from offer
+                        $teacherPercentage = $offer->percentage[$teacherSubject] ?? 0;
+                        
+                        // Calculate total teacher earnings from amountPaid (not distributed)
+                        $teacherAmount = $invoice->amountPaid * ($teacherPercentage / 100);
+                        
+                        // Get selected months for this invoice
+                        $selectedMonths = $invoice->selected_months ?? [];
+                        if (is_string($selectedMonths)) {
+                            $selectedMonths = json_decode($selectedMonths, true) ?? [];
+                        }
+                        if (empty($selectedMonths)) {
+                            // Fallback: if no selected_months, use the billDate month
+                            $selectedMonths = [$invoice->billDate ? $invoice->billDate->format('Y-m') : null];
+                        }
+                        
+                        $monthsCount = count($selectedMonths);
+                    }
+                }
                 
                 // Get school information
                 $schoolName = 'Unknown';
@@ -400,6 +426,7 @@ class TeacherController extends Controller
                     'includePartialMonth' => $invoice->includePartialMonth,
                     'partialMonthAmount' => $invoice->partialMonthAmount,
                     'teacher_amount' => $teacherAmount,
+                    'months_count' => $monthsCount,
                 ];
             });
         });
@@ -471,7 +498,7 @@ class TeacherController extends Controller
         }
         
         return Inertia::render('Menu/SingleTeacherPage', [
-            'teacher' => $teacherUser ? array_merge($teacher->toArray(), ['user_id' => $teacherUser->id]) : $teacher,
+            'teacher' => $teacherUser ? array_merge($teacher->toArray(), ['user_id' => $teacherUser->id, 'totalStudents' => $totalStudents]) : array_merge($teacher->toArray(), ['totalStudents' => $totalStudents]),
             'invoices' => $paginatedInvoices,
             'schools' => $schools,
             'subjects' => $subjects,

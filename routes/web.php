@@ -121,6 +121,13 @@ Route::middleware('auth')->group(function () {
         Route::get('/{id}/download', 'download')->name('invoices.download');
         Route::post('/bulk-download', 'bulkDownload')->name('invoices.bulk.download');
     });
+    
+    // Teacher invoices bulk download route
+    Route::post('/teacher-invoices/bulk-download', [InvoiceController::class, 'teacherBulkDownload'])->name('teacher-invoices.bulk-download');
+    
+    // Direct PDF download route (GET request, no CSRF needed)
+    Route::get('/teacher-invoices/download-pdf', [InvoiceController::class, 'teacherBulkDownload'])
+        ->name('teacher-invoices.download-pdf');
     // Custom route for deleting an invoice from the student context
     Route::delete('/students/invoices/{id}', [InvoiceController::class, 'destroy'])->name('students.invoices.destroy');
     

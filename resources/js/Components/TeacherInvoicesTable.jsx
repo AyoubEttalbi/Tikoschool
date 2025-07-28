@@ -22,7 +22,7 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
     const [classFilter, setClassFilter] = useState("all");
     const [offerFilter, setOfferFilter] = useState("all");
     const [schoolFilter, setSchoolFilter] = useState("all");
-    const [dateFilter, setDateFilter] = useState("");
+    const [dateFilter, setDateFilter] = useState(new Date().toISOString().slice(0, 7));
     const [sortField, setSortField] = useState("billDate");
     const [sortDirection, setSortDirection] = useState("desc");
     const [filtersVisible, setFiltersVisible] = useState(false);
@@ -171,20 +171,29 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
         if (selectedInvoices.length === 0) {
             return;
         }
-        router.post(
-            "/invoices/bulk-download",
-            {
-                invoiceIds: selectedInvoices,
-            },
-            {
-                onSuccess: (page) => {
-                    if (page.props.downloadUrl) {
-                        window.location.href = page.props.downloadUrl;
-                    }
-                },
-                preserveScroll: true,
-            },
+        
+        // Calculate totals for selected invoices
+        const selectedInvoiceData = filteredInvoices.filter(invoice => 
+            selectedInvoices.includes(invoice.id)
         );
+        
+        const totalIncome = selectedInvoiceData.reduce(
+            (sum, invoice) => sum + parseFloat(invoice?.teacher_amount || 0), 
+            0
+        );
+        const totalInvoices = selectedInvoiceData.length;
+        
+        // Create URL with query parameters for GET request
+        const params = new URLSearchParams({
+            invoiceIds: JSON.stringify(selectedInvoices),
+            totalIncome: totalIncome.toFixed(2),
+            totalInvoices: totalInvoices,
+            teacherName: "Teacher",
+            dateRange: dateFilter ? `${dateFilter}` : "All time"
+        });
+        
+        // Open in new tab to trigger download
+        window.open(`/teacher-invoices/download-pdf?${params.toString()}`, '_blank');
     };
     // Toggle invoice selection
     const toggleInvoiceSelection = (invoiceId) => {
@@ -290,13 +299,25 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
             header: (
                 <div
                     className="flex items-center cursor-pointer"
-                    onClick={() => handleSort("totalAmount")}
+                    onClick={() => handleSort("teacher_amount")}
                 >
-                    Total <ArrowUpDown className="ml-1 w-3 h-3" />
+                    Gains <ArrowUpDown className="ml-1 w-3 h-3" />
                 </div>
             ),
-            accessor: "totalAmount",
+            accessor: "teacher_amount",
             className: "hidden md:table-cell",
+        },
+        {
+            header: (
+                <div
+                    className="flex items-center cursor-pointer"
+                    onClick={() => handleSort("months_count")}
+                >
+                    Mois <ArrowUpDown className="ml-1 w-3 h-3" />
+                </div>
+            ),
+            accessor: "months_count",
+            className: "hidden lg:table-cell",
         },
         { header: "Actions", accessor: "action" },
     ];
@@ -308,7 +329,7 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
         const billDate = item.billDate
             ? new Date(item.billDate).toLocaleDateString()
             : "N/A";
-        const teacherAmount = parseFloat(item.teacher_amount || 0).toFixed(1);
+        const teacherAmount = Number(item.teacher_amount || 0).toFixed(2);
 
         return (
             <tr
@@ -342,6 +363,11 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                 <td className="p-4 hidden md:table-cell">{billDate}</td>
                 <td className="p-4 hidden md:table-cell font-semibold text-green-500">
                     + {teacherAmount} DH
+                </td>
+                <td className="p-4 hidden lg:table-cell text-center">
+                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        {item.months_count || 0} mois
+                    </span>
                 </td>
                 <td className="p-4">
                     <div className="flex items-center gap-2">
@@ -424,7 +450,7 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                                 className="flex items-center gap-1 px-3 py-2 rounded-lg bg-green-500 text-white text-sm hover:bg-green-600"
                             >
                                 <Download className="w-4 h-4" />
-                                Télécharger ({selectedInvoices.length})
+                                Rapport PDF ({selectedInvoices.length})
                             </button>
                         )}
                     </div>

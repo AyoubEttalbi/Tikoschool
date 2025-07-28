@@ -237,8 +237,6 @@ const TeacherEarningsTable = ({ teachers = [] }) => {
         );
     };
 
-    console.log('Line chart data check:', { data, selectedLineTeachers, multiLineChartData });
-
     return (
         <div className="space-y-6">
             {/* Header */}
@@ -345,16 +343,56 @@ const TeacherEarningsTable = ({ teachers = [] }) => {
                                         <Calendar className="w-4 h-4 inline mr-1" />
                                         Mois
                                     </label>
-                                    <select
-                                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200"
-                                        value={selectedMonth}
-                                        onChange={(e) => setSelectedMonth(e.target.value)}
-                                    >
-                                        <option value="">Tous les mois</option>
-                                        {monthsList.map((m) => (
-                                            <option key={m.value} value={m.value}>{m.label}</option>
-                                        ))}
-                                    </select>
+                                    <div className="space-y-2">
+                                        <div className="flex items-center space-x-2">
+                                            <input
+                                                type="radio"
+                                                id="all-months"
+                                                name="month-filter"
+                                                checked={selectedMonth === ""}
+                                                onChange={() => setSelectedMonth("")}
+                                                className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                                            />
+                                            <label htmlFor="all-months" className="text-sm text-gray-700 cursor-pointer">
+                                                Tous les mois
+                                            </label>
+                                        </div>
+                                        <div className="flex items-center space-x-2">
+                                            <input
+                                                type="radio"
+                                                id="specific-month"
+                                                name="month-filter"
+                                                checked={selectedMonth !== ""}
+                                                onChange={() => setSelectedMonth(monthsList.length > 0 ? monthsList[0].value : "")}
+                                                className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                                            />
+                                            <label htmlFor="specific-month" className="text-sm text-gray-700 cursor-pointer">
+                                                Mois spécifique
+                                            </label>
+                                        </div>
+                                        {selectedMonth !== "" && (
+                                            <div className="relative">
+                                                <input
+                                                    type="month"
+                                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 pl-8 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200"
+                                                    value={selectedMonth}
+                                                    onChange={(e) => {
+                                                        setSelectedMonth(e.target.value);
+                                                        console.log('Selected month:', selectedMonth);
+                                                    }}
+                                                />
+                                                <Calendar className="absolute left-2 top-2.5 w-4 h-4 text-gray-500" />
+                                                {/* {selectedMonth && (
+                                                    <button
+                                                        
+                                                        className="absolute right-2 top-2.5"
+                                                    >
+                                                        <X className="w-4 h-4 text-gray-500 hover:text-gray-700 cursor-pointer " />
+                                                    </button>
+                                                )} */}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                                 
                                 <div className="space-y-2">

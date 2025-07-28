@@ -2007,41 +2007,88 @@ public function processMonthRecurringTransactions(Request $request)
                     $q2->where('classId', $classId);
                 });
             })
+            ->when($teacherId, function($q) use ($teacherId) {
+                $q->whereHas('membership', function($q2) use ($teacherId) {
+                    $q2->whereJsonContains('teachers', [['teacherId' => (string)$teacherId]]);
+                });
+            })
             ->get();
 
         $earnings = [];
         foreach ($invoices as $invoice) {
             $membership = $invoice->membership;
             if (!$membership || !is_array($membership->teachers)) continue;
-            $invoiceMonth = $invoice->billDate ? $invoice->billDate->format('Y-m') : null;
-            $invoiceYear = $invoice->billDate ? $invoice->billDate->format('Y') : null;
+            
+            // Get the selected months for this invoice
+            $selectedMonths = $invoice->selected_months ?? [];
+            
+            // Ensure selected_months is an array (handle JSON string case)
+            if (is_string($selectedMonths)) {
+                $selectedMonths = json_decode($selectedMonths, true) ?? [];
+            }
+            
+            if (empty($selectedMonths)) {
+                // Fallback: if no selected_months, use the billDate month
+                $selectedMonths = [$invoice->billDate ? $invoice->billDate->format('Y-m') : null];
+            }
+            
             foreach ($membership->teachers as $teacherData) {
-                if (!isset($teacherData['teacherId']) || !isset($teacherData['amount'])) continue;
-                if ($teacherId && $teacherData['teacherId'] != $teacherId) continue;
-                if (!empty($month) && $invoiceMonth !== $month) continue;
+                if (!isset($teacherData['teacherId'])) continue;
+                if ($teacherId && (string)$teacherData['teacherId'] !== (string)$teacherId) continue;
+                
                 $teacher = \App\Models\Teacher::find($teacherData['teacherId']);
                 if (!$teacher) continue;
-                $key = $teacher->id . '-' . $invoiceMonth;
-                if (!isset($earnings[$key])) {
-                    $earnings[$key] = [
-                        'teacherId' => $teacher->id,
-                        'teacherName' => $teacher->first_name . ' ' . $teacher->last_name,
-                        'month' => $invoiceMonth,
-                        'year' => $invoiceYear,
-                        'totalEarned' => 0,
-                        'invoiceCount' => 0,
-                        'lastPaymentDate' => null,
-                    ];
+                
+                // Calculate teacher earnings per month based on Offer percentage
+                $offer = $invoice->offer;
+                $teacherSubject = $teacherData['subject'] ?? null;
+                
+                if (!$offer || !$teacherSubject || !is_array($offer->percentage)) {
+                    continue;
                 }
-                $earnings[$key]['totalEarned'] += $teacherData['amount'];
-                $earnings[$key]['invoiceCount'] += 1;
-                // Update lastPaymentDate if this invoice is newer
-                $currentDate = $invoice->billDate ? $invoice->billDate->format('Y-m-d') : null;
-                if ($currentDate && ($earnings[$key]['lastPaymentDate'] === null || $currentDate > $earnings[$key]['lastPaymentDate'])) {
-                    $earnings[$key]['lastPaymentDate'] = $currentDate;
+                
+                // Get teacher percentage from offer
+                $teacherPercentage = $offer->percentage[$teacherSubject] ?? 0;
+                
+                // Calculate teacher earnings from amountPaid
+                $teacherAmountFromPaid = $invoice->amountPaid * ($teacherPercentage / 100);
+                $monthsCount = count($selectedMonths);
+                $earningsPerMonth = $monthsCount > 0 ? $teacherAmountFromPaid / $monthsCount : 0;
+                
+                // Distribute earnings across all selected months
+                foreach ($selectedMonths as $selectedMonth) {
+                    if (empty($selectedMonth)) continue;
+                    
+                    // Filter by month if specified
+                    if (!empty($month) && $selectedMonth !== $month) continue;
+                    
+                    $year = substr($selectedMonth, 0, 4);
+                    $key = $teacher->id . '-' . $selectedMonth;
+                    
+                    if (!isset($earnings[$key])) {
+                        $earnings[$key] = [
+                            'teacherId' => $teacher->id,
+                            'teacherName' => $teacher->first_name . ' ' . $teacher->last_name,
+                            'month' => $selectedMonth,
+                            'year' => $year,
+                            'totalEarned' => 0,
+                            'invoiceCount' => 0,
+                            'lastPaymentDate' => null,
+                        ];
+                    }
+                    
+                    $earnings[$key]['totalEarned'] += $earningsPerMonth;
+                    $earnings[$key]['invoiceCount'] += 1;
+                    
+                    // Update lastPaymentDate if this invoice is newer
+                    $currentDate = $invoice->billDate ? $invoice->billDate->format('Y-m-d') : null;
+                    if ($currentDate && ($earnings[$key]['lastPaymentDate'] === null || $currentDate > $earnings[$key]['lastPaymentDate'])) {
+                        $earnings[$key]['lastPaymentDate'] = $currentDate;
+                    }
                 }
             }
         }
+        
         // Return as array
         return response()->json(array_values($earnings));
     }
@@ -2078,16 +2125,45 @@ public function processMonthRecurringTransactions(Request $request)
             ->get();
         $result = [];
         foreach ($invoices as $invoice) {
-            if (!empty($month) && (!$invoice->billDate || $invoice->billDate->format('Y-m') !== $month)) continue;
             $membership = $invoice->membership;
             if (!$membership || !is_array($membership->teachers)) continue;
+            
+            // Get the selected months for this invoice
+            $selectedMonths = $invoice->selected_months ?? [];
+            
+            // Ensure selected_months is an array (handle JSON string case)
+            if (is_string($selectedMonths)) {
+                $selectedMonths = json_decode($selectedMonths, true) ?? [];
+            }
+            
+            if (empty($selectedMonths)) {
+                // Fallback: if no selected_months, use the billDate month
+                $selectedMonths = [$invoice->billDate ? $invoice->billDate->format('Y-m') : null];
+            }
+            
+            // Filter by month if specified
+            if (!empty($month) && !in_array($month, $selectedMonths)) continue;
+            
             $teacherShare = null;
             foreach ($membership->teachers as $teacherData) {
-                if (isset($teacherData['teacherId']) && $teacherData['teacherId'] == $teacherId && isset($teacherData['amount'])) {
-                    $teacherShare = $teacherData['amount'];
-                    break;
+                if (isset($teacherData['teacherId']) && (string)$teacherData['teacherId'] === (string)$teacherId) {
+                    // Calculate teacher share for this specific month based on Offer percentage
+                    $offer = $invoice->offer;
+                    $teacherSubject = $teacherData['subject'] ?? null;
+                    
+                    if ($offer && $teacherSubject && is_array($offer->percentage)) {
+                        // Get teacher percentage from offer
+                        $teacherPercentage = $offer->percentage[$teacherSubject] ?? 0;
+                        
+                        // Calculate teacher earnings from amountPaid
+                        $teacherAmountFromPaid = $invoice->amountPaid * ($teacherPercentage / 100);
+                        $monthsCount = count($selectedMonths);
+                        $teacherShare = $monthsCount > 0 ? $teacherAmountFromPaid / $monthsCount : 0;
+                        break;
+                    }
                 }
             }
+            
             $student = $invoice->student;
             $offer = $invoice->offer;
             $result[] = [

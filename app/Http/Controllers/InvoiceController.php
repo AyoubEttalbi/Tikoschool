@@ -642,6 +642,56 @@ class InvoiceController extends Controller
     }
 
     /**
+     * Bulk download teacher income report as a PDF.
+     */
+    public function teacherBulkDownload(Request $request)
+    {
+        // Get the selected invoice IDs and summary data from the request (works for both GET and POST)
+        $invoiceIds = $request->input('invoiceIds', $request->query('invoiceIds', []));
+        
+        // Handle JSON string if invoiceIds is passed as JSON
+        if (is_string($invoiceIds)) {
+            $invoiceIds = json_decode($invoiceIds, true) ?? [];
+        }
+        $totalIncome = $request->input('totalIncome', $request->query('totalIncome', 0));
+        $totalInvoices = $request->input('totalInvoices', $request->query('totalInvoices', 0));
+        $teacherName = $request->input('teacherName', $request->query('teacherName', 'Teacher'));
+        $dateRange = $request->input('dateRange', $request->query('dateRange', 'All time'));
+
+        if (empty($invoiceIds)) {
+            return redirect()->back()->with('error', 'No invoices selected for download');
+        }
+
+        // Get the selected invoices with their details
+        $invoices = Invoice::with(['student', 'student.class', 'student.school', 'offer'])
+            ->whereIn('id', $invoiceIds)
+            ->get();
+
+        if ($invoices->isEmpty()) {
+            return redirect()->back()->with('error', 'No invoices found');
+        }
+
+        // Prepare data for the PDF
+        $summaryData = [
+            'totalIncome' => $totalIncome,
+            'totalInvoices' => $totalInvoices,
+            'teacherName' => $teacherName,
+            'dateRange' => $dateRange,
+            'generatedDate' => now()->format('Y-m-d H:i:s')
+        ];
+
+        // Generate the PDF
+        $pdf = Pdf::loadView('invoices.teacher-income-report', compact('invoices', 'summaryData'));
+
+        // Return the PDF as a response with proper headers
+        return response($pdf->output(), 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="teacher-income-report-' . date('Y-m-d') . '.pdf"',
+            'Content-Length' => strlen($pdf->output()),
+        ]);
+    }
+
+    /**
      * Log activity for a model.
      */
     protected function logActivity($action, $model, $oldData = null, $newData = null)

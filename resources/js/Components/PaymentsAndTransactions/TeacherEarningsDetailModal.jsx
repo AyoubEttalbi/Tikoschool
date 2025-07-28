@@ -146,7 +146,7 @@ const TeacherEarningsDetailModal = ({ teacherId, teacherName, month, open, onClo
                                             <td className="p-2">{row.studentName}</td>
                                             <td className="p-2">{row.offerName}</td>
                                             <td className="p-2 text-right">{row.amountPaid} DH</td>
-                                            <td className="p-2 text-right text-blue-700 font-semibold">{row.teacherShare} DH</td>
+                                            <td className="p-2 text-right text-blue-700 font-semibold">{Number(row.teacherShare).toFixed(2)} DH</td>
                                         </tr>
                                     ))
                                 )}
