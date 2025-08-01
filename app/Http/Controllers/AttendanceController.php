@@ -647,7 +647,7 @@ class AttendanceController extends Controller
         if (!in_array($user->role, ['admin', 'assistant'])) {
             return response()->json(['error' => 'Forbidden'], 403);
         }
-        $query = Attendance::with(['student', 'class', 'recordedBy'])
+        $query = Attendance::with(['student', 'class', 'recordedBy', 'teacher'])
             ->whereIn('status', ['absent', 'late']);
 
         // Date filtering: always filter by date, default to today if not provided
@@ -669,16 +669,21 @@ class AttendanceController extends Controller
         $data = $absences->through(function($attendance) {
             return [
                 'id' => $attendance->id,
-                'student_id' => $attendance->student ? $attendance->student->id : null,
+                'student_id' => $attendance->student ? $attendance->student->id : $attendance->student_id,
                 'student_name' => $attendance->student ? $attendance->student->firstName . ' ' . $attendance->student->lastName : 'Unknown',
                 'class_id' => $attendance->class ? $attendance->class->id : null,
                 'class_name' => $attendance->class ? $attendance->class->name : 'Unknown',
+                'teacher_id' => $attendance->teacher ? $attendance->teacher->id : null,
+                'teacher_name' => $attendance->teacher ? $attendance->teacher->first_name . ' ' . $attendance->teacher->last_name : '-',
+                'subject' => $attendance->subject ?: '-',
                 'date' => $attendance->date,
                 'status' => $attendance->status,
                 'reason' => $attendance->reason,
                 'recorded_by_name' => $attendance->recordedBy ? $attendance->recordedBy->name : '-',
             ];
         });
+
+
 
         return response()->json([
             'data' => $data,

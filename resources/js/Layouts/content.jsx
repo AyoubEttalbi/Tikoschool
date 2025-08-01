@@ -20,7 +20,10 @@ const Content = () => {
     // Handler for school change: reload dashboard with selected school
     const handleSchoolChange = (e) => {
         setSelectedSchool(e.target.value);
-        router.get(route("dashboard"), { school_id: e.target.value }, { preserveState: true, preserveScroll: true });
+        // Preserve existing filters (like student_stats_month) when changing school
+        const currentParams = new URLSearchParams(window.location.search);
+        currentParams.set('school_id', e.target.value);
+        router.get(route("dashboard"), Object.fromEntries(currentParams), { preserveState: true, preserveScroll: true });
     };
 
     return (

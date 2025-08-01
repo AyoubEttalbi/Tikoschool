@@ -6,12 +6,15 @@ import { useState } from "react";
 import { Edit } from "lucide-react";
 import { router } from '@inertiajs/react';
 import Table from './Table';
+import { usePage } from "@inertiajs/react";
 
 const AbsenceLogTable = ({ absences, studentId, studentClassId }) => {
     const [showUpdateModal, setShowUpdateModal] = useState(false);
     const [selectedAbsence, setSelectedAbsence] = useState(null);
     // Defensive: ensure absences is always an array
     const safeAbsences = Array.isArray(absences) ? absences : [];
+    const role = usePage().props.auth.user.role;
+
     // Function to format the date
     const formatDate = (dateString) => {
         try {
@@ -24,8 +27,8 @@ const AbsenceLogTable = ({ absences, studentId, studentClassId }) => {
     // Enrich absence data with student_id and class_id
     const enrichedAbsences = safeAbsences.map((absence) => ({
         ...absence,
-        student_id: studentId,
-        class_id: studentClassId,
+        student_id: absence.student_id || studentId,
+        class_id: absence.class_id || studentClassId,
     }));
 
     // Function to determine status badge style
@@ -79,7 +82,7 @@ const AbsenceLogTable = ({ absences, studentId, studentClassId }) => {
 
     const formatDateTime = (dateString) => {
         try {
-            return format(new Date(dateString), "dd MMM yyyy HH:mm");
+            return format(new Date(dateString), "dd MMM yyyy HH:mm", { locale: require('date-fns/locale/fr') });
         } catch (error) {
             return dateString;
         }
@@ -88,17 +91,24 @@ const AbsenceLogTable = ({ absences, studentId, studentClassId }) => {
     // Render a row for the Table component
     const renderRow = (absence) => (
         <tr key={absence.id} className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight">
-            <td className="p-4">
+            <td className={`p-4 ${role !== "teacher" && absence.student_id ? 'cursor-pointer hover:bg-gray-100' : ''}`} onClick={role !== "teacher" && absence.student_id ? () => router.visit(`/students/${absence.student_id}`) : undefined}>
                 {(
                     (absence.first_name && absence.last_name && `${absence.first_name} ${absence.last_name}`) ||
                     (absence.student_first_name && absence.student_last_name && `${absence.student_first_name} ${absence.student_last_name}`) ||
                     absence.student_name || absence.studentName || '-'
                 )}
+                {!absence.student_id && role !== "teacher" && (
+                    <span className="text-xs text-gray-500 ml-2">(ID manquant)</span>
+                )}
             </td>
             <td className="p-4">{formatDateTime(absence.date)}</td>
             <td className="p-4">{absence.class_name || absence.class || "-"}</td>
-            <td className="p-4">{absence.teacher_name || absence.teacher || "-"}</td>  {/* new */}
-            <td className="p-4">{absence.subject_name || absence.subject || "-"}</td>  {/* new */}
+            <td className="p-4">
+                {absence.teacher_name || absence.teacher || (absence.teacher_id ? 'Teacher ID: ' + absence.teacher_id : '-')}
+            </td>
+            <td className="p-4">
+                {absence.subject || absence.subject_name || '-'}
+            </td>
             <td className="p-4">{absence.recorded_by_name || absence.recorded_by || absence.recordedBy || "-"}</td>
             <td className="p-4">{getStatusBadge(absence.status)}</td>
             <td className="p-4">{absence.reason || "---"}</td>

@@ -31,6 +31,11 @@ class Attendance extends Model
         return $this->belongsTo(User::class, 'recorded_by');
     }
 
+    public function teacher()
+    {
+        return $this->belongsTo(Teacher::class);
+    }
+
     public function scopeFilter($query, array $filters)
     {
         $query->when($filters['classId'] ?? null, function ($query, $classId) {

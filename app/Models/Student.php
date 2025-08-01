@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use App\Models\Classes;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Services\StudentMovementService;
 class Student extends Model
 {
     use HasFactory, SoftDeletes;
@@ -67,6 +68,12 @@ class Student extends Model
                     'number_of_students' => $class->students()->count(),
                 ]);
             }
+            
+            // Record student inscription movement
+            if ($student->billingDate) {
+                $movementService = new StudentMovementService();
+                $movementService->recordInscription($student);
+            }
         });
 
         // Update class student count when a student is updated
@@ -87,6 +94,13 @@ class Student extends Model
                 $newClass->update([
                     'number_of_students' => $newClass->students()->count(),
                 ]);
+            }
+            
+            // Record student abandonment if status changed to inactive
+            $originalStatus = $student->getOriginal('status');
+            if ($originalStatus !== 'inactive' && $student->status === 'inactive') {
+                $movementService = new StudentMovementService();
+                $movementService->recordAbandonment($student, 'Status changed to inactive', $originalStatus);
             }
         });
 
@@ -135,6 +149,12 @@ class Student extends Model
     public function invoices()
     {
         return $this->hasManyThrough(Invoice::class, Membership::class, 'student_id', 'membership_id');
+    }
+
+    // Relationship to Student Movements
+    public function movements()
+    {
+        return $this->hasMany(StudentMovement::class);
     }
 
     /**
@@ -225,5 +245,30 @@ class Student extends Model
     {
         $promotion = $this->getCurrentPromotion();
         return $promotion ? $promotion->is_promoted : true; // Default to true if no record
+    }
+
+    /**
+     * Get movement statistics for this student
+     */
+    public function getMovementStats($monthYear = null)
+    {
+        $query = $this->movements();
+        
+        if ($monthYear) {
+            $query->where('month_year', $monthYear);
+        }
+        
+        return [
+            'inscribed' => $query->clone()->where('movement_type', 'inscribed')->count(),
+            'abandoned' => $query->clone()->where('movement_type', 'abandoned')->count(),
+        ];
+    }
+
+    /**
+     * Get the latest movement for this student
+     */
+    public function getLatestMovement()
+    {
+        return $this->movements()->latest('movement_date')->first();
     }
 }

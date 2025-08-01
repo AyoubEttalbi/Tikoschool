@@ -485,29 +485,31 @@ const InvoicesForm = ({
                                             <option value="">
                                                 Sélectionnez une adhésion
                                             </option>
-                                            {StudentMemberships.map(
-                                                (membership) => (
-                                                    <option
-                                                        key={membership.id}
-                                                        value={membership.id}
-                                                        className={
-                                                            membership.payment_status !==
-                                                            "paid"
-                                                                ? "bg-amber-50 font-medium"
-                                                                : ""
-                                                        }
-                                                    >
-                                                        {membership.offer_name}{" "}
-                                                        (Prix :{" "}
-                                                        {Math.round(
-                                                            membership.price,
-                                                        )}{" "}
-                                                        DH)
-                                                        {membership.payment_status !==
-                                                            "paid" && " - Impayé"}
-                                                    </option>
-                                                ),
-                                            )}
+                                            {StudentMemberships
+                                                .filter(membership => membership.payment_status !== "paid")
+                                                .map(
+                                                    (membership) => (
+                                                        <option
+                                                            key={membership.id}
+                                                            value={membership.id}
+                                                            className={
+                                                                membership.payment_status !==
+                                                                "paid"
+                                                                    ? "bg-amber-50 font-medium"
+                                                                    : ""
+                                                            }
+                                                        >
+                                                            {membership.offer_name}{" "}
+                                                            (Prix :{" "}
+                                                            {Math.round(
+                                                                membership.price,
+                                                            )}{" "}
+                                                            DH)
+                                                            {membership.payment_status !==
+                                                                "paid" && " - Impayé"}
+                                                        </option>
+                                                    ),
+                                                )}
                                         </>
                                     )}
                                 </select>

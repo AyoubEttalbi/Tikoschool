@@ -38,7 +38,6 @@ const AttendancePage = ({
         filters.date || new Date().toISOString().split("T")[0],
     );
 
-
     // Use allSubjects prop if provided, otherwise compute from students
     const allSubjects = allSubjectsProp && Array.isArray(allSubjectsProp)
         ? allSubjectsProp
@@ -51,10 +50,12 @@ const AttendancePage = ({
         ? (students || []).filter(student => (student.subjects || []).includes(selectedSubject))
         : students || [];
 
+
+
     useEffect(() => {
-        if (students?.length > 0) {
+        if (filteredStudents?.length > 0) {
             // Always use the status/reason from the backend if present, otherwise default to 'present'
-            const newAttendanceData = students.map((student) => {
+            const newAttendanceData = filteredStudents.map((student) => {
                 return {
                     student_id: student.student_id || student.id,
                     status: typeof student.status !== 'undefined' ? student.status : "present",
@@ -74,8 +75,11 @@ const AttendancePage = ({
             if (allSubjects.length === 1 && !filters.subject) {
                 setSelectedSubject(allSubjects[0]);
             }
+        } else {
+            // Reset attendanceData when no students are available
+            setAttendanceData([]);
         }
-    }, [students, filters.date, filters.class_id]);
+    }, [filteredStudents, filters.date, filters.class_id]);
 
 
     // Always update filters with selected subject when it changes
@@ -98,13 +102,7 @@ const AttendancePage = ({
         }
     }, [selectedSubject]);
 
-    useEffect(() => {
-        console.log("Students data changed:", {
-            count: students?.length,
-            filters,
-            studentsData: students,
-        });
-    }, [students]);
+
 
     const handleSubmit = (e) => {
         e.preventDefault();
@@ -114,6 +112,11 @@ const AttendancePage = ({
             !attendanceData[0].student_id
         ) {
             console.error("Missing student_id in attendance data");
+            return;
+        }
+
+        // Ensure attendanceData matches filteredStudents
+        if (attendanceData.length !== filteredStudents.length) {
             return;
         }
 
@@ -134,17 +137,25 @@ const AttendancePage = ({
             teacher_id: filters.teacher_id,
             subject: selectedSubject,
         };
+        
+
 
         router.post(route("attendances.store"), payload, {
             onSuccess: () => {
-                window.location.href = route("attendances.index", {
+                // Reset the attendanceData state before redirecting
+                setAttendanceData([]);
+                // Use router.visit instead of window.location.href for better state management
+                router.visit(route("attendances.index", {
                     ...filters,
                     date: formDate,
                     _timestamp: new Date().getTime(),
+                }), {
+                    preserveScroll: false,
+                    preserveState: false,
                 });
             },
             onError: (errors) => {
-                console.log("errors", errors);
+                // Handle errors silently or show user-friendly message
             },
             preserveScroll: false,
         });
@@ -176,7 +187,7 @@ const AttendancePage = ({
         const att = getAttendanceEntry(student.student_id || student.id);
         return (
             <tr
-                key={student.id}
+                key={`${student.student_id || student.id}-${student.date || filters.date}`}
                 className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-purple-50 transition-colors"
             >
                 <td className="p-4 font-medium">

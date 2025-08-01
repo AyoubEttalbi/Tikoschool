@@ -1,21 +1,8 @@
 import React, { useState } from "react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { router } from "@inertiajs/react";
 import { UserPlus, UserX } from "lucide-react";
 
-const getMonthOptions = () => {
-    // Last 12 months
-    const options = [];
-    const now = new Date();
-    for (let i = 0; i < 12; i++) {
-        const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        options.push({
-            value: date.toISOString().slice(0, 7),
-            label: date.toLocaleString("default", { month: "long", year: "numeric" })
-        });
-    }
-    return options;
-};
+
 
 const getCurrentSchoolYear = () => {
     const now = new Date();
@@ -25,9 +12,16 @@ const getCurrentSchoolYear = () => {
 
 const CombinedUserCard = ({ stats }) => {
     const [open, setOpen] = useState(false);
-    const [studentStatsMonth, setStudentStatsMonth] = useState(stats?.month || getMonthOptions()[0].value);
-    const monthOptions = getMonthOptions();
-    const selectedMonthLabel = monthOptions.find(opt => opt.value === studentStatsMonth)?.label || "Mois";
+    // Initialize with stats month if available, otherwise use current month
+    const [studentStatsMonth, setStudentStatsMonth] = useState(() => {
+        if (stats?.month) {
+            return stats.month;
+        }
+        // Default to current month in YYYY-MM format
+        const now = new Date();
+        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    });
+
 
     // Show stats (fallback to 0 if missing)
     const inscribed = stats?.inscribed ?? 0;
@@ -37,7 +31,13 @@ const CombinedUserCard = ({ stats }) => {
     const handleMonthChange = (newMonth) => {
         setStudentStatsMonth(newMonth);
         setOpen(false);
-        router.get(route("dashboard"), { student_stats_month: newMonth }, { preserveState: true, preserveScroll: true });
+        // Preserve existing filters and add the new month filter
+        const currentParams = new URLSearchParams(window.location.search);
+        currentParams.set('student_stats_month', newMonth);
+        router.get(route("dashboard"), Object.fromEntries(currentParams), { 
+            preserveState: true, 
+            preserveScroll: true 
+        });
     };
 
     return (
@@ -63,21 +63,33 @@ const CombinedUserCard = ({ stats }) => {
                 </div>
             </div>
             <h2 className="capitalize text-sm font-medium text-gray-500">Mouvement mensuel</h2>
-            {/* Dropdown for month filter */}
+            {/* Month filter input */}
             {open && (
                 <div className="absolute top-8 right-2 mt-2 w-48 bg-white rounded-lg shadow-lg z-10 p-2">
-                    <Select value={studentStatsMonth} onValueChange={handleMonthChange}>
-                        <SelectTrigger className="w-full bg-white border-none shadow-none">
-                            <SelectValue>{selectedMonthLabel}</SelectValue>
-                        </SelectTrigger>
-                        <SelectContent className="bg-white rounded-lg shadow-md">
-                            {monthOptions.map((opt) => (
-                                <SelectItem key={opt.value} value={opt.value} className="cursor-pointer hover:bg-gray-100 p-2">
-                                    {opt.label}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
+                    <div className="relative">
+                        <svg
+                            className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                            />
+                        </svg>
+                        <input
+                            type="month"
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 pl-8 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200"
+                            value={studentStatsMonth}
+                            onChange={(e) => {
+                                setStudentStatsMonth(e.target.value);
+                                handleMonthChange(e.target.value);
+                            }}
+                        />
+                    </div>
                 </div>
             )}
         </div>

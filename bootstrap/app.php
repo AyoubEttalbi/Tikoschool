@@ -21,4 +21,9 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //
-    })->create();
+    })
+    ->withSchedule(function (\Illuminate\Console\Scheduling\Schedule $schedule) {
+        // Schedule the membership expiration command to run every minute
+        $schedule->command('memberships:update-payment-status')->everyMinute();
+    })
+    ->create();

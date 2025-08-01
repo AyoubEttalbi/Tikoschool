@@ -17,6 +17,8 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use App\Models\Membership;
 use App\Models\Transaction;
+use App\Models\StudentMovement;
+use App\Services\StudentMovementService;
 use Illuminate\Support\Facades\Log;
 
 class StatsController extends Controller
@@ -36,30 +38,21 @@ class StatsController extends Controller
 
     // --- Combined Student Monthly Stats ---
     $selectedMonth = $studentStatsMonth ? Carbon::parse($studentStatsMonth) : Carbon::now();
-    $startOfMonth = $selectedMonth->copy()->startOfMonth();
-    $endOfMonth = $selectedMonth->copy()->endOfMonth();
-
-    // Students inscribed this month
-    $inscribedQuery = Student::whereBetween('billingDate', [$startOfMonth, $endOfMonth]);
-    if ($schoolId) {
-        $inscribedQuery->where('schoolId', $schoolId);
+    $monthYear = $selectedMonth->format('Y-m');
+    
+    // Use StudentMovementService to get stats from the movements table
+    $movementService = new StudentMovementService();
+    $studentMonthlyStats = $movementService->getMovementStats($monthYear, $schoolId);
+    
+    // Debug: Log the student monthly stats
+    if (config('app.debug')) {
+        Log::info('Student Monthly Stats (from movements):', [
+            'month' => $monthYear,
+            'school_id' => $schoolId,
+            'inscribed' => $studentMonthlyStats['inscribed'],
+            'abandoned' => $studentMonthlyStats['abandoned'],
+        ]);
     }
-    $inscribedCount = $inscribedQuery->count();
-
-    // Students abandoned this month (status changed to inactive and updated_at in this month)
-    $abandonedQuery = Student::where('status', 'inactive')
-        ->whereBetween('updated_at', [$startOfMonth, $endOfMonth]);
-    if ($schoolId) {
-        $abandonedQuery->where('schoolId', $schoolId);
-    }
-    $abandonedCount = $abandonedQuery->count();
-
-    $studentMonthlyStats = [
-        'inscribed' => $inscribedCount,
-        'abandoned' => $abandonedCount,
-        'month' => $selectedMonth->format('Y-m'),
-        'school_id' => $schoolId,
-    ];
 
     // --- Optimized Teacher Counts ---
     // Get all teacher counts per school in one query

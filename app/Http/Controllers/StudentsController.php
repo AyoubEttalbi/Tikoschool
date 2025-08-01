@@ -16,6 +16,7 @@ use App\Models\Membership;
 use App\Models\Invoice;
 use App\Models\Attendance;
 use App\Models\Result;
+use App\Models\StudentMovement;
 use Cloudinary\Cloudinary;
 use Cloudinary\Configuration\Configuration;
 use Cloudinary\Api\Upload\UploadApi;
@@ -581,8 +582,32 @@ protected function transformStudentData($student)
         $schools = School::all();
         $classes = Classes::all();
 
+        // Get student movement history
+        $movements = StudentMovement::where('student_id', $student->id)
+            ->with(['recordedBy'])
+            ->orderBy('movement_date', 'desc')
+            ->get()
+            ->map(function ($movement) {
+                return [
+                    'id' => $movement->id,
+                    'movement_type' => $movement->movement_type,
+                    'movement_date' => $movement->movement_date,
+                    'month_year' => $movement->month_year,
+                    'reason' => $movement->reason,
+                    'previous_status' => $movement->previous_status,
+                    'new_status' => $movement->new_status,
+                    'billing_date' => $movement->billing_date,
+                    'assurance_amount' => $movement->assurance_amount,
+                    'has_assurance' => $movement->has_assurance,
+                    'recorded_by' => $movement->recordedBy ? $movement->recordedBy->name : null,
+                    'notes' => $movement->notes,
+                    'created_at' => $movement->created_at,
+                ];
+            });
+
         return Inertia::render('Menu/SingleStudentPage', [
             'student' => $studentData,
+            'movements' => $movements,
             'Alllevels' => $levels,
             'Allclasses' => $classes,
             'Allschools' => $schools,
@@ -704,14 +729,8 @@ protected function transformStudentData($student)
                 }
             }
 
-            // Direct database update to ensure correct values are set
-            // This bypasses Eloquent's casting which might be causing issues
-            DB::table('students')
-                ->where('id', $student->id)
-                ->update($validatedData);
-                
-            // Refresh the model from database
-            $student->refresh();
+            // Update the student using Eloquent to trigger events
+            $student->update($validatedData);
 
             // Check if the class has changed
             $newClassId = $student->classId;
