@@ -66,17 +66,19 @@ const schema = z
         guardianName: z.string().max(255, { message: "Nom du tuteur trop long (255 caractères max)" }).optional(),
         CIN: z.any().optional(),
         phoneNumber: z
-            .any()
+            .string()
             .optional()
+            .nullable()
             .refine(
                 (val) => {
+                    if (!val) return true; // Allow empty, null, or undefined
                     // Accept +212 or 0 prefix, but validate only the last 9 digits
                     const digits = val.replace(/^\+212/, "");
                     return phoneRegex.test(digits);
                 },
                 { message: "Le numéro doit commencer par 5, 6, 7 ou 8 et comporter 9 chiffres." }
             )
-            .transform((val) => val.replace(/^\+212/, "")),
+            .transform((val) => (val ? val.replace(/^\+212/, "") : val)),
         email: z.any().optional(),
         massarCode: z.any().optional(),
         levelId: z.string().min(1, { message: "Le niveau est requis !" }),
