@@ -121,10 +121,45 @@ class AttendanceController extends Controller
             ]);
         }
 
-        $studentsWithAttendance = $students->filter(function ($student) {
-            // Only include students with status 'active'
-            return $student->status === 'active';
-        })->map(function ($student) use ($existingAttendances, $date, $currentTeacherId, $selectedSubject) {
+        // Filter students to only include those taught by the current teacher
+        $filteredStudents = $students->filter(function ($student) use ($currentTeacherId) {
+            if (!$currentTeacherId) return false;
+            
+            $memberships = $student->memberships()->where('is_active', 1)->get();
+            foreach ($memberships as $membership) {
+                $teacherArr = is_array($membership->teachers)
+                    ? $membership->teachers
+                    : json_decode($membership->teachers, true);
+                if (is_array($teacherArr)) {
+                    foreach ($teacherArr as $t) {
+                        if ((string)($t['teacherId'] ?? null) === (string)$currentTeacherId) {
+                            Log::debug('Student is taught by teacher', [
+                                'student_id' => $student->id,
+                                'student_name' => $student->firstName . ' ' . $student->lastName,
+                                'teacher_id' => $currentTeacherId,
+                                'membership_id' => $membership->id
+                            ]);
+                            return true; // Student is taught by this teacher
+                        }
+                    }
+                }
+            }
+            Log::debug('Student is NOT taught by teacher', [
+                'student_id' => $student->id,
+                'student_name' => $student->firstName . ' ' . $student->lastName,
+                'teacher_id' => $currentTeacherId
+            ]);
+            return false; // Student is not taught by this teacher
+        });
+
+        Log::info('Student filtering results', [
+            'total_students_in_class' => $students->count(),
+            'filtered_students_by_teacher' => $filteredStudents->count(),
+            'teacher_id' => $currentTeacherId,
+            'class_id' => $classId
+        ]);
+
+        $studentsWithAttendance = $filteredStudents->map(function ($student) use ($existingAttendances, $date, $currentTeacherId, $selectedSubject) {
             // Debug: Log the attendance key being looked up for each student
             $attendanceKey = $student->id . '|' . $currentTeacherId . '|' . $selectedSubject;
             if (config('app.debug')) {
@@ -170,6 +205,7 @@ class AttendanceController extends Controller
                 'exists_in_db' => (bool)$attendance,
                 'recorded_by_name' => $recordedByName,
                 'subjects' => $subjects,
+                'teacher_id' => $currentTeacherId, // Add teacher_id to student data
             ];
         })->values();
 
@@ -222,6 +258,7 @@ class AttendanceController extends Controller
                 'teacher_id' => $teacherId,
                 'class_id' => $classId,
                 'search' => $search,
+                'subject' => $selectedSubject,
             ],
             'selectedSchool' => $selectedSchoolId ? [
                 'id' => $selectedSchoolId,
@@ -246,10 +283,10 @@ class AttendanceController extends Controller
             'attendances.*.student_id' => 'required|exists:students,id',
             'attendances.*.status' => 'required|in:present,absent,late',
             'attendances.*.reason' => 'nullable|string|max:255',
-            'attendances.*.subject' => 'nullable|string|max:255',
+            'attendances.*.subject' => 'required|string|max:255',
             'date' => 'required|date',
             'class_id' => 'required|exists:classes,id',
-            'teacher_id' => 'nullable|exists:teachers,id',
+            'teacher_id' => 'required|exists:teachers,id',
         ]);
 
         try {

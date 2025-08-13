@@ -32,6 +32,7 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\CashierController;
 use App\Http\Controllers\PerformanceController;
 use App\Http\Controllers\AbsenceController;
+use App\Http\Controllers\TeacherMembershipPaymentController;
 
 // Middleware
 use App\Http\Middleware\AdminMiddleware;
@@ -258,6 +259,16 @@ Route::middleware('auth')->group(function () {
         // Add after other teacher routes, inside the admin middleware group if possible
         Route::post('/teachers-with-user', [TeacherController::class, 'storeWithUser'])->name('teachers.storeWithUser');
         Route::post('/assistants-with-user', [AssistantController::class, 'storeWithUser'])->name('assistants.storeWithUser');
+        
+        // Teacher Membership Payments (API routes for testing)
+        Route::prefix('api/teacher-payments')->group(function () {
+            Route::get('/', [TeacherMembershipPaymentController::class, 'index'])->name('teacher-payments.index');
+            Route::get('/{id}', [TeacherMembershipPaymentController::class, 'show'])->name('teacher-payments.show');
+            Route::post('/process-monthly', [TeacherMembershipPaymentController::class, 'processMonthlyPayments'])->name('teacher-payments.process-monthly');
+            Route::get('/earnings-summary', [TeacherMembershipPaymentController::class, 'earningsSummary'])->name('teacher-payments.earnings-summary');
+            Route::get('/pending-payments', [TeacherMembershipPaymentController::class, 'pendingPayments'])->name('teacher-payments.pending');
+            Route::post('/test-deletion', [TeacherMembershipPaymentController::class, 'testInvoiceDeletion'])->name('teacher-payments.test-deletion');
+        });
     });
 
     // Performance routes

@@ -9,16 +9,79 @@ import {
     ResponsiveContainer,
 } from "recharts";
 import { usePage } from "@inertiajs/react";
+import React from "react";
 
 const FinanceChart = ({ schoolId }) => {
     const { props } = usePage();
-    // Filter data by school_id
-    const filteredData =
-        !schoolId || schoolId === "all"
+    
+    // French month names mapping
+    const frenchMonths = {
+        'January': 'Janvier',
+        'February': 'Février',
+        'March': 'Mars',
+        'April': 'Avril',
+        'May': 'Mai',
+        'June': 'Juin',
+        'July': 'Juillet',
+        'August': 'Août',
+        'September': 'Septembre',
+        'October': 'Octobre',
+        'November': 'Novembre',
+        'December': 'Décembre'
+    };
+
+    // Function to convert month names to French
+    const convertMonthToFrench = (monthYearString) => {
+        if (!monthYearString) return monthYearString;
+        
+        // Extract month and year from "Month Year" format
+        const parts = monthYearString.split(' ');
+        if (parts.length === 2) {
+            const month = parts[0];
+            const year = parts[1];
+            const frenchMonth = frenchMonths[month];
+            
+            if (frenchMonth) {
+                return `${frenchMonth} ${year}`;
+            }
+        }
+        
+        return monthYearString;
+    };
+
+    // Filter data by school_id and convert month names to French
+    const filteredData = React.useMemo(() => {
+        if (!props.monthlyIncomes || !Array.isArray(props.monthlyIncomes)) {
+            console.warn('monthlyIncomes data is not available or not an array');
+            return [];
+        }
+
+        const filtered = !schoolId || schoolId === "all"
             ? props.monthlyIncomes
             : props.monthlyIncomes.filter(
                   (income) => String(income.school_id) === String(schoolId)
               );
+
+        // Convert month names to French
+        return filtered.map(item => ({
+            ...item,
+            name: item.name ? convertMonthToFrench(item.name) : item.name
+        }));
+    }, [props.monthlyIncomes, schoolId]);
+
+    // Don't render if no data
+    if (!filteredData || filteredData.length === 0) {
+        return (
+            <div className="bg-white rounded-xl w-full h-full p-4">
+                <div className="flex justify-between items-center">
+                    <h1 className="text-lg font-semibold">Finance</h1>
+                </div>
+                <div className="flex items-center justify-center h-64 text-gray-500">
+                    Aucune donnée financière disponible
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="bg-white rounded-xl w-full h-full p-4">

@@ -1,5 +1,5 @@
 import { Link, router, usePage } from "@inertiajs/react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import FormModal from "../../Components/FormModal";
 import TableSearch from "../../Components/TableSearch";
 import Table from "../../Components/Table";
@@ -38,21 +38,84 @@ const AttendancePage = ({
         filters.date || new Date().toISOString().split("T")[0],
     );
 
-    // Use allSubjects prop if provided, otherwise compute from students
-    const allSubjects = allSubjectsProp && Array.isArray(allSubjectsProp)
-        ? allSubjectsProp
-        : Array.from(new Set(
+    // Ref to track previous dependency values
+    const prevDeps = useRef({
+        filteredStudentsLength: 0,
+        filtersDate: filters.date,
+        filtersClassId: filters.class_id,
+        filtersSubject: filters.subject || "",
+        allSubjectsLength: 0
+    });
+
+    // Memoize filters to prevent recreation on every render
+    const memoizedFilters = useMemo(() => ({
+        date: filters.date,
+        teacher_id: filters.teacher_id,
+        class_id: filters.class_id,
+        search: filters.search,
+        subject: filters.subject || ""
+    }), [filters.date, filters.teacher_id, filters.class_id, filters.search, filters.subject]);
+
+    // Use allSubjects prop if provided, otherwise compute from students - memoized to prevent recreation
+    const allSubjects = useMemo(() => {
+        if (allSubjectsProp && Array.isArray(allSubjectsProp)) {
+            return allSubjectsProp;
+        }
+        return Array.from(new Set(
             (students || []).flatMap(student => student.subjects || [])
         )).filter(Boolean);
+    }, [allSubjectsProp, students]);
 
-    // Filtered students by selected subject
-    const filteredStudents = selectedSubject
-        ? (students || []).filter(student => (student.subjects || []).includes(selectedSubject))
-        : students || [];
-
-
+    // Filtered students by selected subject - only show students taught by this teacher in this subject
+    const filteredStudents = useMemo(() => {
+        if (!selectedSubject) return students || [];
+        
+        return (students || []).filter(student => {
+            // Only show students who have this subject and are taught by this teacher
+            const hasSubject = (student.subjects || []).includes(selectedSubject);
+            const isTaughtByTeacher = student.teacher_id === memoizedFilters.teacher_id;
+            
+            // Debug logging
+            if (process.env.NODE_ENV === 'development') {
+                console.log('Student filtering:', {
+                    studentId: student.student_id || student.id,
+                    studentName: `${student.firstName} ${student.lastName}`,
+                    hasSubject,
+                    isTaughtByTeacher,
+                    studentSubjects: student.subjects,
+                    studentTeacherId: student.teacher_id,
+                    filterTeacherId: memoizedFilters.teacher_id,
+                    selectedSubject
+                });
+            }
+            
+            return hasSubject && isTaughtByTeacher;
+        });
+    }, [students, selectedSubject, memoizedFilters.teacher_id]);
 
     useEffect(() => {
+        const currentDeps = {
+            filteredStudentsLength: filteredStudents?.length || 0,
+            filtersDate: memoizedFilters.date,
+            filtersClassId: memoizedFilters.class_id,
+            filtersSubject: memoizedFilters.subject,
+            allSubjectsLength: allSubjects.length
+        };
+        
+        // Check if any dependencies have actually changed
+        const hasChanged = Object.keys(currentDeps).some(key => 
+            currentDeps[key] !== prevDeps.current[key]
+        );
+        
+        if (!hasChanged) {
+            return; // No changes, don't execute
+        }
+        
+        console.log('useEffect triggered with:', currentDeps);
+        
+        // Update the ref with current values
+        prevDeps.current = currentDeps;
+        
         if (filteredStudents?.length > 0) {
             // Always use the status/reason from the backend if present, otherwise default to 'present'
             const newAttendanceData = filteredStudents.map((student) => {
@@ -60,49 +123,51 @@ const AttendancePage = ({
                     student_id: student.student_id || student.id,
                     status: typeof student.status !== 'undefined' ? student.status : "present",
                     reason: typeof student.reason !== 'undefined' ? student.reason : "",
-                    date: student.date || filters.date || new Date().toISOString().split("T")[0],
-                    class_id: student.classId || filters.class_id,
-                    teacher_id: student.teacher_id || filters.teacher_id,
+                    date: student.date || memoizedFilters.date || new Date().toISOString().split("T")[0],
+                    class_id: student.classId || memoizedFilters.class_id,
+                    teacher_id: student.teacher_id || memoizedFilters.teacher_id,
                 };
             });
 
             setAttendanceData(newAttendanceData);
 
             // Pre-select subject if only one subject is available for the teacher in this class
-            const allSubjects = Array.from(new Set(
-                (students || []).flatMap(student => student.subjects || [])
-            )).filter(Boolean);
-            if (allSubjects.length === 1 && !filters.subject) {
+            if (allSubjects.length === 1 && !memoizedFilters.subject && selectedSubject !== allSubjects[0]) {
                 setSelectedSubject(allSubjects[0]);
             }
         } else {
             // Reset attendanceData when no students are available
             setAttendanceData([]);
         }
-    }, [filteredStudents, filters.date, filters.class_id]);
+    }, [filteredStudents, memoizedFilters.date, memoizedFilters.class_id, memoizedFilters.subject, allSubjects.length]);
 
-
-    // Always update filters with selected subject when it changes
-    useEffect(() => {
-        // Only reload if the selected subject is different from the filter
-        if (
-            selectedSubject &&
-            selectedSubject !== (filters.subject || "")
-        ) {
-            router.visit(route('attendances.index', {
-                ...filters,
-                subject: selectedSubject,
-                date: formDate,
-                _timestamp: new Date().getTime(),
-            }), {
-                preserveScroll: true,
-                preserveState: true,
-                only: ['students', 'filters'],
-            });
+    // Handle subject change without causing infinite loops
+    const handleSubjectChange = (newSubject) => {
+        // Prevent unnecessary updates
+        if (newSubject === selectedSubject) {
+            return;
         }
-    }, [selectedSubject]);
-
-
+        
+        setSelectedSubject(newSubject);
+        setSubjectError("");
+        
+        // Only reload if the subject is different and we have the necessary filters
+        if (newSubject && newSubject !== memoizedFilters.subject && memoizedFilters.class_id && memoizedFilters.teacher_id) {
+            // Use a timeout to prevent rapid successive calls
+            setTimeout(() => {
+                router.visit(route('attendances.index', {
+                    ...memoizedFilters,
+                    subject: newSubject,
+                    date: formDate,
+                    _timestamp: new Date().getTime(),
+                }), {
+                    preserveScroll: true,
+                    preserveState: true,
+                    only: ['students', 'filters'],
+                });
+            }, 100);
+        }
+    };
 
     const handleSubmit = (e) => {
         e.preventDefault();
@@ -133,20 +198,18 @@ const AttendancePage = ({
                 subject: selectedSubject,
             })),
             date: formDate,
-            class_id: filters.class_id,
-            teacher_id: filters.teacher_id,
+            class_id: memoizedFilters.class_id,
+            teacher_id: memoizedFilters.teacher_id,
             subject: selectedSubject,
         };
         
-
-
         router.post(route("attendances.store"), payload, {
             onSuccess: () => {
                 // Reset the attendanceData state before redirecting
                 setAttendanceData([]);
                 // Use router.visit instead of window.location.href for better state management
                 router.visit(route("attendances.index", {
-                    ...filters,
+                    ...memoizedFilters,
                     date: formDate,
                     _timestamp: new Date().getTime(),
                 }), {
@@ -251,7 +314,7 @@ const AttendancePage = ({
         );
     };
 
-    if (!filters.teacher_id || !filters.class_id) {
+    if (!memoizedFilters.teacher_id || !memoizedFilters.class_id) {
         return (
             <TeacherSelection
                 assistants={assistants}
@@ -259,14 +322,12 @@ const AttendancePage = ({
                 schools={schools}
                 levels={levels}
                 currentSelection={{
-                    teacher: filters.teacher_id,
-                    class: filters.class_id,
+                    teacher: memoizedFilters.teacher_id,
+                    class: memoizedFilters.class_id,
                 }}
             />
         );
     }
-
-    // allSubjects is now defined above, always from the full students list
 
     return (
         <div className="bg-white p-6 rounded-lg shadow-sm flex-1 m-4 mt-0">
@@ -277,16 +338,13 @@ const AttendancePage = ({
                 <div className="flex items-center gap-3 w-full md:w-auto">
                     <TableSearch
                         routeName="attendances.index"
-                        filters={filters}
+                        filters={memoizedFilters}
                     />
                     <div>
                         <select
                             id="subject-dropdown"
                             value={selectedSubject}
-                            onChange={e => {
-                                setSelectedSubject(e.target.value);
-                                setSubjectError("");
-                            }}
+                            onChange={e => handleSubjectChange(e.target.value)}
                             required
                             className="p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-400 transition"
                         >

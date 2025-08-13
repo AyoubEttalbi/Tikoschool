@@ -12,6 +12,9 @@ const CountChart = ({ schoolId }) => {
         },
     } = usePage().props;
 
+    // Debug logging
+    console.log('CountChart props:', { membershipStats, schoolId });
+
     const {
         paidCount,
         unpaidCount,
@@ -35,6 +38,7 @@ const CountChart = ({ schoolId }) => {
     const paidPercent = total ? Math.round((safePaid / total) * 100) : 0;
     const unpaidPercent = 100 - paidPercent;
 
+    // Ensure we always have data for the chart, even if it's zero
     const data = [
         {
             name: "Paid",
@@ -48,9 +52,21 @@ const CountChart = ({ schoolId }) => {
         },
     ];
 
+    // If no data, show a placeholder
+    if (total === 0) {
+        data.push({
+            name: "No Data",
+            count: 1,
+            fill: "#E5E7EB",
+        });
+    }
+
     // Animation for numbers
     useEffect(() => {
-        setIsVisible(true);
+        // Ensure chart is visible when data changes
+        if (!isLoading) {
+            setIsVisible(true);
+        }
 
         const animateNumber = (start, end, setter, duration = 1000) => {
             const startTime = Date.now();
@@ -81,7 +97,7 @@ const CountChart = ({ schoolId }) => {
             animateNumber(0, safePaid, setAnimatedPaid, 1000);
             animateNumber(0, safeUnpaid, setAnimatedUnpaid, 1000);
         }, delay);
-    }, [total, safePaid, safeUnpaid]);
+    }, [total, safePaid, safeUnpaid, isLoading]);
 
     const handleMonthChange = (e) => {
         const newMonth = e.target.value;
@@ -95,7 +111,11 @@ const CountChart = ({ schoolId }) => {
             {
                 preserveState: true,
                 preserveScroll: true,
-                onFinish: () => setIsLoading(false),
+                onFinish: () => {
+                    setIsLoading(false);
+                    // Ensure chart becomes visible after data loads
+                    setTimeout(() => setIsVisible(true), 100);
+                },
             },
         );
     };
@@ -137,6 +157,11 @@ const CountChart = ({ schoolId }) => {
                         animate-pulse"
                 >
                     {error}
+                </div>
+            ) : isLoading ? (
+                <div className="flex items-center justify-center h-64">
+                    <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-500 border-t-transparent"></div>
+                    <span className="ml-2 text-gray-600">Loading...</span>
                 </div>
             ) : (
                 <>

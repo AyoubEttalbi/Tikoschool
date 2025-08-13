@@ -344,45 +344,31 @@ class TeacherController extends Controller
             ->with(['invoices', 'student', 'student.school', 'student.class', 'offer'])
             ->get();
         
-        // Extract invoices from memberships and calculate the teacher's share
+        // Extract invoices from memberships and calculate the teacher's share by month
         $invoices = $memberships->flatMap(function ($membership) use ($teacher) {
             // Skip if the student doesn't exist
             if (!$membership->student) {
                 return [];
             }
             
-            return $membership->invoices->map(function ($invoice) use ($membership, $teacher) {
+            return $membership->invoices->flatMap(function ($invoice) use ($membership, $teacher) {
                 // Find the teacher's data in the membership
                 $teacherData = collect($membership->teachers)->first(function($item) use ($teacher) {
                     return isset($item['teacherId']) && $item['teacherId'] == $teacher->id;
                 });
                 
-                // Calculate the teacher's total share (not distributed per month)
-                $teacherAmount = 0;
-                $monthsCount = 0;
-                if ($teacherData && isset($teacherData['subject'])) {
-                    $offer = $invoice->offer;
-                    $teacherSubject = $teacherData['subject'];
-                    
-                    if ($offer && $teacherSubject && is_array($offer->percentage)) {
-                        // Get teacher percentage from offer
-                        $teacherPercentage = $offer->percentage[$teacherSubject] ?? 0;
-                        
-                        // Calculate total teacher earnings from amountPaid (not distributed)
-                        $teacherAmount = $invoice->amountPaid * ($teacherPercentage / 100);
-                        
-                        // Get selected months for this invoice
-                        $selectedMonths = $invoice->selected_months ?? [];
-                        if (is_string($selectedMonths)) {
-                            $selectedMonths = json_decode($selectedMonths, true) ?? [];
-                        }
-                        if (empty($selectedMonths)) {
-                            // Fallback: if no selected_months, use the billDate month
-                            $selectedMonths = [$invoice->billDate ? $invoice->billDate->format('Y-m') : null];
-                        }
-                        
-                        $monthsCount = count($selectedMonths);
-                    }
+                if (!$teacherData || !isset($teacherData['subject'])) {
+                    return [];
+                }
+                
+                // Get selected months for this invoice
+                $selectedMonths = $invoice->selected_months ?? [];
+                if (is_string($selectedMonths)) {
+                    $selectedMonths = json_decode($selectedMonths, true) ?? [];
+                }
+                if (empty($selectedMonths)) {
+                    // Fallback: if no selected_months, use the billDate month
+                    $selectedMonths = [$invoice->billDate ? $invoice->billDate->format('Y-m') : null];
                 }
                 
                 // Get school information
@@ -403,36 +389,68 @@ class TeacherController extends Controller
                 // Get class name safely
                 $className = $membership->student->class ? $membership->student->class->name : 'Unknown';
                 
-                // Format the date consistently
-                $billDate = $invoice->billDate ? $invoice->billDate->format('Y-m-d') : null;
+                // Calculate teacher earnings per month
+                $offer = $invoice->offer;
+                $teacherSubject = $teacherData['subject'];
                 
-                return [
-                    'id' => $invoice->id,
-                    'membership_id' => $invoice->membership_id,
-                    'student_id' => $invoice->student_id,
-                    'student_name' => $membership->student->firstName . ' ' . $membership->student->lastName,
-                    'student_class' => $className,
-                    'student_school' => $schoolName,
-                    'schoolId' => $schoolId,
-                    'billDate' => $billDate,
-                    'months' => $invoice->months,
-                    'creationDate' => $invoice->creationDate,
-                    'totalAmount' => $invoice->totalAmount,
-                    'amountPaid' => $invoice->amountPaid,
-                    'rest' => $invoice->rest,
-                    'offer_id' => $invoice->offer_id,
-                    'offer_name' => $invoice->offer ? $invoice->offer->offer_name : null,
-                    'endDate' => $invoice->endDate,
-                    'includePartialMonth' => $invoice->includePartialMonth,
-                    'partialMonthAmount' => $invoice->partialMonthAmount,
-                    'teacher_amount' => $teacherAmount,
-                    'months_count' => $monthsCount,
-                ];
+                if (!$offer || !$teacherSubject || !is_array($offer->percentage)) {
+                    return [];
+                }
+                
+                // Get teacher percentage from offer
+                $teacherPercentage = $offer->percentage[$teacherSubject] ?? 0;
+                
+                // Calculate total teacher earnings from amountPaid
+                $totalTeacherAmount = $invoice->amountPaid * ($teacherPercentage / 100);
+                
+                // Calculate monthly amount
+                $monthlyAmount = count($selectedMonths) > 0 ? $totalTeacherAmount / count($selectedMonths) : 0;
+                
+                // Create one row per month
+                $monthlyInvoices = [];
+                foreach ($selectedMonths as $month) {
+                    if (!$month) continue;
+                    
+                    // Format month for display (MM-YYYY)
+                    $monthDisplay = date('m-Y', strtotime($month . '-01'));
+                    
+                    $monthlyInvoices[] = [
+                        'id' => $invoice->id . '_' . $month, // Unique ID for each month
+                        'invoice_id' => $invoice->id,
+                        'membership_id' => $invoice->membership_id,
+                        'student_id' => $invoice->student_id,
+                        'student_name' => $membership->student->firstName . ' ' . $membership->student->lastName,
+                        'student_class' => $className,
+                        'student_school' => $schoolName,
+                        'schoolId' => $schoolId,
+                        'billDate' => $month . '-01', // Use month start date
+                        'month_display' => $monthDisplay,
+                        'months' => $invoice->months,
+                        'creationDate' => $invoice->creationDate,
+                        'created_at' => $invoice->created_at, // Add created_at for sorting
+                        'totalAmount' => $invoice->totalAmount,
+                        'amountPaid' => $invoice->amountPaid,
+                        'rest' => $invoice->rest,
+                        'offer_id' => $invoice->offer_id,
+                        'offer_name' => $invoice->offer ? $invoice->offer->offer_name : null,
+                        'endDate' => $invoice->endDate,
+                        'includePartialMonth' => $invoice->includePartialMonth,
+                        'partialMonthAmount' => $invoice->partialMonthAmount,
+                        'teacher_amount' => $monthlyAmount, // Monthly amount instead of total
+                        'months_count' => 1, // Always 1 month per row
+                        'total_months' => count($selectedMonths), // Total months for reference
+                    ];
+                }
+                
+                return $monthlyInvoices;
             });
         });
         
+        // Sort invoices by creation date (newest first) - this ensures the most recently created invoices appear first
+        $invoices = $invoices->sortByDesc('created_at')->values();
+        
         // Paginate the invoices
-        $perPage = 100; // Number of invoices per page
+        $perPage = 10; // Number of invoices per page (reduced for better UX)
         $currentPage = request()->get('page', 1); // Get the current page from the request
         $paginatedInvoices = new \Illuminate\Pagination\LengthAwarePaginator(
             $invoices->forPage($currentPage, $perPage),

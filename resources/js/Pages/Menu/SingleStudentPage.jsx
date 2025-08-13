@@ -692,6 +692,9 @@ const SingleStudentPage = ({
                         studentClassId={student.classId}
                         attendances={student.attendances}
                         results={student.results}
+                        student={student}
+                        Allclasses={Allclasses}
+                        Allschools={Allschools}
                     />
                 </Suspense>
             </div>

@@ -10,6 +10,9 @@ const StudentProfile = ({
     studentClassId,
     attendances,
     results = [],
+    student = null, // Add student prop
+    Allclasses = [], // Add classes data
+    Allschools = [], // Add schools data
 }) => {
     return (
         <div className="p-8 bg-white">
@@ -18,6 +21,9 @@ const StudentProfile = ({
                     invoices={invoices}
                     Student_memberships={Student_memberships}
                     studentId={studentId}
+                    student={student}
+                    Allclasses={Allclasses}
+                    Allschools={Allschools}
                 />
             </Suspense>
             <Suspense fallback={<div>Chargement des absences...</div>}>

@@ -1,17 +1,23 @@
 import { FaFileInvoice } from "react-icons/fa";
 import FormModal from "./FormModal";
 import { format, parseISO } from "date-fns";
-import { Printer, AlertCircle } from "lucide-react";
+import { Printer, AlertCircle, Eye } from "lucide-react";
 import { useState } from "react";
 import { useEffect } from "react";
+import InvoiceDetails from "./InvoiceDetails";
 
 const InvoicesTable = ({
     invoices = [],
     Student_memberships = [],
     studentId = null,
+    student = null, // Add student prop for complete student information
+    Allclasses = [], // Add classes data
+    Allschools = [], // Add schools data
 }) => {
     const [loading, setLoading] = useState(false); // Global loading state
     const [isSmallScreen, setIsSmallScreen] = useState(false);
+    const [selectedInvoice, setSelectedInvoice] = useState(null);
+    const [showInvoiceDetails, setShowInvoiceDetails] = useState(false);
 
     useEffect(() => {
         // Function to check if the screen is small (mobile)
@@ -46,6 +52,59 @@ const InvoicesTable = ({
         }, 2000);
     };
 
+    const handleInvoiceClick = (invoice) => {
+        // Find associated membership to get additional data
+        const membership = Student_memberships.find(
+            (m) => m.id === invoice.membership_id,
+        );
+        
+        // Get class and school names
+        const classInfo = Allclasses.find(c => c.id === student?.classId);
+        const schoolInfo = Allschools.find(s => s.id === student?.schoolId);
+        
+        // Prepare complete invoice data for the details component
+        const completeInvoiceData = {
+            ...invoice,
+            // Student information from student prop
+            student_name: student ? `${student.firstName} ${student.lastName}` : 'Inconnu',
+            student_class: classInfo?.name || 'N/A',
+            student_school: schoolInfo?.name || 'N/A',
+            student_id: studentId,
+            
+            // Invoice details
+            creationDate: invoice.created_at,
+            billDate: invoice.billDate,
+            endDate: invoice.endDate,
+            months: invoice.months || 1,
+            totalAmount: invoice.totalAmount || 0,
+            amountPaid: invoice.amountPaid || 0,
+            rest: invoice.rest || 0,
+            
+            // Offer information from membership
+            offer_name: membership?.offer_name || 'N/A',
+            offer_id: membership?.offer_id || null,
+            
+            // Additional fields
+            includePartialMonth: invoice.includePartialMonth || false,
+            partialMonthAmount: invoice.partialMonthAmount || 0,
+            type: invoice.type || 'membership',
+            
+            // Payment history (if available)
+            payments: invoice.payments || [],
+            last_payment: invoice.last_payment || null,
+        };
+        
+
+        
+        setSelectedInvoice(completeInvoiceData);
+        setShowInvoiceDetails(true);
+    };
+
+    const closeInvoiceDetails = () => {
+        setShowInvoiceDetails(false);
+        setSelectedInvoice(null);
+    };
+
     // Sort invoices by created_at descending (latest first)
     const sortedInvoices = [...invoices].sort(
         (a, b) => new Date(b.created_at) - new Date(a.created_at),
@@ -53,6 +112,16 @@ const InvoicesTable = ({
 
     return (
         <div className="mb-8 bg-white rounded-lg shadow-md overflow-hidden relative">
+            {/* Invoice Details Modal */}
+            {showInvoiceDetails && selectedInvoice && (
+                <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50 p-4">
+                    <InvoiceDetails 
+                        invoice={selectedInvoice} 
+                        onClose={closeInvoiceDetails}
+                    />
+                </div>
+            )}
+
             {/* Full-Screen Loading Animation */}
             {loading && (
                 <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50 transition-opacity duration-300">
@@ -97,6 +166,7 @@ const InvoicesTable = ({
             )}
 
             <div className="overflow-x-auto">
+         
                 <table className="w-full border-collapse">
                     <thead>
                         <tr className="bg-gray-50 border-b border-gray-200">
@@ -136,7 +206,17 @@ const InvoicesTable = ({
                             return (
                                 <tr
                                     key={index}
-                                    className={`hover:bg-gray-50 transition-colors duration-150 ${!isPaid ? "bg-amber-50" : ""}`}
+                                    className={`hover:bg-gray-50 transition-colors duration-150 cursor-pointer ${!isPaid ? "bg-amber-50" : ""}`}
+                                    onClick={() => handleInvoiceClick(invoice)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault();
+                                            handleInvoiceClick(invoice);
+                                        }
+                                    }}
+                                    tabIndex={0}
+                                    role="button"
+                                    aria-label={`Voir les détails de la facture ${invoice.id}`}
                                 >
                                     <td className="p-3 text-sm text-gray-900">
                                         {formatDate(
@@ -195,11 +275,13 @@ const InvoicesTable = ({
                                     </td>
                                     <td className="p-3 text-sm text-gray-900">
                                         <div className="flex items-center gap-2">
+                                            
                                             <button
                                                 className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-400 hover:bg-gray-500 transition duration-200"
-                                                onClick={() =>
-                                                    handleDownload(invoice.id)
-                                                }
+                                                onClick={(e) => {
+                                                    e.stopPropagation(); // Prevent row click
+                                                    handleDownload(invoice.id);
+                                                }}
                                                 disabled={loading}
                                                 aria-label="Télécharger la facture"
                                             >

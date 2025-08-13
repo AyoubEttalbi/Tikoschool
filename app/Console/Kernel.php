@@ -13,7 +13,19 @@ class Kernel extends ConsoleKernel
     protected function schedule(Schedule $schedule): void
     {
         // Schedule the membership expiration command to run daily
-        $schedule->command('memberships:update-payment-status')->everyMinute();
+        $schedule->command('memberships:update-payment-status')->daily();
+        
+        // Schedule the membership stats update to run daily at 1 AM
+        $schedule->command('memberships:update-stats --all')->dailyAt('01:00');
+        
+        // Schedule teacher monthly payments to run on the 1st of each month at 2 AM
+        $schedule->command('teachers:process-monthly-payments')->monthlyOn(1, '02:00');
+        
+        // Clean up old stats monthly
+        $schedule->call(function () {
+            $service = new \App\Services\MembershipStatsService();
+            $service->cleanupOldStats(2); // Keep 2 years of stats
+        })->monthly();
     }
 
     /**

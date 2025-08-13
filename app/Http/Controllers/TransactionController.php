@@ -17,6 +17,29 @@ use Illuminate\Support\Facades\Mail;
 class TransactionController extends Controller
 {
 /**
+ * Helper method to format month names in French
+ */
+private function formatMonthInFrench($month)
+{
+    $frenchMonths = [
+        1 => 'Janvier',
+        2 => 'Février',
+        3 => 'Mars',
+        4 => 'Avril',
+        5 => 'Mai',
+        6 => 'Juin',
+        7 => 'Juillet',
+        8 => 'Août',
+        9 => 'Septembre',
+        10 => 'Octobre',
+        11 => 'Novembre',
+        12 => 'Décembre'
+    ];
+    
+    return $frenchMonths[$month] ?? 'Inconnu';
+}
+
+/**
  * Common data needed for most views
  *
  * @return array
@@ -147,7 +170,14 @@ private function calculateAdminEarningsPerMonth()
     $processedEarnings = $this->processMonthlyEarnings($allMonths, $monthlyEarnings);
     
     // Sort by year and month (descending)
-    return $this->sortProcessedEarnings($processedEarnings);
+    usort($processedEarnings, function ($a, $b) {
+        if ($a['year'] != $b['year']) {
+            return $b['year'] <=> $a['year']; // Latest year first
+        }
+        return $b['month'] <=> $a['month']; // Latest month first
+    });
+    
+    return $processedEarnings;
 }
 
 /**
@@ -225,7 +255,7 @@ private function initializeAllMonths()
         $allMonths[$yearMonth] = [
             'year' => $date->year,
             'month' => $date->month,
-            'monthName' => $date->format('F'),
+            'monthName' => $this->formatMonthInFrench($date->month),
             'totalPaid' => 0
         ];
     }
@@ -421,7 +451,7 @@ public function getAdminEarningsDashboard()
         
         $monthlyData[$key]['totalExpenses'] = (float)$expenses;
         $monthlyData[$key]['profit'] = $monthlyData[$key]['totalRevenue'] - $monthlyData[$key]['totalExpenses'];
-        $monthlyData[$key]['monthName'] = Carbon::createFromDate($data['year'], $data['month'], 1)->format('F');
+        $monthlyData[$key]['monthName'] = $this->formatMonthInFrench($data['month']);
     }
     
     // Make sure we have entries for the last 12 months
@@ -435,7 +465,7 @@ public function getAdminEarningsDashboard()
             $monthlyData[$key] = [
                 'year' => $year,
                 'month' => $month,
-                'monthName' => $date->format('F'),
+                'monthName' => $this->formatMonthInFrench($month),
                 'totalRevenue' => 0,
                 'totalExpenses' => 0,
                 'profit' => 0
@@ -576,7 +606,7 @@ private function calculateAdminEarningsForComparison()
         $allMonths[$yearMonth] = [
             'year' => $date->year,
             'month' => $date->month,
-            'monthName' => $date->format('F'),
+            'monthName' => $this->formatMonthInFrench($date->month),
             'totalPaid' => 0
         ];
     }

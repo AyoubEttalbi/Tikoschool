@@ -470,17 +470,17 @@ protected function transformStudentData($student)
                     'months' => $invoice->months,
                     'billDate' => $invoice->billDate,
                     'creationDate' => $invoice->creationDate,
-                    'totalAmount' => $invoice->totalAmount,
-                    'amountPaid' => $invoice->amountPaid,
-                    'rest' => $invoice->rest,
+                    'totalAmount' => (float) $invoice->totalAmount,
+                    'amountPaid' => (float) $invoice->amountPaid,
+                    'rest' => (float) $invoice->rest,
                     'endDate' => $invoice->endDate,
                     'includePartialMonth' => $invoice->includePartialMonth,
-                    'partialMonthAmount' => $invoice->partialMonthAmount,
+                    'partialMonthAmount' => (float) $invoice->partialMonthAmount,
                     'last_payment' => $invoice->updated_at,
                     'created_at' => $invoice->created_at,
                     'selectedMonths' => $selectedMonths,
                     'type' => $invoice->type,
-                    'assurance_amount' => $invoice->assurance_amount,
+                    'assurance_amount' => (float) $invoice->assurance_amount,
                 ];
             });
 

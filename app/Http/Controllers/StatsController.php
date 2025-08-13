@@ -19,10 +19,34 @@ use App\Models\Membership;
 use App\Models\Transaction;
 use App\Models\StudentMovement;
 use App\Services\StudentMovementService;
+use App\Services\MembershipStatsService;
 use Illuminate\Support\Facades\Log;
 
 class StatsController extends Controller
 {
+    /**
+     * Helper method to format month names in French
+     */
+    private function formatMonthInFrench($month, $year)
+    {
+        $frenchMonths = [
+            1 => 'Janvier',
+            2 => 'Février',
+            3 => 'Mars',
+            4 => 'Avril',
+            5 => 'Mai',
+            6 => 'Juin',
+            7 => 'Juillet',
+            8 => 'Août',
+            9 => 'Septembre',
+            10 => 'Octobre',
+            11 => 'Novembre',
+            12 => 'Décembre'
+        ];
+        
+        return $frenchMonths[$month] . ' ' . $year;
+    }
+
     /**
      * Display a listing of the resource.
      */
@@ -178,7 +202,7 @@ class StatsController extends Controller
     foreach ($incomeQuery as $item) {
         $key = $item->year . '-' . str_pad($item->month, 2, '0', STR_PAD_LEFT) . '-' . $item->school_id;
         $merged[$key] = [
-            'name' => date('F Y', mktime(0,0,0,$item->month,1,$item->year)),
+            'name' => $this->formatMonthInFrench($item->month, $item->year),
             'income' => (float)$item->income,
             'expense' => 0,
             'school_id' => $item->school_id,
@@ -189,7 +213,7 @@ class StatsController extends Controller
     foreach ($expenseGrouped as $key => $item) {
         if (!isset($merged[$key])) {
             $merged[$key] = [
-                'name' => date('F Y', mktime(0,0,0,$item['month'],1,$item['year'])),
+                'name' => $this->formatMonthInFrench($item['month'], $item['year']),
                 'income' => 0,
                 'expense' => (float)$item['expense'],
                 'school_id' => $item['school_id'],
@@ -200,7 +224,7 @@ class StatsController extends Controller
             $merged[$key]['expense'] = (float)$item['expense'];
         }
     }
-    $result = array_reverse(array_values($merged));
+    $result = array_values($merged);
 
     // Most selling offers
     $mostSellingOffersQuery = DB::table('invoices')
@@ -277,55 +301,51 @@ class StatsController extends Controller
     ]);
 }
 
-private function getMembershipStats($month = null, $schoolId = null)
-{
-    try {
-        $date = $month ? Carbon::parse($month) : Carbon::now();
-        $startOfMonth = $date->copy()->startOfMonth();
-        $endOfMonth = $date->copy()->endOfMonth();
-
-        // Get base query for memberships within the date range and not deleted
-        $query = Membership::where(function($q) use ($startOfMonth, $endOfMonth) {
-            $q->where(function($inner) use ($startOfMonth, $endOfMonth) {
-                $inner->where('start_date', '<=', $endOfMonth)
-                    ->where(function($deepest) use ($startOfMonth) {
-                        $deepest->whereNull('end_date')
-                            ->orWhere('end_date', '>=', $startOfMonth);
-                    });
-            });
-        })->whereNull('deleted_at');
-
-        // Count paid memberships (active AND paid status)
-        $paidQuery = (clone $query)
-            ->where('is_active', true)
-            ->where('payment_status', 'paid');
+    private function getMembershipStats($month = null, $schoolId = null)
+    {
+        try {
+            $date = $month ? Carbon::parse($month) : Carbon::now();
+            $year = $date->year;
+            $monthNum = $date->month;
             
-        $paidCount = $paidQuery->count();
-
- 
-        $unpaidQuery = (clone $query)
-            ->where(function($q) use ($endOfMonth) {
-                $q->where('is_active', false)
-                  ->orWhereIn('payment_status', ['pending', 'expired'])
-                  ->orWhere('end_date', '<=', $endOfMonth);
-            });
+            // Debug logging
+            if (config('app.debug')) {
+                Log::info('Getting membership stats:', [
+                    'requested_month' => $month,
+                    'parsed_year' => $year,
+                    'parsed_month' => $monthNum,
+                    'school_id' => $schoolId
+                ]);
+            }
             
-        $unpaidCount = $unpaidQuery->count();
-
-        return [
-            'paidCount' => $paidCount,
-            'unpaidCount' => $unpaidCount,
-            'month' => $date->format('Y-m')
-        ];
-    } catch (\Exception $e) {
-        return [
-            'error' => 'Error fetching stats: ' . $e->getMessage(),
-            'paidCount' => 0,
-            'unpaidCount' => 0,
-            'month' => $date->format('Y-m')
-        ];
+            // Use the new service to get or create stats
+            $membershipStatsService = new MembershipStatsService();
+            $stats = $membershipStatsService->getOrCreateMonthlyStats($schoolId, $year, $monthNum);
+            
+            // Debug logging
+            if (config('app.debug')) {
+                Log::info('Membership stats result:', [
+                    'paid_count' => $stats->paid_count,
+                    'unpaid_count' => $stats->unpaid_count,
+                    'total_memberships' => $stats->total_memberships
+                ]);
+            }
+            
+            return [
+                'paidCount' => $stats->paid_count,
+                'unpaidCount' => $stats->unpaid_count,
+                'month' => $date->format('Y-m')
+            ];
+        } catch (\Exception $e) {
+            Log::error('Error fetching membership stats: ' . $e->getMessage());
+            return [
+                'error' => 'Error fetching stats: ' . $e->getMessage(),
+                'paidCount' => 0,
+                'unpaidCount' => 0,
+                'month' => $date->format('Y-m')
+            ];
+        }
     }
-}
 
 public function getStatsOfPaidUnpaid(Request $request)
 {
@@ -357,7 +377,7 @@ public function getStatsOfPaidUnpaid(Request $request)
     // Format for chart
     $result = $rows->map(function($row) {
         return [
-            'name' => date('F Y', mktime(0,0,0,$row->month,1,$row->year)),
+            'name' => $this->formatMonthInFrench($row->month, $row->year),
             'paid' => (int)$row->paid_count,
             'unpaid' => (int)$row->unpaid_count,
             'school_id' => $row->school_id,
@@ -416,7 +436,7 @@ public function getFinanceStats(Request $request)
     foreach ($incomeRows as $row) {
         $key = $row->year . '-' . str_pad($row->month, 2, '0', STR_PAD_LEFT);
         $merged[$key] = [
-            'name' => date('F Y', mktime(0,0,0,$row->month,1,$row->year)),
+            'name' => $this->formatMonthInFrench($row->month, $row->year),
             'income' => (float)$row->income,
             'expense' => 0,
             'year' => $row->year,
@@ -427,7 +447,7 @@ public function getFinanceStats(Request $request)
         $key = $row->year . '-' . str_pad($row->month, 2, '0', STR_PAD_LEFT);
         if (!isset($merged[$key])) {
             $merged[$key] = [
-                'name' => date('F Y', mktime(0,0,0,$row->month,1,$row->year)),
+                'name' => $this->formatMonthInFrench($row->month, $row->year),
                 'income' => 0,
                 'expense' => (float)$row->expense,
                 'year' => $row->year,

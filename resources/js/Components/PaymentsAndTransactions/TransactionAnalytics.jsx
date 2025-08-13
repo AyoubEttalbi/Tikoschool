@@ -94,7 +94,7 @@ const TransactionAnalytics = ({ transactions }) => {
         const monthlyData = {
             labels: sortedMonths.map((month) => {
                 const [m, y] = month.split("/");
-                return `${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][m - 1]} ${y}`;
+                return `${["Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Août", "Sep", "Oct", "Nov", "Déc"][m - 1]} ${y}`;
             }),
             datasets: [
                 {

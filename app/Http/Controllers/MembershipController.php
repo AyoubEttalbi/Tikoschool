@@ -140,23 +140,15 @@ class MembershipController extends Controller
             // Capture old data before update
             $oldData = $membership->toArray();
 
-            // Only update teacher wallets if the membership was previously paid
+            // Only update teacher membership payments if the membership was previously paid
             if ($membership->payment_status === 'paid') {
-                // Decrement the wallet for old teachers
-                foreach ($membership->teachers as $oldTeacher) {
-                    $teacher = Teacher::find($oldTeacher['teacherId']);
-                    if ($teacher) {
-                        $teacher->decrement('wallet', $oldTeacher['amount']);
-                    }
-                }
-
-                // Increment the wallet for new teachers after update
-                foreach ($validated['teachers'] as $newTeacher) {
-                    $teacher = Teacher::find($newTeacher['teacherId']);
-                    if ($teacher) {
-                        $teacher->increment('wallet', $newTeacher['amount']);
-                    }
-                }
+                // Reverse old teacher payments
+                $paymentService = new \App\Services\TeacherMembershipPaymentService();
+                
+                // Deactivate old teacher payment records
+                \App\Models\TeacherMembershipPayment::where('membership_id', $membership->id)
+                    ->where('is_active', true)
+                    ->update(['is_active' => false]);
             }
 
             // Update the membership with new data
@@ -192,15 +184,12 @@ class MembershipController extends Controller
             // Log the activity before deletion
             $this->logActivity('deleted', $membership, $membership->toArray(), null);
 
-            // Only decrement wallets if the membership was paid
+            // Only deactivate teacher payment records if the membership was paid
             if ($membership->payment_status === 'paid') {
-                // Decrement the wallet for associated teachers
-                foreach ($membership->teachers as $teacherData) {
-                    $teacher = Teacher::find($teacherData['teacherId']);
-                    if ($teacher) {
-                        $teacher->decrement('wallet', $teacherData['amount']);
-                    }
-                }
+                // Deactivate teacher payment records
+                \App\Models\TeacherMembershipPayment::where('membership_id', $membership->id)
+                    ->where('is_active', true)
+                    ->update(['is_active' => false]);
             }
 
             // Delete the membership

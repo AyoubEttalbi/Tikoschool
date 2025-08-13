@@ -10,7 +10,6 @@ import {
     ChevronDown,
     X,
     Filter,
-    ArrowUpDown,
 } from "lucide-react";
 import { Link, router } from "@inertiajs/react";
 
@@ -23,8 +22,6 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
     const [offerFilter, setOfferFilter] = useState("all");
     const [schoolFilter, setSchoolFilter] = useState("all");
     const [dateFilter, setDateFilter] = useState(new Date().toISOString().slice(0, 7));
-    const [sortField, setSortField] = useState("billDate");
-    const [sortDirection, setSortDirection] = useState("desc");
     const [filtersVisible, setFiltersVisible] = useState(false);
     const [selectedInvoices, setSelectedInvoices] = useState([]);
 
@@ -39,17 +36,9 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
         ...new Set(safeInvoices.map((inv) => inv.student_school)),
     ];
 
-    // Handle sort change
-    const handleSort = (field) => {
-        if (sortField === field) {
-            setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-        } else {
-            setSortField(field);
-            setSortDirection("asc");
-        }
-    };
 
-    // Filter and sort invoices
+
+    // Filter invoices (sorting is now handled by backend)
     const filteredInvoices = useMemo(() => {
         let filtered = safeInvoices.filter((invoice) => {
             // Skip invalid invoices
@@ -71,24 +60,6 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
             );
         });
 
-        // Sort filtered invoices
-        filtered.sort((a, b) => {
-            let comparison = 0;
-
-            // Handle missing properties during sort
-            if (sortField === "totalAmount" || sortField === "teacher_amount") {
-                const aValue = parseFloat(a[sortField] || 0);
-                const bValue = parseFloat(b[sortField] || 0);
-                comparison = aValue - bValue;
-            } else {
-                const aValue = a[sortField] || "";
-                const bValue = b[sortField] || "";
-                comparison = aValue > bValue ? 1 : -1;
-            }
-
-            return sortDirection === "asc" ? comparison : -comparison;
-        });
-
         return filtered;
     }, [
         safeInvoices,
@@ -97,8 +68,6 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
         offerFilter,
         schoolFilter,
         dateFilter,
-        sortField,
-        sortDirection,
     ]);
 
     // Calculate summary metrics
@@ -107,6 +76,9 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
         (sum, invoice) => sum + parseFloat(invoice?.teacher_amount || 0),
         0,
     );
+    
+    // Calculate unique students (since we now have multiple rows per student)
+    const uniqueStudents = [...new Set(filteredInvoices.map(inv => inv.student_id))].length;
 
     // Calculate the best offer (offer with the highest total amount)
     const bestOffer = useMemo(() => {
@@ -211,7 +183,7 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
         if (selectedInvoices.length === filteredInvoices.length) {
             setSelectedInvoices([]);
         } else {
-            setSelectedInvoices(filteredInvoices.map((invoice) => invoice.id));
+            setSelectedInvoices(filteredInvoices.map((invoice) => invoice.invoice_id));
         }
     };
 
@@ -230,93 +202,44 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                         }
                         onChange={toggleSelectAll}
                     />
-                    <span className="hidden md:inline">ID</span>
+                    <span className="hidden md:inline">ID Facture</span>
                 </div>
             ),
-            accessor: "id",
+            accessor: "invoice_id",
             className: "md:table-cell",
         },
         {
-            header: (
-                <div
-                    className="flex items-center cursor-pointer"
-                    onClick={() => handleSort("student_name")}
-                >
-                    Élève <ArrowUpDown className="ml-1 w-3 h-3" />
-                </div>
-            ),
+            header: "Élève",
             accessor: "student_name",
         },
         {
-            header: (
-                <div
-                    className="flex items-center cursor-pointer"
-                    onClick={() => handleSort("student_class")}
-                >
-                    Classe <ArrowUpDown className="ml-1 w-3 h-3" />
-                </div>
-            ),
+            header: "Classe",
             accessor: "student_class",
             className: "hidden md:table-cell",
         },
         {
-            header: (
-                <div
-                    className="flex items-center cursor-pointer"
-                    onClick={() => handleSort("student_school")}
-                >
-                    École <ArrowUpDown className="ml-1 w-3 h-3" />
-                </div>
-            ),
+            header: "École",
             accessor: "student_school",
             className: "hidden lg:table-cell",
         },
         {
-            header: (
-                <div
-                    className="flex items-center cursor-pointer"
-                    onClick={() => handleSort("offer_name")}
-                >
-                    Offre <ArrowUpDown className="ml-1 w-3 h-3" />
-                </div>
-            ),
+            header: "Offre",
             accessor: "offer_name",
             className: "hidden lg:table-cell",
         },
         {
-            header: (
-                <div
-                    className="flex items-center cursor-pointer"
-                    onClick={() => handleSort("billDate")}
-                >
-                    Date de facture <ArrowUpDown className="ml-1 w-3 h-3" />
-                </div>
-            ),
+            header: "Date de facture",
             accessor: "billDate",
             className: "hidden md:table-cell",
         },
         {
-            header: (
-                <div
-                    className="flex items-center cursor-pointer"
-                    onClick={() => handleSort("teacher_amount")}
-                >
-                    Gains <ArrowUpDown className="ml-1 w-3 h-3" />
-                </div>
-            ),
+            header: "Gains",
             accessor: "teacher_amount",
             className: "hidden md:table-cell",
         },
         {
-            header: (
-                <div
-                    className="flex items-center cursor-pointer"
-                    onClick={() => handleSort("months_count")}
-                >
-                    Mois <ArrowUpDown className="ml-1 w-3 h-3" />
-                </div>
-            ),
-            accessor: "months_count",
+            header: "Mois",
+            accessor: "month_display",
             className: "hidden lg:table-cell",
         },
         { header: "Actions", accessor: "action" },
@@ -333,19 +256,19 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
 
         return (
             <tr
-                key={item.id}
-                className={`border-b border-gray-200 text-sm hover:bg-gray-100 ${selectedInvoices.includes(item.id) ? "bg-blue-50" : "even:bg-gray-50"}`}
+                key={item.invoice_id + '_' + item.month_display}
+                className={`border-b border-gray-200 text-sm hover:bg-gray-100 ${selectedInvoices.includes(item.invoice_id) ? "bg-blue-50" : "even:bg-gray-50"}`}
             >
                 <td className="p-4">
                     <div className="flex items-center">
                         <input
                             type="checkbox"
                             className="mr-2 rounded"
-                            checked={selectedInvoices.includes(item.id)}
-                            onChange={() => toggleInvoiceSelection(item.id)}
+                            checked={selectedInvoices.includes(item.invoice_id)}
+                            onChange={() => toggleInvoiceSelection(item.invoice_id)}
                             onClick={(e) => e.stopPropagation()}
                         />
-                        <span className="md:inline">{item.id}</span>
+                        <span className="md:inline">{item.invoice_id}</span>
                     </div>
                 </td>
                 <td className="p-4 font-medium">
@@ -366,7 +289,7 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                 </td>
                 <td className="p-4 hidden lg:table-cell text-center">
                     <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                        {item.months_count || 0} mois
+                        {item.month_display || 'N/A'}
                     </span>
                 </td>
                 <td className="p-4">
@@ -395,7 +318,7 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                     <div className="flex items-center mb-4 md:mb-0">
                         <FileText className="w-6 h-6 text-blue-600 mr-2" />
                         <h1 className="text-xl font-bold text-gray-800">
-                            Factures Enseignant
+                            Gains Mensuels Enseignant
                         </h1>
                     </div>
 
@@ -549,14 +472,14 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                                     }
                                 />
                                 <Calendar className="absolute left-2 top-2.5 w-4 h-4 text-gray-500" />
-                                {dateFilter && (
+                                {/* {dateFilter && (
                                     <button
                                         onClick={() => setDateFilter("")}
                                         className="absolute right-2 top-2.5"
                                     >
                                         <X className="w-4 h-4 text-gray-500 hover:text-gray-700" />
                                     </button>
-                                )}
+                                )} */}
                             </div>
                         </div>
                     </div>
@@ -568,7 +491,7 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                     <div className="bg-gradient-to-r from-blue-50 to-blue-100 p-4 rounded-lg shadow-sm border border-blue-200">
                         <p className="text-sm text-gray-700 font-medium mb-1">
-                            Nombre total de factures
+                            Mois de paiement
                         </p>
                         <p className="text-2xl font-bold text-blue-800">
                             {totalInvoices}
@@ -576,7 +499,7 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                     </div>
                     <div className="bg-gradient-to-r from-green-50 to-green-100 p-4 rounded-lg shadow-sm border border-green-200">
                         <p className="text-sm text-gray-700 font-medium mb-1">
-                            Montant total
+                            Gains totaux
                         </p>
                         <p className="text-2xl font-bold text-green-800">
                             {totalAmount.toFixed(1)} DH
@@ -601,11 +524,11 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                 <div className="flex flex-col items-center justify-center py-12 bg-gray-50 rounded-lg border border-gray-200">
                     <FileText className="w-12 h-12 text-gray-400 mb-3" />
                     <h3 className="text-lg font-medium text-gray-700 mb-1">
-                        Aucune facture trouvée
+                        Aucun gain mensuel trouvé
                     </h3>
                     <p className="text-gray-500">
                         {safeInvoices.length === 0
-                            ? "Aucune facture disponible pour cet enseignant."
+                            ? "Aucun gain mensuel disponible pour cet enseignant."
                             : "Essayez d'ajuster vos filtres ou critères de recherche"}
                     </p>
                     {safeInvoices.length > 0 && (
@@ -637,6 +560,13 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                         links={invoiceslinks}
                         filters={paginationFilters}
                     />
+                </div>
+            )}
+            
+            {/* Show pagination info */}
+            {invoiceslinks && invoiceslinks.length > 3 && (
+                <div className="mt-4 text-center text-sm text-gray-600">
+                    Affichage de {((parseInt(invoiceslinks[0]?.label || 1) - 1) * 10) + 1} à {Math.min(parseInt(invoiceslinks[0]?.label || 1) * 10, filteredInvoices.length)} sur {invoiceslinks[0]?.label ? 'plusieurs' : filteredInvoices.length} résultats
                 </div>
             )}
         </div>

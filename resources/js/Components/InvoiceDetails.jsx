@@ -29,6 +29,8 @@ const InvoiceDetails = ({ invoice, onClose }) => {
 
     if (!invoice) return null;
 
+
+
     // Calculate payment status and percentage
     const paymentStatus =
         invoice.rest <= 0
@@ -38,17 +40,21 @@ const InvoiceDetails = ({ invoice, onClose }) => {
               : "partial";
 
     const totalAmount =
-        typeof invoice.totalAmount === "number" ? invoice.totalAmount : 0;
+        typeof invoice.totalAmount === "number" ? invoice.totalAmount : 
+        typeof invoice.totalAmount === "string" ? parseFloat(invoice.totalAmount) || 0 : 0;
     const amountPaid =
-        typeof invoice.amountPaid === "number" ? invoice.amountPaid : 0;
+        typeof invoice.amountPaid === "number" ? invoice.amountPaid : 
+        typeof invoice.amountPaid === "string" ? parseFloat(invoice.amountPaid) || 0 : 0;
     const remainingAmount =
-        typeof invoice.rest === "number"
-            ? invoice.rest
-            : totalAmount - amountPaid;
+        typeof invoice.rest === "number" ? invoice.rest :
+        typeof invoice.rest === "string" ? parseFloat(invoice.rest) || 0 :
+        totalAmount - amountPaid;
 
     // Calculate payment percentage safely
     const paymentPercentage =
         totalAmount > 0 ? Math.round((amountPaid / totalAmount) * 100) : 0;
+
+
 
     // Format date helper
     const formatDate = (dateString) => {
@@ -208,7 +214,7 @@ const InvoiceDetails = ({ invoice, onClose }) => {
                         Informations de paiement
                     </h2>
 
-                    {(totalAmount === 0 && amountPaid === 0 && remainingAmount === 0) ? (
+                    {(totalAmount <= 0 && amountPaid <= 0) ? (
                         <div className="bg-gray-50 p-4 rounded-lg mb-4 text-center text-gray-500">
                             Aucun paiement enregistré
                         </div>
