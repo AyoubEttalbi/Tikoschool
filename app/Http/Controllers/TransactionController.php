@@ -2039,7 +2039,7 @@ public function processMonthRecurringTransactions(Request $request)
             })
             ->when($teacherId, function($q) use ($teacherId) {
                 $q->whereHas('membership', function($q2) use ($teacherId) {
-                    $q2->whereJsonContains('teachers', [['teacherId' => (string)$teacherId]]);
+                    $q2->withTrashed()->whereJsonContains('teachers', [['teacherId' => (string)$teacherId]]);
                 });
             })
             ->get();
@@ -2150,7 +2150,7 @@ public function processMonthRecurringTransactions(Request $request)
                 });
             })
             ->whereHas('membership', function($q) use ($teacherId) {
-                $q->whereJsonContains('teachers', [['teacherId' => (string)$teacherId]]);
+                $q->withTrashed()->whereJsonContains('teachers', [['teacherId' => (string)$teacherId]]);
             })
             ->get();
         $result = [];

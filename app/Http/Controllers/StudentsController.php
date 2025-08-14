@@ -194,7 +194,7 @@ class StudentsController extends Controller
              'Allschools' => School::all(),
              'search' => $request->search,
              'filters' => $request->only(['school', 'class', 'level', 'membership_status']),
-             'Allmemberships' => Membership::all(),
+             'Allmemberships' => Membership::whereNull('deleted_at')->get(),
              'selectedSchool' => $selectedSchoolId ? [
                  'id' => $selectedSchoolId,
                  'name' => session('school_name')
@@ -428,8 +428,9 @@ protected function transformStudentData($student)
         $offers = Offer::where('levelId', $student->levelId)->get();
         $teachers = Teacher::with('subjects')->get(); // Eager load subjects for each teacher
 
-        // Fetch memberships for the student
-        $memberships = Membership::where('student_id', $student->id)
+        // Fetch memberships for the student (including soft-deleted ones)
+        $memberships = Membership::withTrashed()
+            ->where('student_id', $student->id)
             ->with(['offer'])
             ->get()
             ->map(function ($membership) {
@@ -444,6 +445,7 @@ protected function transformStudentData($student)
                     'is_active' => $membership->is_active,
                     'start_date' => $membership->start_date,
                     'end_date' => $membership->end_date,
+                    'deleted_at' => $membership->deleted_at, // Include deletion status
                 ];
             });
 

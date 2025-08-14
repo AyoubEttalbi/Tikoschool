@@ -89,11 +89,20 @@ const AssistantPaymentsCard = ({ transactions = [], userId }) => {
     const [isLoading, setIsLoading] = useState(true);
     const [currentPage, setCurrentPage] = useState(1);
     const [expanded, setExpanded] = useState(false);
-    console.log('userId', userId, 'transactions', transactions);
+    
+    // If no userId, don't show the payment history at all
+    if (!userId) {
+        return null;
+    }
+    
     // Memoize filtered transactions to avoid unnecessary updates
     const filteredTransactions = useMemo(() => {
-        if (!transactions || !userId) return [];
-        return transactions.filter((transaction) => String(transaction.user_id) === String(userId));
+        if (!transactions) {
+            return [];
+        }
+        
+        const filtered = transactions.filter((transaction) => String(transaction.user_id) === String(userId));
+        return filtered;
     }, [transactions, userId]);
 
     const totalPages = Math.ceil(filteredTransactions.length / ITEMS_PER_PAGE);
@@ -120,7 +129,21 @@ const AssistantPaymentsCard = ({ transactions = [], userId }) => {
     }
 
     if (filteredTransactions.length === 0) {
-        return null;
+        return (
+            <div className="bg-white shadow rounded-lg overflow-hidden">
+                <div className="bg-blue-50 px-4 py-3 border-b border-blue-100">
+                    <div className="flex items-center">
+                        <CreditCard className="h-5 w-5 text-blue-600 mr-2" />
+                        <h3 className="text-lg font-medium text-blue-800">
+                            Historique des paiements
+                        </h3>
+                    </div>
+                </div>
+                <div className="p-4 text-sm text-gray-600">
+                    <p>Aucune transaction trouvée pour cet assistant.</p>
+                </div>
+            </div>
+        );
     }
 
     return (

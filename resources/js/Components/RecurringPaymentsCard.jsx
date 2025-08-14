@@ -88,6 +88,12 @@ const ITEMS_PER_PAGE = 10;
 const RecurringPaymentsCard = ({ transactions = [], userId }) => {
     const [isLoading, setIsLoading] = useState(true);
     const [currentPage, setCurrentPage] = useState(1);
+    const [expanded, setExpanded] = useState(false);
+    
+    // If no userId, don't show the payment history at all
+    if (!userId) {
+        return null;
+    }
 
     // Memoize filtered transactions to avoid unnecessary updates
     const filteredTransactions = useMemo(() => {
@@ -119,20 +125,41 @@ const RecurringPaymentsCard = ({ transactions = [], userId }) => {
     }
 
     if (filteredTransactions.length === 0) {
-        return null;
+        return (
+            <div className="bg-white shadow rounded-lg overflow-hidden">
+                <div className="bg-blue-50 px-4 py-3 border-b border-blue-100">
+                    <div className="flex items-center">
+                        <CreditCard className="h-5 w-5 text-blue-600 mr-2" />
+                        <h3 className="text-lg font-medium text-blue-800">
+                            Historique des paiements
+                        </h3>
+                    </div>
+                </div>
+                <div className="p-4 text-sm text-gray-600">
+                    <p>Aucune transaction trouvée pour cet enseignant.</p>
+                </div>
+            </div>
+        );
     }
 
     return (
         <div className="bg-white shadow rounded-lg overflow-hidden">
-            <div className="bg-blue-50 px-4 py-3 border-b border-blue-100">
+            <div className="bg-blue-50 px-4 py-3 border-b border-blue-100 flex items-center justify-between">
                 <div className="flex items-center">
                     <CreditCard className="h-5 w-5 text-blue-600 mr-2" />
                     <h3 className="text-lg font-medium text-blue-800">
                         Historique des paiements
                     </h3>
                 </div>
+                <button
+                    className="text-xs font-semibold text-blue-600 hover:underline px-2 py-1 rounded transition"
+                    onClick={() => setExpanded((prev) => !prev)}
+                >
+                    {expanded ? 'Voir moins' : 'Voir plus'}
+                </button>
             </div>
-            <div className="divide-y divide-gray-200">
+            {expanded && (
+                <div className="divide-y divide-gray-200">
                 {paginatedTransactions.map((transaction) => (
                     <div
                         key={transaction.id}
@@ -166,8 +193,9 @@ const RecurringPaymentsCard = ({ transactions = [], userId }) => {
                         </div>
                     </div>
                 ))}
-            </div>
-            {totalPages > 1 && (
+                </div>
+            )}
+            {expanded && totalPages > 1 && (
                 <PaymentsPagination
                     currentPage={currentPage}
                     totalPages={totalPages}

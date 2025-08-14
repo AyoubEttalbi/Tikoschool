@@ -95,7 +95,9 @@ class PerformanceController extends Controller
                         ->whereRaw('amountPaid >= totalAmount')
                         ->count(),
                     'recentPayments' => Invoice::where('student_id', $studentId)
-                        ->with(['offer', 'membership'])
+                        ->with(['offer', 'membership' => function($membershipQuery) {
+                            $membershipQuery->withTrashed();
+                        }])
                         ->latest()
                         ->take(5)
                         ->get()
@@ -113,11 +115,14 @@ class PerformanceController extends Controller
                 ],
                 'membership' => [
                     'score' => $membershipScore,
-                    'activeMemberships' => Membership::where('student_id', $studentId)
+                    'activeMemberships' => Membership::whereNull('deleted_at')
+                        ->where('student_id', $studentId)
                         ->where('is_active', true)
                         ->count(),
-                    'totalMemberships' => Membership::where('student_id', $studentId)->count(),
-                    'currentMemberships' => Membership::where('student_id', $studentId)
+                    'totalMemberships' => Membership::whereNull('deleted_at')
+                        ->where('student_id', $studentId)->count(),
+                    'currentMemberships' => Membership::whereNull('deleted_at')
+                        ->where('student_id', $studentId)
                         ->where('is_active', true)
                         ->with(['offer', 'invoices'])
                         ->get()
@@ -221,7 +226,7 @@ class PerformanceController extends Controller
      */
     private function calculateMembershipScore($studentId)
     {
-        $activeMemberships = Membership::where('student_id', $studentId)
+        $activeMemberships = Membership::withTrashed()->where('student_id', $studentId)
             ->where('is_active', true)
             ->count();
             

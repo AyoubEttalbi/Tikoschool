@@ -22,6 +22,7 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
     const [offerFilter, setOfferFilter] = useState("all");
     const [schoolFilter, setSchoolFilter] = useState("all");
     const [dateFilter, setDateFilter] = useState(new Date().toISOString().slice(0, 7));
+    const [membershipStatusFilter, setMembershipStatusFilter] = useState("all");
     const [filtersVisible, setFiltersVisible] = useState(false);
     const [selectedInvoices, setSelectedInvoices] = useState([]);
 
@@ -56,7 +57,10 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                 (classFilter === "all" || studentClass === classFilter) &&
                 (offerFilter === "all" || offerName === offerFilter) &&
                 (schoolFilter === "all" || studentSchool === schoolFilter) &&
-                (dateFilter === "" || billDate.startsWith(dateFilter))
+                (dateFilter === "" || billDate.startsWith(dateFilter)) &&
+                (membershipStatusFilter === "all" || 
+                 (membershipStatusFilter === "active" && !item.membership_deleted) ||
+                 (membershipStatusFilter === "deleted" && item.membership_deleted))
             );
         });
 
@@ -68,6 +72,7 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
         offerFilter,
         schoolFilter,
         dateFilter,
+        membershipStatusFilter,
     ]);
 
     // Calculate summary metrics
@@ -120,6 +125,7 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
         setOfferFilter("all");
         setSchoolFilter("all");
         setDateFilter("");
+        setMembershipStatusFilter("all");
     };
 
     // Prepare filters for pagination
@@ -130,8 +136,9 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
             offer: offerFilter !== "all" ? offerFilter : undefined,
             school: schoolFilter !== "all" ? schoolFilter : undefined,
             date: dateFilter || undefined,
+            membership_status: membershipStatusFilter !== "all" ? membershipStatusFilter : undefined,
         }),
-        [search, classFilter, offerFilter, schoolFilter, dateFilter],
+        [search, classFilter, offerFilter, schoolFilter, dateFilter, membershipStatusFilter],
     );
 
     // Handle invoice download
@@ -228,6 +235,11 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
             className: "hidden lg:table-cell",
         },
         {
+            header: "Statut",
+            accessor: "membership_status",
+            className: "hidden md:table-cell",
+        },
+        {
             header: "Date de facture",
             accessor: "billDate",
             className: "hidden md:table-cell",
@@ -272,7 +284,16 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                     </div>
                 </td>
                 <td className="p-4 font-medium">
-                    {item.student_name || "Inconnu"}
+                    <div className="flex items-center gap-2">
+                        <span className={item.membership_deleted ? "line-through text-gray-500" : ""}>
+                            {item.student_name || "Inconnu"}
+                        </span>
+                        {item.membership_deleted && (
+                            <span className="text-xs text-red-600 bg-red-100 px-1 py-0.5 rounded">
+                                Supprimé
+                            </span>
+                        )}
+                    </div>
                 </td>
                 <td className="p-4 hidden md:table-cell">
                     {item.student_class || "—"}
@@ -282,6 +303,19 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                 </td>
                 <td className="p-4 hidden lg:table-cell">
                     {item.offer_name || "—"}
+                </td>
+                <td className="p-4 hidden md:table-cell">
+                    {item.membership_deleted ? (
+                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                            <span className="w-2 h-2 bg-red-400 rounded-full mr-1"></span>
+                            Adhésion supprimée
+                        </span>
+                    ) : (
+                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            <span className="w-2 h-2 bg-green-400 rounded-full mr-1"></span>
+                            Actif
+                        </span>
+                    )}
                 </td>
                 <td className="p-4 hidden md:table-cell">{billDate}</td>
                 <td className="p-4 hidden md:table-cell font-semibold text-green-500">
@@ -357,7 +391,8 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                         {(search ||
                             classFilter !== "all" ||
                             offerFilter !== "all" ||
-                            dateFilter) && (
+                            dateFilter ||
+                            membershipStatusFilter !== "all") && (
                             <button
                                 onClick={resetFilters}
                                 className="flex items-center gap-1 px-3 py-2 rounded-lg bg-red-50 text-red-600 border border-red-200 text-sm hover:bg-red-100"
@@ -381,7 +416,7 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
 
                 {/* Filtres étendus */}
                 {filtersVisible && safeInvoices.length > 0 && (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 mb-2 bg-gray-50 rounded-lg border border-gray-200 animate-fadeIn">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 mb-2 bg-gray-50 rounded-lg border border-gray-200 animate-fadeIn">
                         {/* Filtre Classe */}
                         <div>
                             <label
@@ -475,12 +510,31 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                                 {/* {dateFilter && (
                                     <button
                                         onClick={() => setDateFilter("")}
-                                        className="absolute right-2 top-2.5"
-                                    >
+                                        className>
                                         <X className="w-4 h-4 text-gray-500 hover:text-gray-700" />
                                     </button>
                                 )} */}
                             </div>
+                        </div>
+
+                        {/* Filtre Statut d'adhésion */}
+                        <div>
+                            <label
+                                htmlFor="membership-status-filter"
+                                className="block text-sm font-medium text-gray-700 mb-1"
+                            >
+                                Statut d'adhésion
+                            </label>
+                            <select
+                                id="membership-status-filter"
+                                className="border w-full rounded-lg p-2 text-sm"
+                                value={membershipStatusFilter}
+                                onChange={(e) => setMembershipStatusFilter(e.target.value)}
+                            >
+                                <option value="all">Tous les statuts</option>
+                                <option value="active">Adhésions actives</option>
+                                <option value="deleted">Adhésions supprimées</option>
+                            </select>
                         </div>
                     </div>
                 )}
@@ -488,7 +542,7 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
 
             {/* Cartes de résumé */}
             {safeInvoices.length > 0 && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                     <div className="bg-gradient-to-r from-blue-50 to-blue-100 p-4 rounded-lg shadow-sm border border-blue-200">
                         <p className="text-sm text-gray-700 font-medium mb-1">
                             Mois de paiement
@@ -514,6 +568,17 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                         </p>
                         <p className="text-lg text-purple-700">
                             {bestOffer.amount} DH
+                        </p>
+                    </div>
+                    <div className="bg-gradient-to-r from-orange-50 to-orange-100 p-4 rounded-lg shadow-sm border border-orange-200">
+                        <p className="text-sm text-gray-700 font-medium mb-1">
+                            Adhésions supprimées
+                        </p>
+                        <p className="text-2xl font-bold text-orange-800">
+                            {safeInvoices.filter(inv => inv.membership_deleted).length}
+                        </p>
+                        <p className="text-sm text-orange-700">
+                            sur {safeInvoices.length} total
                         </p>
                     </div>
                 </div>

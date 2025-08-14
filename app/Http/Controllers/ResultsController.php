@@ -363,8 +363,8 @@ class ResultsController extends Controller
         // Get all student IDs to check their memberships
         $studentIds = $students->pluck('id')->toArray();
         
-        // Get all active memberships for these students
-        $memberships = \App\Models\Membership::whereIn('student_id', $studentIds)
+        // Get all active memberships for these students (including deleted ones)
+        $memberships = \App\Models\Membership::withTrashed()->whereIn('student_id', $studentIds)
             ->where('is_active', true)
             ->get();
             

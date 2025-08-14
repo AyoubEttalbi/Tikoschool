@@ -14,7 +14,7 @@ class UpdateMembershipPaymentStatus extends Command
     public function handle()
     {
         $now = Carbon::now();
-        $expiredMemberships = Membership::where('end_date', '<', $now)
+        $expiredMemberships = Membership::withTrashed()->where('end_date', '<', $now)
             ->where('payment_status', '!=', 'expired')
             ->get();
 

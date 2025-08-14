@@ -332,16 +332,21 @@ class TeacherController extends Controller
             abort(404);
         }
         
-        // Calculate total students for this teacher
-        $totalStudents = Membership::whereIn('payment_status', ['paid', 'pending'])
+        // Calculate total students for this teacher (including deleted memberships)
+        $totalStudents = Membership::withTrashed()
+            ->whereIn('payment_status', ['paid', 'pending'])
             ->whereJsonContains('teachers', [['teacherId' => (string) $teacher->id]])
             ->distinct('student_id')
             ->count('student_id');
         
-        // Fetch all memberships where the teacher is involved
-        $memberships = Membership::whereIn('payment_status', ['paid', 'pending'])
+        // Fetch all memberships where the teacher is involved (including deleted ones)
+        $memberships = Membership::withTrashed()
+            ->whereIn('payment_status', ['paid', 'pending'])
             ->whereJsonContains('teachers', [['teacherId' => (string) $teacher->id]])
-            ->with(['invoices', 'student', 'student.school', 'student.class', 'offer'])
+            ->with(['invoices' => function($query) {
+                // Only include non-deleted invoices
+                $query->whereNull('deleted_at');
+            }, 'student', 'student.school', 'student.class', 'offer'])
             ->get();
         
         // Extract invoices from memberships and calculate the teacher's share by month
@@ -439,6 +444,8 @@ class TeacherController extends Controller
                         'teacher_amount' => $monthlyAmount, // Monthly amount instead of total
                         'months_count' => 1, // Always 1 month per row
                         'total_months' => count($selectedMonths), // Total months for reference
+                        'membership_deleted' => !is_null($membership->deleted_at), // Add membership deletion status
+                        'membership_deleted_at' => $membership->deleted_at, // Add deletion date for reference
                     ];
                 }
                 
@@ -467,8 +474,17 @@ class TeacherController extends Controller
         
         // Get recurring transactions for this teacher
         $recurringTransactions = \App\Models\Transaction::where('is_recurring', 1)
-            ->where('user_id', $teacher->id)
+            ->where('user_id', $teacherUser->id)
             ->get();
+            
+        // Log the relationship for debugging
+        Log::info('Teacher-User relationship', [
+            'teacher_id' => $teacher->id,
+            'teacher_email' => $teacher->email,
+            'user_found' => $teacherUser ? true : false,
+            'user_id' => $teacherUser ? $teacherUser->id : null,
+            'user_email' => $teacherUser ? $teacherUser->email : null
+        ]);
             
         // Check if any recurring transactions have been paid this month
         $currentMonth = now()->format('Y-m');
@@ -486,7 +502,14 @@ class TeacherController extends Controller
         }
         
         // Get all transactions (recurring and one-time) for this teacher
-        $transactions = \App\Models\Transaction::where('user_id', $teacher->id)->get();
+        $transactions = \App\Models\Transaction::where('user_id', $teacherUser->id)->get();
+        
+        // Log transaction fetching results
+        Log::info('Teacher transactions fetched', [
+            'user_id' => $teacherUser->id,
+            'transactions_count' => $transactions->count(),
+            'transaction_user_ids' => $transactions->pluck('user_id')->unique()->toArray()
+        ]);
 
         // Mark recurring transactions as paid_this_month if a corresponding one-time payment exists
         $currentMonth = now()->format('Y-m');

@@ -29,9 +29,9 @@ const InvoicesTable = ({
         return () => window.removeEventListener('resize', checkScreen);
     }, []);
 
-    // Count unpaid memberships
+    // Count unpaid memberships (excluding deleted ones)
     const unpaidMembershipsCount = Student_memberships.filter(
-        (m) => m.payment_status !== "paid",
+        (m) => m.payment_status !== "paid" && !m.deleted_at,
     ).length;
 
     const formatDate = (dateString, formatType) => {
@@ -53,7 +53,7 @@ const InvoicesTable = ({
     };
 
     const handleInvoiceClick = (invoice) => {
-        // Find associated membership to get additional data
+        // Find associated membership to get additional data (including soft-deleted ones)
         const membership = Student_memberships.find(
             (m) => m.id === invoice.membership_id,
         );
@@ -80,9 +80,10 @@ const InvoicesTable = ({
             amountPaid: invoice.amountPaid || 0,
             rest: invoice.rest || 0,
             
-            // Offer information from membership
+            // Offer information from membership (including deleted ones)
             offer_name: membership?.offer_name || 'N/A',
             offer_id: membership?.offer_id || null,
+            membership_deleted: membership?.deleted_at ? true : false,
             
             // Additional fields
             includePartialMonth: invoice.includePartialMonth || false,
@@ -131,9 +132,16 @@ const InvoicesTable = ({
 
             <div className="p-4 bg-gray-200 text-black">
                 <div className="flex justify-between items-center">
-                    <h2 className="text-xl font-bold flex items-center">
-                        <FaFileInvoice className="mr-2" /> Factures
-                    </h2>
+                    <div className="flex items-center gap-3">
+                        <h2 className="text-xl font-bold flex items-center">
+                            <FaFileInvoice className="mr-2" /> Factures
+                        </h2>
+                        {Student_memberships.filter(m => m.deleted_at).length > 0 && (
+                            <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-gray-100 text-gray-600 rounded-full">
+                                {Student_memberships.filter(m => m.deleted_at).length} adhésion{Student_memberships.filter(m => m.deleted_at).length > 1 ? 's' : ''} supprimée{Student_memberships.filter(m => m.deleted_at).length > 1 ? 's' : ''}
+                            </span>
+                        )}
+                    </div>
                     <div className="flex items-center gap-2">
                         <FormModal
                             table="invoice"
@@ -186,7 +194,7 @@ const InvoicesTable = ({
                                 Reste
                             </th>
                             <th className="p-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Offre
+                                Offre / Statut
                             </th>
                             <th className="p-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 Actions
@@ -202,12 +210,16 @@ const InvoicesTable = ({
                             const isPaid =
                                 membership &&
                                 membership.payment_status === "paid";
+                            const isDeleted = membership?.deleted_at;
 
                             return (
                                 <tr
                                     key={index}
-                                    className={`hover:bg-gray-50 transition-colors duration-150 cursor-pointer ${!isPaid ? "bg-amber-50" : ""}`}
-                                    onClick={() => handleInvoiceClick(invoice)}
+                                    className={`hover:bg-gray-50 transition-colors duration-150 cursor-pointer ${
+                                        isDeleted ? "bg-gray-100" : 
+                                        !isPaid ? "bg-amber-50" : ""
+                                    }`}
+                                    
                                     onKeyDown={(e) => {
                                         if (e.key === 'Enter' || e.key === ' ') {
                                             e.preventDefault();
@@ -218,28 +230,28 @@ const InvoicesTable = ({
                                     role="button"
                                     aria-label={`Voir les détails de la facture ${invoice.id}`}
                                 >
-                                    <td className="p-3 text-sm text-gray-900">
+                                    <td className="p-3 text-sm text-gray-900" onClick={() => handleInvoiceClick(invoice)}>
                                         {formatDate(
                                             invoice.billDate,
                                             "yyyy-MM",
                                         )}
                                     </td>
-                                    <td className="p-3 text-sm text-gray-900">
+                                    <td className="p-3 text-sm text-gray-900" onClick={() => handleInvoiceClick(invoice)}>
                                         {formatDate(
                                             invoice.created_at,
                                             "dd-MMM-yyyy HH:mm",
                                         )}
                                     </td>
-                                    <td className="p-3 text-sm text-gray-900">
+                                    <td className="p-3 text-sm text-gray-900" onClick={() => handleInvoiceClick(invoice)}>
                                         {formatDate(
                                             invoice.last_payment,
                                             "dd-MMM-yyyy HH:mm",
                                         )}
                                     </td>
-                                    <td className="p-3 text-sm text-gray-900">
+                                    <td className="p-3 text-sm text-gray-900" onClick={() => handleInvoiceClick(invoice)}>
                                         {invoice.amountPaid} DH
                                     </td>
-                                    <td className="p-3 text-sm text-gray-900">
+                                    <td className="p-3 text-sm text-gray-900" onClick={() => handleInvoiceClick(invoice)}>
                                         {invoice.rest > 0 ? (
                                             <span className="text-amber-700 font-medium">
                                                 {invoice.rest} DH
@@ -257,19 +269,36 @@ const InvoicesTable = ({
                                             </span>
                                         ) : (
                                             <div className="flex items-center">
-                                                {Student_memberships.find(
-                                                    (membership) =>
-                                                        membership.id === invoice.membership_id,
-                                                )?.offer_name || "---"}
-                                                {invoice.rest > 0 ? (
-                                                    <span className="ml-2 bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded-full">
-                                                        Non payé
-                                                    </span>
-                                                ) : (
-                                                    <span className="ml-2 bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full">
-                                                        Payé
-                                                    </span>
-                                                )}
+                                                {(() => {
+                                                    const membership = Student_memberships.find(
+                                                        (membership) =>
+                                                            membership.id === invoice.membership_id,
+                                                    );
+                                                    const offerName = membership?.offer_name || "---";
+                                                    const isDeleted = membership?.deleted_at;
+                                                    
+                                                    return (
+                                                        <>
+                                                            <span className={isDeleted ? "line-through text-gray-500" : ""}>
+                                                                {offerName}
+                                                            </span>
+                                                            {isDeleted && (
+                                                                <span className="ml-1 text-xs text-gray-400">
+                                                                    (Supprimé)
+                                                                </span>
+                                                            )}
+                                                            {invoice.rest > 0 ? (
+                                                                <span className="ml-2 bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded-full">
+                                                                    Non payé
+                                                                </span>
+                                                            ) : (
+                                                                <span className="ml-2 bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full">
+                                                                    Payé
+                                                                </span>
+                                                            )}
+                                                        </>
+                                                    );
+                                                })()}
                                             </div>
                                         )}
                                     </td>

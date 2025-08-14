@@ -32,6 +32,7 @@ class TeacherMembershipPayment extends Model
         'payment_percentage' => 'decimal:2',
         'teacher_percentage' => 'decimal:2',
         'is_active' => 'boolean',
+        'membership_id' => 'integer',
     ];
 
     // Relationships
@@ -47,7 +48,7 @@ class TeacherMembershipPayment extends Model
 
     public function membership()
     {
-        return $this->belongsTo(Membership::class);
+        return $this->belongsTo(Membership::class)->withTrashed();
     }
 
     public function invoice()

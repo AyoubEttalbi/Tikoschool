@@ -21,7 +21,9 @@ class InvoiceController extends Controller
      */
     public function index()
     {
-        $invoices = Invoice::with(['membership', 'membership.student', 'membership.offer'])->paginate(10);
+        $invoices = Invoice::with(['membership' => function($membershipQuery) {
+            $membershipQuery->withTrashed()->with(['student', 'offer']);
+        }])->paginate(10);
 
         // Always decode selected_months and add selectedMonths as array for each invoice
         $invoices->getCollection()->transform(function ($invoice) {
@@ -59,10 +61,10 @@ class InvoiceController extends Controller
         $membership = null;
 
         if ($membership_id) {
-            $membership = Membership::with(['student', 'offer'])->findOrFail($membership_id);
+            $membership = Membership::withTrashed()->with(['student', 'offer'])->findOrFail($membership_id);
         }
 
-        $studentMemberships = Membership::with(['student', 'offer'])
+        $studentMemberships = Membership::withTrashed()->with(['student', 'offer'])
             ->where('payment_status', 'pending')
             ->get()
             ->map(function ($membership) {
@@ -140,8 +142,8 @@ class InvoiceController extends Controller
             // Set the creator
             $validated['created_by'] = auth()->email ?? auth()->id(); // Fallback to ID if email is not available
 
-            // Fetch the membership
-            $membership = Membership::findOrFail($validated['membership_id']);
+            // Fetch the membership (including deleted ones)
+            $membership = Membership::withTrashed()->findOrFail($validated['membership_id']);
             // Always set offer_id from membership
             $validated['offer_id'] = $membership->offer_id;
 
@@ -181,10 +183,9 @@ class InvoiceController extends Controller
     public function show($id)
     {
         $invoice = Invoice::with([
-            'membership',
-            'membership.student',
-            'membership.student.class',
-            'membership.student.school',
+            'membership' => function($membershipQuery) {
+                $membershipQuery->withTrashed()->with(['student', 'student.class', 'student.school', 'offer']);
+            },
             'student',
             'student.class',
             'student.school',
@@ -222,10 +223,9 @@ class InvoiceController extends Controller
     public function apiShow($id)
     {
         $invoice = Invoice::with([
-            'membership',
-            'membership.student',
-            'membership.student.class',
-            'membership.student.school',
+            'membership' => function($membershipQuery) {
+                $membershipQuery->withTrashed()->with(['student', 'student.class', 'student.school', 'offer']);
+            },
             'student',
             'student.class',
             'student.school',
@@ -312,7 +312,7 @@ class InvoiceController extends Controller
     public function edit($id)
     {
         $invoice = Invoice::findOrFail($id);
-        $studentMemberships = Membership::with(['student', 'offer'])
+        $studentMemberships = Membership::withTrashed()->with(['student', 'offer'])
             ->get()
             ->map(function ($membership) {
                 return [
@@ -421,8 +421,8 @@ class InvoiceController extends Controller
             }
             $validated['selected_months'] = json_encode($selectedMonths);
 
-            // Fetch the membership
-            $membership = Membership::findOrFail($validated['membership_id']);
+            // Fetch the membership (including deleted ones)
+            $membership = Membership::withTrashed()->findOrFail($validated['membership_id']);
             // Always set offer_id from membership
             $validated['offer_id'] = $membership->offer_id;
 
@@ -500,7 +500,9 @@ class InvoiceController extends Controller
      */
     public function generateInvoicePdf($id)
     {
-        $invoice = Invoice::with(['membership.offer', 'student'])
+        $invoice = Invoice::with(['membership' => function($membershipQuery) {
+            $membershipQuery->withTrashed()->with('offer');
+        }, 'student'])
             ->findOrFail($id);
 
         // Extract membership, student, and offer details

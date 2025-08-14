@@ -7,6 +7,7 @@ use App\Models\Teacher;
 use App\Models\Invoice;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Spatie\Activitylog\Models\Activity;
@@ -20,7 +21,7 @@ class MembershipController extends Controller
      */
     public function index()
     {
-        $memberships = Membership::with(['student', 'offer', 'invoices'])->paginate(10);
+        $memberships = Membership::withTrashed()->with(['student', 'offer', 'invoices'])->paginate(10);
 
         return Inertia::render('Menu/SingleStudentPage', [
             'memberships' => $memberships,
@@ -89,7 +90,7 @@ class MembershipController extends Controller
      */
     public function show($id)
     {
-        $membership = Membership::with(['student', 'offer', 'invoices'])->findOrFail($id);
+        $membership = Membership::withTrashed()->with(['student', 'offer', 'invoices'])->findOrFail($id);
 
         return Inertia::render('Memberships/Show', [
             'membership' => $membership,
@@ -101,7 +102,7 @@ class MembershipController extends Controller
      */
     public function edit($id)
     {
-        $membership = Membership::findOrFail($id);
+        $membership = Membership::withTrashed()->findOrFail($id);
         $students = Student::all();
         $offers = Offer::with('subjects')->get();
         $teachers = Teacher::all();
@@ -134,8 +135,8 @@ class MembershipController extends Controller
                 'teachers.*.amount' => 'required|numeric',
             ]);
 
-            // Find the membership
-            $membership = Membership::findOrFail($id);
+            // Find the membership (including deleted ones)
+            $membership = Membership::withTrashed()->findOrFail($id);
 
             // Capture old data before update
             $oldData = $membership->toArray();
@@ -178,13 +179,14 @@ class MembershipController extends Controller
         DB::beginTransaction();
 
         try {
-            // Find the membership
-            $membership = Membership::findOrFail($id);
+            // Find the membership (including deleted ones)
+            $membership = Membership::withTrashed()->findOrFail($id);
 
             // Log the activity before deletion
             $this->logActivity('deleted', $membership, $membership->toArray(), null);
 
             // Only deactivate teacher payment records if the membership was paid
+            // (but don't reverse wallet payments - that only happens when invoices are deleted)
             if ($membership->payment_status === 'paid') {
                 // Deactivate teacher payment records
                 \App\Models\TeacherMembershipPayment::where('membership_id', $membership->id)
@@ -217,7 +219,7 @@ class MembershipController extends Controller
             'TargetName' => $model->student->firstName . ' ' . $model->student->lastName, // Name of the target student
             'action' => $action, // Type of action (created, updated, deleted)
             'table' => $tableName, // Table where the action occurred
-            'user' => auth()->user()->name, // User who performed the action
+            'user' => Auth::user()->name, // User who performed the action
         ];
 
         // For updates, show only the changed fields
@@ -254,7 +256,7 @@ class MembershipController extends Controller
 
         // Log the activity
         activity()
-            ->causedBy(auth()->user())
+            ->causedBy(Auth::user())
             ->performedOn($model)
             ->withProperties($properties)
             ->log($description);

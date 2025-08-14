@@ -486,7 +486,7 @@ const InvoicesForm = ({
                                                 Sélectionnez une adhésion
                                             </option>
                                             {StudentMemberships
-                                                .filter(membership => membership.payment_status !== "paid")
+                                                .filter(membership => membership.payment_status !== "paid" && !membership.deleted_at)
                                                 .map(
                                                     (membership) => (
                                                         <option

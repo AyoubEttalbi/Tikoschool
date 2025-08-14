@@ -153,7 +153,11 @@ class SchoolYearController extends Controller
     private function archiveMemberships()
     {
         // Get all active memberships - using correct field names from the model
-        $memberships = Membership::whereNull('end_date')->orWhere('end_date', '>', now())->get();
+        $memberships = Membership::whereNull('deleted_at')
+            ->where(function($query) {
+                $query->whereNull('end_date')->orWhere('end_date', '>', now());
+            })
+            ->get();
         $count = 0;
 
         foreach ($memberships as $membership) {
@@ -212,7 +216,11 @@ class SchoolYearController extends Controller
             'graduated_students' => Student::where('status', 'graduated')->count(),
             'teachers' => Teacher::count(),
             'classes' => Classes::count(),
-            'active_memberships' => Membership::whereNull('end_date')->orWhere('end_date', '>', now())->count(),
+            'active_memberships' => Membership::whereNull('deleted_at')
+                ->where(function($query) {
+                    $query->whereNull('end_date')->orWhere('end_date', '>', now());
+                })
+                ->count(),
             'levels' => Level::count(),
         ];
         

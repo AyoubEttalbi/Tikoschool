@@ -22,12 +22,12 @@ export default function TeacherProfile({
                 />
             </Suspense>
             {/* Section des paiements */}
-            {transactions && transactions.length > 0 && (
+            {transactions && transactions.length > 0 && teacher.user_id && (
                 <div className="mb-6">
                     <Suspense fallback={<span>Chargement...</span>}>
                         <RecurringPaymentsCard
                             transactions={transactions}
-                            userId={teacher.id}
+                            userId={teacher.user_id}
                         />
                     </Suspense>
                 </div>

@@ -30,7 +30,7 @@ const SingleTeacherPage = ({
     return (
         <div className="flex-1 p-4 flex flex-col gap-4 xl:flex-row">
             {/* GAUCHE */}
-            <div className="w-full xl:w-2/3">
+            <div className="w-full">
                 {/* Bannière de sélection d'école */}
                 {selectedSchool &&
                     teacher.schools &&
@@ -235,36 +235,36 @@ const SingleTeacherPage = ({
             </div>
 
             {/* DROITE */}
-            <div className="w-full xl:w-1/3 flex flex-col gap-4">
-                <div className="bg-white p-4 rounded-md">
-                    <h1 className="text-xl font-semibold">Raccourcis</h1>
-                    <div className="mt-4 flex gap-4 flex-wrap text-xs text-gray-500">
-                        <ShortcutLink
-                            label="Classes de l'enseignant"
-                            href={`/classes?teacher=${teacher.id}`}
-                            bgClass="bg-lamaSkyLight"
-                        />
-                        <ShortcutLink
-                            label="Prendre la présence"
-                            href={`/attendances?teacher_id=${teacher.id}`}
-                            bgClass="bg-lamaPurpleLight"
-                        />
-                        <ShortcutLink
-                            label="Saisir les notes"
-                            href={`/results?teacher_id=${teacher.id}`}
-                            bgClass="bg-lamaYellowLight"
-                        />
-                        <ShortcutLink
-                            label="Voir les élèves"
-                            href="/students"
-                            bgClass="bg-pink-50"
-                        />
+                {/* <div className="w-full xl:w-1/3 flex flex-col gap-4">
+                    <div className="bg-white p-4 rounded-md">
+                        <h1 className="text-xl font-semibold">Raccourcis</h1>
+                        <div className="mt-4 flex gap-4 flex-wrap text-xs text-gray-500">
+                            <ShortcutLink
+                                label="Classes de l'enseignant"
+                                href={`/classes?teacher=${teacher.id}`}
+                                bgClass="bg-lamaSkyLight"
+                            />
+                            <ShortcutLink
+                                label="Prendre la présence"
+                                href={`/attendances?teacher_id=${teacher.id}`}
+                                bgClass="bg-lamaPurpleLight"
+                            />
+                            <ShortcutLink
+                                label="Saisir les notes"
+                                href={`/results?teacher_id=${teacher.id}`}
+                                bgClass="bg-lamaYellowLight"
+                            />
+                            <ShortcutLink
+                                label="Voir les élèves"
+                                href="/students"
+                                bgClass="bg-pink-50"
+                            />
+                        </div>
                     </div>
-                </div>
-                <Suspense fallback={<span>Chargement...</span>}>
-                    <Announcements announcements={announcements} userRole={role} />
-                </Suspense>
-            </div>
+                    <Suspense fallback={<span>Chargement...</span>}>
+                        <Announcements announcements={announcements} userRole={role} />
+                    </Suspense>
+                </div> */}
         </div>
     );
 };

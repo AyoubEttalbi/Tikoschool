@@ -266,9 +266,19 @@ class AssistantController extends Controller
 
              // Get the assistant's user (for user_id in transactions)
              $assistantUser = User::where('email', $assistant->email)->first();
+             
+             
              $transactions = collect();
              if ($assistantUser) {
+                 // Fetch transactions by user_id (not assistant ID)
                  $transactions = Transaction::where('user_id', $assistantUser->id)->get();
+                 
+                 // Log transaction fetching results
+                 Log::info('Assistant transactions fetched', [
+                     'user_id' => $assistantUser->id,
+                     'transactions_count' => $transactions->count(),
+                     'transaction_user_ids' => $transactions->pluck('user_id')->unique()->toArray()
+                 ]);
                  // Mark recurring transactions as paid_this_month if a corresponding one-time payment exists
                  $currentMonth = now()->format('Y-m');
                  $startDate = Carbon::parse($currentMonth . '-01')->startOfMonth();
@@ -599,6 +609,7 @@ class AssistantController extends Controller
                  Log::info('Fetching expiring memberships', ['school_ids' => $schoolIds]);
                  
                  $expiringMemberships = Membership::with(['student'])
+                     ->whereNull('deleted_at')
                      ->where(function($query) use ($schoolIds) {
                          $query->whereHas('student', function($studentQuery) use ($schoolIds) {
                              $studentQuery->whereIn('schoolId', $schoolIds);
@@ -618,14 +629,15 @@ class AssistantController extends Controller
                  ]);
                  DB::disableQueryLog();
                  
-                 $totalExpiringMemberships = Membership::where(function($query) use ($schoolIds) {
-                     $query->whereHas('student', function($studentQuery) use ($schoolIds) {
-                         $studentQuery->whereIn('schoolId', $schoolIds);
-                     });
-                 })
-                 ->where('end_date', '>=', $today)
-                 ->where('end_date', '<=', $today->copy()->addDays(30))
-                 ->count();
+                 $totalExpiringMemberships = Membership::whereNull('deleted_at')
+                     ->where(function($query) use ($schoolIds) {
+                         $query->whereHas('student', function($studentQuery) use ($schoolIds) {
+                             $studentQuery->whereIn('schoolId', $schoolIds);
+                         });
+                     })
+                     ->where('end_date', '>=', $today)
+                     ->where('end_date', '<=', $today->copy()->addDays(30))
+                     ->count();
                  
                  Log::info('Total expiring memberships count', ['count' => $totalExpiringMemberships]);
                  

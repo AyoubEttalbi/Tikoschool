@@ -9,7 +9,7 @@ export default function AssistantProfile({
     return (
         <div className="space-y-6">
             {/* Section des paiements */}
-            {transactions && transactions.length > 0 && (
+            {transactions && transactions.length > 0 && assistant.user_id && (
                 <div className="mb-6">
                     <Suspense fallback={<span>Chargement...</span>}>
                         <AssistantPaymentsCard

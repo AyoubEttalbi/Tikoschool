@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
     Clock,
     Edit,
@@ -10,6 +10,8 @@ import {
     Check,
     X,
     AlertCircle,
+    ChevronLeft,
+    ChevronRight,
 } from "lucide-react";
 import FormModal from "./FormModal";
 import { usePage } from "@inertiajs/react";
@@ -21,6 +23,9 @@ export default function MembershipCard({
     studentId,
 }) {
     const role = usePage().props.auth.user.role;
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 3; // Show 3 memberships per page
+
     // Helper function to find a teacher's name by ID
     const getTeacherName = (teacherId) => {
         const teacher = teachers.find((t) => t.id === parseInt(teacherId));
@@ -28,14 +33,31 @@ export default function MembershipCard({
             ? `${teacher.first_name} ${teacher.last_name}`
             : "Enseignant inconnu";
     };
+
     // Helper function to check if the membership has an unpaid invoice for the current month
     const hasUnpaidInvoice = (membership) => {
         return membership.payment_status !== "paid";
     };
 
+    // Sort memberships: active ones first, then deleted ones
+    const sortedMemberships = [...Student_memberships].sort((a, b) => {
+        // If both are deleted or both are active, maintain original order
+        if ((a.deleted_at && b.deleted_at) || (!a.deleted_at && !b.deleted_at)) {
+            return new Date(b.created_at) - new Date(a.created_at); // Newest first
+        }
+        // Put active memberships before deleted ones
+        return a.deleted_at ? 1 : -1;
+    });
+
+    // Calculate pagination
+    const totalPages = Math.ceil(sortedMemberships.length / itemsPerPage);
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const currentMemberships = sortedMemberships.slice(startIndex, endIndex);
+
     return (
         <div className="space-y-4">
-            {Student_memberships.map((membership) => (
+            {currentMemberships.map((membership) => (
                 <div
                     key={membership.id}
                     className="bg-gray-50 rounded-lg shadow-sm p-4 mb-4 border border-gray-300"
@@ -46,11 +68,16 @@ export default function MembershipCard({
                                 <GraduationCap className="h-5 w-5 text-gray-600" />
                                 <span>
                                     Offre :{" "}
-                                    <span className="text-gray-900 font-semibold">
+                                    <span className={`font-semibold ${membership.deleted_at ? 'line-through text-gray-500' : 'text-gray-900'}`}>
                                         {membership.offer_name}
                                     </span>
+                                    {membership.deleted_at && (
+                                        <span className="ml-1 text-xs text-gray-400">
+                                            (Supprimé)
+                                        </span>
+                                    )}
                                 </span>
-                                {hasUnpaidInvoice(membership) ? (
+                                {!membership.deleted_at && hasUnpaidInvoice(membership) ? (
                                     <div className="flex items-center">
                                         <AlertCircle className="h-5 w-5 text-amber-500" />
                                         <span className="text-xs text-amber-600 ml-1">
@@ -117,6 +144,52 @@ export default function MembershipCard({
                     </div>
                 </div>
             ))}
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+                <div className="flex items-center justify-center space-x-2 mt-6">
+                    <button
+                        onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                        disabled={currentPage === 1}
+                        className="flex items-center px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        <ChevronLeft className="h-4 w-4 mr-1" />
+                        Précédent
+                    </button>
+                    
+                    <div className="flex items-center space-x-1">
+                        {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                            <button
+                                key={page}
+                                onClick={() => setCurrentPage(page)}
+                                className={`px-3 py-2 text-sm font-medium rounded-md ${
+                                    currentPage === page
+                                        ? 'bg-blue-600 text-white'
+                                        : 'text-gray-500 bg-white border border-gray-300 hover:bg-gray-50'
+                                }`}
+                            >
+                                {page}
+                            </button>
+                        ))}
+                    </div>
+                    
+                    <button
+                        onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                        disabled={currentPage === totalPages}
+                        className="flex items-center px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        Suivant
+                        <ChevronRight className="h-4 w-4 ml-1" />
+                    </button>
+                </div>
+            )}
+
+            {/* Show total count */}
+            {sortedMemberships.length > 0 && (
+                <div className="text-center text-sm text-gray-500 mt-2">
+                    {sortedMemberships.length} adhésion{sortedMemberships.length > 1 ? 's' : ''} au total
+                </div>
+            )}
         </div>
     );
 }

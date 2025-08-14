@@ -35,7 +35,9 @@ if (empty($date)) {
             }
         }
 
-        $query = Invoice::with(['student', 'creator', 'membership.offer'])
+        $query = Invoice::with(['student', 'creator', 'membership' => function($membershipQuery) {
+                $membershipQuery->withTrashed()->with('offer');
+            }])
             ->whereDate('created_at', $date)
             ->where('amountPaid', '>', 0);
 
@@ -69,7 +71,7 @@ if (empty($date)) {
         // Offer filter: filter invoices by the offer_id of the related membership
         if ($request->filled('offer_id')) {
             $query->whereHas('membership', function ($membershipQuery) use ($request) {
-                $membershipQuery->where('offer_id', $request->offer_id);
+                $membershipQuery->withTrashed()->where('offer_id', $request->offer_id);
             });
         }
 
@@ -100,7 +102,7 @@ if (empty($date)) {
         }
         if ($request->filled('offer_id')) {
             $chartDataQuery->whereHas('membership', function ($membershipQuery) use ($request) {
-                $membershipQuery->where('offer_id', $request->offer_id);
+                $membershipQuery->withTrashed()->where('offer_id', $request->offer_id);
             });
         }
         $chartData = $chartDataQuery
@@ -119,8 +121,8 @@ if (empty($date)) {
         // Total for the day
         $totalPaid = $invoices->sum('amountPaid');
 
-        // For filters: get all memberships with their offers
-        $membershipsQuery = Membership::with('offer')->whereHas('offer');
+        // For filters: get all memberships with their offers (including deleted ones)
+        $membershipsQuery = Membership::withTrashed()->with('offer')->whereHas('offer');
         $studentsQuery = Student::select('id', 'firstName', 'lastName');
         $schoolsQuery = School::select('id', 'name');
         if ($isAssistant && count($assistantSchoolIds) > 0) {
@@ -130,7 +132,9 @@ if (empty($date)) {
         $memberships = $membershipsQuery->get()->map(function ($membership) {
             return [
                 'id' => $membership->id,
-                'name' => $membership->offer ? $membership->offer->offer_name : 'No Offer'
+                'name' => $membership->offer ? $membership->offer->offer_name : 'No Offer',
+                'deleted_at' => $membership->deleted_at,
+                'is_deleted' => !is_null($membership->deleted_at)
             ];
         })->sortBy('name')->values();
         $students = $studentsQuery->orderBy('firstName')->get()->map(function ($student) {
@@ -179,7 +183,9 @@ if (empty($date)) {
                 ] : null,
                 'membership' => $invoice->membership ? [
                     'id' => $invoice->membership->id,
-                    'name' => $invoice->membership->offer ? $invoice->membership->offer->offer_name : 'No Offer'
+                    'name' => $invoice->membership->offer ? $invoice->membership->offer->offer_name : 'No Offer',
+                    'deleted_at' => $invoice->membership->deleted_at,
+                    'is_deleted' => !is_null($invoice->membership->deleted_at)
                 ] : null,
                 'type' => $invoice->type,
                 'assurance_amount' => $invoice->assurance_amount,

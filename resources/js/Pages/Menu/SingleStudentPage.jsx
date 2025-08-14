@@ -40,6 +40,7 @@ const SingleStudentPage = ({
 }) => {
     const role = usePage().props.auth.user.role;
     const [showMoreInfo, setShowMoreInfo] = useState(false);
+    const [showDeletedMemberships, setShowDeletedMemberships] = useState(false);
 
     return (
         <div className="flex-1 p-4 flex flex-col gap-4 xl:flex-row">
@@ -621,9 +622,9 @@ const SingleStudentPage = ({
                             <span className="flex flex-row items-center">
                                 <Users className="h-5 w-5 mr-3" />
                                 Adhésions :
-                                {student.memberships && student.memberships.filter((m) => m.payment_status !== "paid").length > 0 && (
+                                {student.memberships && student.memberships.filter((m) => m.payment_status !== "paid" && !m.deleted_at).length > 0 && (
                                     <span className="ml-2 bg-amber-100 text-amber-800 text-xs font-medium px-2 py-0.5 rounded-full">
-                                        {student.memberships.filter((m) => m.payment_status !== "paid").length} impayée(s)
+                                        {student.memberships.filter((m) => m.payment_status !== "paid" && !m.deleted_at).length} impayée(s)
                                     </span>
                                 )}
                             </span>
@@ -644,24 +645,62 @@ const SingleStudentPage = ({
                     </div>
                     {student.memberships ? (
                         <>
-                            {student.memberships.filter((m) => m.payment_status !== "paid").length > 0 && (
+                            {student.memberships.filter((m) => m.payment_status !== "paid" && !m.deleted_at).length > 0 && (
                                 <div className="mb-4 p-3 bg-amber-50 border-l-4 border-amber-500 rounded-md text-sm">
                                     <div className="flex items-start gap-2">
                                         <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5 mr-2 flex-shrink-0" />
                                         <div>
                                             <h3 className="font-medium text-amber-800">Adhésions impayées</h3>
                                             <p className="text-amber-700 mt-1">
-                                                Cet élève a {student.memberships.filter((m) => m.payment_status !== "paid").length} adhésion{student.memberships.filter((m) => m.payment_status !== "paid").length === 1 ? "" : "s"} impayée{student.memberships.filter((m) => m.payment_status !== "paid").length === 1 ? "" : "s"}.<br />
+                                                Cet élève a {student.memberships.filter((m) => m.payment_status !== "paid" && !m.deleted_at).length} adhésion{student.memberships.filter((m) => m.payment_status !== "paid" && !m.deleted_at).length === 1 ? "" : "s"} impayée{student.memberships.filter((m) => m.payment_status !== "paid" && !m.deleted_at).length === 1 ? "" : "s"}.<br />
                                                 Ajoutez une facture pour compléter le processus de paiement.
                                             </p>
                                         </div>
                                     </div>
                                 </div>
                             )}
+                            
+                            {/* Toggle button for deleted memberships */}
+                            <div className="mb-4 flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <h3 className="text-lg font-semibold text-gray-800">Adhésions</h3>
+                                    {student.memberships.filter(m => m.deleted_at).length > 0 && (
+                                        <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-gray-100 text-gray-600 rounded-full">
+                                            {student.memberships.filter(m => m.deleted_at).length} supprimée{student.memberships.filter(m => m.deleted_at).length > 1 ? 's' : ''}
+                                        </span>
+                                    )}
+                                </div>
+                                <button
+                                    onClick={() => setShowDeletedMemberships(!showDeletedMemberships)}
+                                    className={`inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors duration-200 ${
+                                        student.memberships.filter(m => m.deleted_at).length === 0
+                                            ? 'text-gray-400 bg-gray-50 cursor-not-allowed'
+                                            : 'text-gray-600 bg-gray-100 hover:bg-gray-200'
+                                    }`}
+                                    disabled={student.memberships.filter(m => m.deleted_at).length === 0}
+                                >
+                                    {showDeletedMemberships ? (
+                                        <>
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                            </svg>
+                                            Masquer les supprimées
+                                        </>
+                                    ) : (
+                                        <>
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-6 6-6-6" />
+                                            </svg>
+                                            Afficher les supprimées
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                            
                             <div className="w-full md:max-w-lg md:p-6 md:bg-white md:rounded-lg md:shadow-md md:border md:border-gray-200">
                                 <Suspense fallback={<span>Chargement...</span>}>
                                     <MembershipCard
-                                        Student_memberships={student.memberships}
+                                        Student_memberships={showDeletedMemberships ? student.memberships : student.memberships.filter(m => !m.deleted_at)}
                                         teachers={Allteachers}
                                         offers={Alloffers}
                                         studentId={student.id}
