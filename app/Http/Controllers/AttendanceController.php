@@ -624,16 +624,19 @@ class AttendanceController extends Controller
 
     public function getStats(Request $request)
     {
-        // Accept date range and school_id from request
-        $startDate = $request->input('start_date') ?? now()->subMonth()->toDateString();
+        // Default to last 7 days instead of last month
         $endDate = $request->input('end_date') ?? now()->toDateString();
+        $startDate = $request->input('start_date') ?? now()->subDays(6)->toDateString();
         $schoolId = $request->input('school_id');
 
-        // Limit range to 90 days for performance
+        // Ensure we get exactly 7 days of data
         $start = Carbon::parse($startDate);
         $end = Carbon::parse($endDate);
-        if ($end->diffInDays($start) > 90) {
-            $start = $end->copy()->subDays(90);
+        
+        // If no specific dates provided, default to last 7 days
+        if (!$request->has('start_date') && !$request->has('end_date')) {
+            $end = Carbon::now();
+            $start = $end->copy()->subDays(6);
         }
 
         // Query attendance, join classes for school filter
@@ -650,8 +653,15 @@ class AttendanceController extends Controller
         }
         $rows = $query->groupBy('date', 'attendances.status')->orderBy('date')->get();
 
-        // Pivot to chart-friendly format
-        $dates = $rows->pluck('date')->unique()->sort()->values();
+        // Generate all dates in the range (last 7 days)
+        $dates = collect();
+        $currentDate = $start->copy();
+        while ($currentDate <= $end) {
+            $dates->push($currentDate->format('Y-m-d'));
+            $currentDate->addDay();
+        }
+
+        // Pivot to chart-friendly format with all dates included
         $result = $dates->map(function($date) use ($rows) {
             $statuses = ['present' => 0, 'absent' => 0, 'late' => 0];
             foreach ($rows->where('date', $date) as $row) {

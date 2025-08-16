@@ -49,7 +49,41 @@ const FinanceChart = ({ schoolId }) => {
         return monthYearString;
     };
 
-    // Filter data by school_id and convert month names to French
+    // Function to parse month year string to Date object for sorting
+    const parseMonthYear = (monthYearString) => {
+        if (!monthYearString) return new Date(0);
+        
+        const parts = monthYearString.split(' ');
+        if (parts.length === 2) {
+            const month = parts[0];
+            const year = parseInt(parts[1]);
+            
+            // Create a mapping for month names to month numbers
+            const monthNumbers = {
+                'January': 0, 'Janvier': 0,
+                'February': 1, 'Février': 1,
+                'March': 2, 'Mars': 2,
+                'April': 3, 'Avril': 3,
+                'May': 4, 'Mai': 4,
+                'June': 5, 'Juin': 5,
+                'July': 6, 'Juillet': 6,
+                'August': 7, 'Août': 7,
+                'September': 8, 'Septembre': 8,
+                'October': 9, 'Octobre': 9,
+                'November': 10, 'Novembre': 10,
+                'December': 11, 'Décembre': 11
+            };
+            
+            const monthNumber = monthNumbers[month];
+            if (monthNumber !== undefined && !isNaN(year)) {
+                return new Date(year, monthNumber, 1);
+            }
+        }
+        
+        return new Date(0);
+    };
+
+    // Filter data by school_id, aggregate by month, and convert month names to French
     const filteredData = React.useMemo(() => {
         if (!props.monthlyIncomes || !Array.isArray(props.monthlyIncomes)) {
             console.warn('monthlyIncomes data is not available or not an array');
@@ -62,11 +96,35 @@ const FinanceChart = ({ schoolId }) => {
                   (income) => String(income.school_id) === String(schoolId)
               );
 
-        // Convert month names to French
-        return filtered.map(item => ({
-            ...item,
-            name: item.name ? convertMonthToFrench(item.name) : item.name
-        }));
+        // Aggregate data by month and year
+        const aggregatedData = {};
+        
+        filtered.forEach(item => {
+            const monthYear = item.name;
+            if (!monthYear) return;
+            
+            if (!aggregatedData[monthYear]) {
+                aggregatedData[monthYear] = {
+                    name: monthYear,
+                    income: 0,
+                    expense: 0
+                };
+            }
+            
+            // Sum up income and expense for the same month
+            aggregatedData[monthYear].income += parseFloat(item.income || 0);
+            aggregatedData[monthYear].expense += parseFloat(item.expense || 0);
+        });
+
+        // Convert to array and sort chronologically
+        const sortedData = Object.values(aggregatedData)
+            .sort((a, b) => parseMonthYear(a.name) - parseMonthYear(b.name))
+            .map(item => ({
+                ...item,
+                name: convertMonthToFrench(item.name)
+            }));
+
+        return sortedData;
     }, [props.monthlyIncomes, schoolId]);
 
     // Don't render if no data

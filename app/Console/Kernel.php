@@ -4,6 +4,7 @@ namespace App\Console;
 
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
+use App\Services\MembershipStatsService;
 
 class Kernel extends ConsoleKernel
 {
@@ -21,11 +22,11 @@ class Kernel extends ConsoleKernel
         // Schedule teacher monthly payments to run on the 1st of each month at 2 AM
         $schedule->command('teachers:process-monthly-payments')->monthlyOn(1, '02:00');
         
-        // Clean up old stats monthly
+        // Clean up old stats monthly on the 1st at 3 AM
         $schedule->call(function () {
-            $service = new \App\Services\MembershipStatsService();
+            $service = new MembershipStatsService();
             $service->cleanupOldStats(2); // Keep 2 years of stats
-        })->monthly();
+        })->monthlyOn(1, '03:00');
     }
 
     /**

@@ -22,7 +22,8 @@ const AttendanceChart = ({ schoolId }) => {
                 const response = await axios.get("/attendance/stats", {
                     params: schoolId ? { school_id: schoolId } : {},
                 });
-                // Map date to French day name
+                
+                // French day names mapping
                 const daysFr = [
                     "Dimanche",
                     "Lundi",
@@ -32,13 +33,20 @@ const AttendanceChart = ({ schoolId }) => {
                     "Vendredi",
                     "Samedi",
                 ];
-                const mapped = response.data.map((item) => {
-                    const d = new Date(item.date);
-                    return {
-                        ...item,
-                        day: daysFr[d.getDay()],
-                    };
-                });
+                
+                // Map date to French day name and ensure proper sorting
+                const mapped = response.data
+                    .map((item) => {
+                        const d = new Date(item.date);
+                        return {
+                            ...item,
+                            day: daysFr[d.getDay()],
+                            dateObj: d, // Keep original date for sorting
+                        };
+                    })
+                    .sort((a, b) => a.dateObj - b.dateObj) // Sort chronologically
+                    .map(({ dateObj, ...item }) => item); // Remove dateObj from final data
+                
                 setData(mapped);
             } catch (error) {
                 console.error("Error fetching attendance data:", error);

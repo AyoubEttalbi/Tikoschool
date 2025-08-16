@@ -8,12 +8,7 @@ use Carbon\Carbon;
 
 class UpdateMembershipStats extends Command
 {
-        protected $signature = 'memberships:update-stats 
-                                   {--school= : Specific school ID to update}
-                                   {--month= : Specific month (YYYY-MM format)}
-                                   {--all : Update stats for all schools and months}
-                                   {--recalculate : Recalculate all historical stats}
-                                   {--cleanup : Clean up old stats data}';
+        protected $signature = 'memberships:update-stats {--school= : Specific school ID to update} {--month= : Specific month (YYYY-MM format)} {--all : Update stats for all schools and months} {--recalculate : Recalculate all historical stats} {--cleanup : Clean up old stats data}';
 
     protected $description = 'Update membership monthly statistics for dashboard';
 
