@@ -21,6 +21,8 @@ class TeacherMembershipPayment extends Model
         'payment_percentage',
         'teacher_subject',
         'teacher_percentage',
+        'immediate_wallet_amount',
+        'total_paid_to_teacher',
         'is_active',
     ];
 
@@ -31,6 +33,8 @@ class TeacherMembershipPayment extends Model
         'monthly_teacher_amount' => 'decimal:2',
         'payment_percentage' => 'decimal:2',
         'teacher_percentage' => 'decimal:2',
+        'immediate_wallet_amount' => 'decimal:2',
+        'total_paid_to_teacher' => 'decimal:2',
         'is_active' => 'boolean',
         'membership_id' => 'integer',
     ];

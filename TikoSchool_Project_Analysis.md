@@ -70,6 +70,27 @@ The application is feature-rich, covering all major aspects of school management
 *   **Enrollment Plans:**
     *   The `MembershipController` and `OfferController` are used to manage student memberships/enrollment plans and special offers/discounts.
 
+#### Student Membership Payment System & Teacher Wallet Management
+*   **Advanced Payment Distribution Model:**
+    *   Implements a sophisticated monthly distribution system where student payments are distributed to teachers over time rather than providing full commission upfront.
+    *   This ensures better cash flow management and fair compensation based on actual service periods.
+*   **Teacher Membership Payment Service:**
+    *   The `TeacherMembershipPaymentService` handles the complex logic of calculating teacher commissions based on student payments.
+    *   Supports partial payments, multiple invoices per membership, and percentage-based commission calculations.
+*   **Immediate & Scheduled Wallet Increments:**
+    *   **Immediate Increment:** When students pay for the current month, teachers receive their commission immediately via `$teacher->increment('wallet', $monthlyTeacherAmount)`.
+    *   **Scheduled Increments:** Future months are processed automatically via Laravel's task scheduler (`teachers:process-monthly-payments`) running monthly on the 1st at 2:00 AM.
+*   **Payment Tracking & Reversal:**
+    *   Comprehensive tracking of all payment records in the `teacher_membership_payments` table.
+    *   Automatic payment reversals when invoices are updated or deleted, ensuring data integrity.
+*   **Multi-Teacher Support:**
+    *   Supports multiple teachers per membership with different commission percentages per subject.
+    *   Each teacher's commission is calculated independently based on their assigned subject and percentage from the offer.
+*   **Example Payment Flow:**
+    *   Student pays 1000 DH for 3 months (Jan, Feb, Mar)
+    *   Math Teacher (30%): Receives 100 DH immediately for January, 100 DH each for February and March (scheduled)
+    *   Science Teacher (20%): Receives 66.67 DH immediately for January, 66.67 DH each for February and March (scheduled)
+
 #### Communication & Real-time Features
 *   **Internal Messaging:**
     *   A built-in inbox for one-to-one communication between users, complete with read receipts and unread message
@@ -147,3 +168,8 @@ The project is built on a solid and modern technology stack. The architecture is
 
 *   **Developer Experience:**
     *   **Observation:** The `dev` script in `composer.json` is a fantastic developer experience enhancement. Using `concurrently` to launch the PHP server, queue worker, and Vite dev server with a single command (`composer dev`) streamlines the development setup process significantly.
+
+*   **Financial System Robustness:**
+    *   **Observation:** The teacher membership payment system demonstrates excellent architectural design with proper separation of concerns, comprehensive logging, and robust error handling.
+    *   **Suggestion:** Consider implementing additional monitoring and alerting for the scheduled payment processing to ensure teachers receive their payments reliably.
+    *   **Suggestion:** The system could benefit from additional validation to prevent edge cases in payment calculations, especially for complex scenarios involving multiple partial payments.

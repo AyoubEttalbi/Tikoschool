@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Spatie\Activitylog\Models\Activity;
+use Carbon\Carbon;
 
 class InvoiceController extends Controller
 {
@@ -358,8 +359,6 @@ class InvoiceController extends Controller
 
         try {
             // Validate the incoming request
-
-
             $validated = $request->validate([
                 'membership_id' => 'integer',
                 'student_id' => 'required|integer',
@@ -390,18 +389,15 @@ class InvoiceController extends Controller
             $previousAmountPaid = $invoice->amountPaid;
 
             // Capture old data before update
-            $oldData = $invoice->toArray();
+            $oldData = $invoice->toArray(); // Keep this for activity log if needed
 
-            // Check if amountPaid has changed
-            if ($validated['amountPaid'] != $previousAmountPaid) {
-                // Update last_payment_date only if amountPaid has changed
+            // Update last_payment_date only if amountPaid has changed
+            if (round((float)($validated['amountPaid']), 2) != round((float)($previousAmountPaid), 2)) {
                 $validated['last_payment_date'] = now()->toDateTimeString();
             } else {
                 // Keep the existing last_payment_date if amountPaid hasn't changed
                 $validated['last_payment_date'] = $invoice->last_payment_date;
             }
-
-
 
             // Always accept both selectedMonths and selected_months from frontend
             $selectedMonths = $request->input('selectedMonths');
@@ -432,23 +428,19 @@ class InvoiceController extends Controller
             // Log the activity
             $this->logActivity('updated', $invoice, $oldData, $invoice->toArray());
 
-            // --- NEW TEACHER MEMBERSHIP PAYMENT LOGIC ---
-            
-            // Reverse old payments
+            // --- TEACHER MEMBERSHIP PAYMENT LOGIC ---
+            // The payment service now handles updates incrementally without full reversal
             $paymentService = new \App\Services\TeacherMembershipPaymentService();
-            $paymentService->reverseInvoicePayments($invoice, $oldData);
-            
-            // Process new payments
             $paymentService->processInvoicePayment($invoice, $validated);
-            // --- END NEW LOGIC ---
+            // --- END TEACHER MEMBERSHIP PAYMENT LOGIC ---
 
             // Always update start_date. Only update end_date if new endDate > old end_date (or if end_date is null)
             $updateData = [
                 'start_date' => $validated['billDate'],
-                'payment_status' => ($validated['amountPaid'] >= $validated['totalAmount']) ? 'paid' : 'pending',
-                'is_active' => ($validated['amountPaid'] >= $validated['totalAmount']),
+                'payment_status' => (round((float)($validated['amountPaid']), 2) >= round((float)($validated['totalAmount']), 2)) ? 'paid' : 'pending',
+                'is_active' => (round((float)($validated['amountPaid']), 2) >= round((float)($validated['totalAmount']), 2)),
             ];
-            if (empty($membership->end_date) || (isset($validated['endDate']) && $validated['endDate'] > $membership->end_date)) {
+            if (empty($membership->end_date) || (isset($validated['endDate']) && Carbon::parse($validated['endDate']) > Carbon::parse($membership->end_date))) {
                 $updateData['end_date'] = $validated['endDate'];
             }
             $membership->update($updateData);
@@ -457,7 +449,7 @@ class InvoiceController extends Controller
             return redirect()->back()->with('success', 'Invoice updated successfully!');
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Error updating invoice:', ['error' => $e->getMessage()]);
+            Log::error('Error updating invoice:', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             return redirect()->back()->withErrors(['error' => 'An error occurred while updating the invoice.']);
         }
     }

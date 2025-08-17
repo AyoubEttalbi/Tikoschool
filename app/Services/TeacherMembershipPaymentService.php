@@ -33,15 +33,47 @@ class TeacherMembershipPaymentService
             $selectedMonths = [$invoice->billDate ? $invoice->billDate->format('Y-m') : null];
         }
 
-        // Calculate the amount that should be included in teacher percentages
-        $amountForTeacherPercentage = $validated['totalAmount'];
-        if ($validated['includePartialMonth'] && $validated['partialMonthAmount']) {
-            $amountForTeacherPercentage -= $validated['partialMonthAmount'];
+        // If partial month is included, automatically add current month to selected months
+        $currentMonth = now()->format('Y-m');
+        if (($validated['includePartialMonth'] ?? false) && ($validated['partialMonthAmount'] ?? 0) > 0) {
+            if (!in_array($currentMonth, $selectedMonths)) {
+                $selectedMonths[] = $currentMonth;
+                // Sort months chronologically
+                sort($selectedMonths);
+            }
         }
 
-        // Calculate the percentage of the amount paid (excluding partial month)
-        $paymentPercentage = ($amountForTeacherPercentage > 0) ? 
-            ($validated['amountPaid'] / $amountForTeacherPercentage) * 100 : 0;
+        // Calculate the percentage of the amount paid (cumulatively for the invoice) to the total invoice amount
+        $paymentPercentage = 0;
+        $totalInvoiceAmount = round((float)($invoice->totalAmount ?? 0), 2);
+        $amountPaidCumulative = round((float)($invoice->amountPaid ?? 0), 2);
+
+        if ($totalInvoiceAmount > 0) {
+            $paymentPercentage = ($amountPaidCumulative / $totalInvoiceAmount) * 100;
+        } else {
+            // If totalAmount is 0 (unlikely for an invoice), but some amount is paid, consider it 100% paid.
+            $paymentPercentage = $amountPaidCumulative > 0 ? 100 : 0;
+        }
+
+        // Cap payment percentage at 100% to prevent over-calculation
+        $paymentPercentage = min($paymentPercentage, 100);
+        $paymentPercentage = round($paymentPercentage, 2);
+
+        // Debug logging for payment processing
+        Log::info('Payment processing details', [
+            'invoice_id' => $invoice->id,
+            'validated_total_amount' => $validated['totalAmount'],
+            'validated_amount_paid_current_transaction' => $validated['amountPaid'], // This is the current transaction amount
+            'invoice_total_amount_cumulative' => $totalInvoiceAmount, // Total invoice value
+            'invoice_amount_paid_cumulative' => $amountPaidCumulative, // Cumulative paid for invoice
+            'include_partial_month' => $validated['includePartialMonth'] ?? false,
+            'partial_month_amount' => round((float)($validated['partialMonthAmount'] ?? 0), 2),
+            'payment_percentage' => $paymentPercentage,
+            'original_selected_months' => $invoice->selected_months,
+            'final_selected_months' => $selectedMonths,
+            'current_month' => $currentMonth,
+            'current_month_added_to_selected' => in_array($currentMonth, $selectedMonths)
+        ]);
 
         // Process each teacher
         foreach ($membership->teachers as $teacherData) {
@@ -51,7 +83,8 @@ class TeacherMembershipPaymentService
                 $invoice,
                 $selectedMonths,
                 $paymentPercentage,
-                $validated
+                $validated,
+                round((float)($validated['partialMonthAmount'] ?? 0), 2)
             );
         }
     }
@@ -65,7 +98,8 @@ class TeacherMembershipPaymentService
         Invoice $invoice,
         array $selectedMonths,
         float $paymentPercentage,
-        array $validated
+        array $validated,
+        float $partialMonthAmount = 0
     ) {
         $teacher = Teacher::find($teacherData['teacherId']);
         if (!$teacher) {
@@ -75,30 +109,91 @@ class TeacherMembershipPaymentService
         // Get teacher subject and percentage from offer
         $offer = $membership->offer;
         $teacherSubject = $teacherData['subject'] ?? null;
-        
+
         if (!$offer || !$teacherSubject || !is_array($offer->percentage)) {
             return;
         }
 
-        $teacherPercentage = $offer->percentage[$teacherSubject] ?? 0;
-        
-        // Calculate teacher's total amount for this payment
-        $totalTeacherAmount = ($teacherData['amount'] * $validated['months']) * ($paymentPercentage / 100);
-        
-        // Calculate monthly amount
-        $monthlyTeacherAmount = count($selectedMonths) > 0 ? $totalTeacherAmount / count($selectedMonths) : 0;
+        $teacherPercentage = round((float)($offer->percentage[$teacherSubject] ?? 0), 2);
 
-        // Check if there's an existing record for this teacher and membership
+        // 1. Calculate total teacher amount based on student's CUMULATIVE payment × teacher percentage
+        $studentTotalPaidCumulative = round((float)($invoice->amountPaid ?? 0), 2);
+        $totalTeacherAmount = round(($studentTotalPaidCumulative * $teacherPercentage / 100), 2);
+
+        $currentMonth = now()->format('Y-m');
+        $isCurrentMonthIncluded = in_array($currentMonth, $selectedMonths);
+
+        // 2. Calculate amount for current month (immediate payment)
+        $immediateWalletAmount = 0;
+        if ($isCurrentMonthIncluded) {
+            if (($validated['includePartialMonth'] ?? false) && $partialMonthAmount > 0) {
+                $immediateWalletAmount = round(($partialMonthAmount * $teacherPercentage / 100), 2);
+            } else {
+                // Current month is selected but no specific partial amount, means full month paid immediately
+                $allSelectedMonthsCount = count($selectedMonths);
+                $actualMonthlyShare = $allSelectedMonthsCount > 0 ? round(($totalTeacherAmount / $allSelectedMonthsCount), 2) : 0;
+                $immediateWalletAmount = $actualMonthlyShare;
+            }
+        }
+
+        // 3. Monthly amount for scheduled payments (future months)
+        $futureMonths = array_filter($selectedMonths, function($month) use ($currentMonth) {
+            return $month > $currentMonth;
+        });
+        $futureMonthsCount = count($futureMonths);
+        $monthlyTeacherAmount = 0;
+        if ($futureMonthsCount > 0) {
+            $remainingAmountForFutureMonths = round(($totalTeacherAmount - $immediateWalletAmount), 2);
+            $monthlyTeacherAmount = round(($remainingAmountForFutureMonths / $futureMonthsCount), 2);
+        }
+
+        // Debug logging
+        Log::info('Teacher payment calculation details', [
+            'teacher_id' => $teacher->id,
+            'teacher_subject' => $teacherSubject,
+            'teacher_percentage' => $teacherPercentage,
+            'student_total_paid_cumulative' => $studentTotalPaidCumulative,
+            'selected_months' => $selectedMonths,
+            'all_selected_months_count' => count($selectedMonths),
+            'future_months' => $futureMonths,
+            'future_months_count' => $futureMonthsCount,
+            'current_month' => $currentMonth,
+            'is_current_month_included' => $isCurrentMonthIncluded,
+            'calculated_immediate_amount' => $immediateWalletAmount,
+            'total_teacher_amount' => $totalTeacherAmount,
+            'monthly_teacher_amount' => $monthlyTeacherAmount,
+            'partial_month_amount_input' => $partialMonthAmount,
+            'include_partial_month' => $validated['includePartialMonth'] ?? false,
+            'total_teacher_amount_formula' => "($studentTotalPaidCumulative × $teacherPercentage / 100)",
+            'immediate_amount_formula' => ($isCurrentMonthIncluded ? (($partialMonthAmount > 0) ? "($partialMonthAmount × $teacherPercentage / 100)" : "$totalTeacherAmount / " . count($selectedMonths)) : '0'),
+            'monthly_amount_formula' => ($futureMonthsCount > 0 ? "($totalTeacherAmount - $immediateWalletAmount) / $futureMonthsCount" : '0'),
+        ]);
+
+        // Check if there's an existing record for this teacher and INVOICE (regardless of active status)
         $existingRecord = TeacherMembershipPayment::where('teacher_id', $teacher->id)
-            ->where('membership_id', $membership->id)
-            ->where('is_active', true)
+            ->where('invoice_id', $invoice->id)
             ->first();
 
         if ($existingRecord) {
-            // Update existing record
-            $this->updateExistingRecord($existingRecord, $selectedMonths, $totalTeacherAmount, $monthlyTeacherAmount, $paymentPercentage);
+            Log::info('Found existing record - updating', [
+                'record_id' => $existingRecord->id,
+                'teacher_id' => $teacher->id,
+                'invoice_id' => $invoice->id,
+                'existing_payment_percentage' => $existingRecord->payment_percentage,
+                'new_payment_percentage' => $paymentPercentage,
+                'was_inactive' => !$existingRecord->is_active
+            ]);
+            if (!$existingRecord->is_active) {
+                $existingRecord->update(['is_active' => true]);
+                Log::info('Reactivated inactive record', ['record_id' => $existingRecord->id]);
+            }
+            $this->updateExistingRecord($existingRecord, $selectedMonths, $totalTeacherAmount, $monthlyTeacherAmount, $paymentPercentage, $immediateWalletAmount, $partialMonthAmount, $validated);
         } else {
-            // Create new record
+            Log::info('No existing record found - creating new', [
+                'teacher_id' => $teacher->id,
+                'invoice_id' => $invoice->id,
+                'payment_percentage' => $paymentPercentage
+            ]);
             $this->createNewRecord(
                 $teacher,
                 $membership,
@@ -108,7 +203,10 @@ class TeacherMembershipPaymentService
                 $monthlyTeacherAmount,
                 $paymentPercentage,
                 $teacherSubject,
-                $teacherPercentage
+                $teacherPercentage,
+                $immediateWalletAmount, // Pass calculated immediateWalletAmount
+                $partialMonthAmount,
+                $validated
             );
         }
     }
@@ -125,31 +223,39 @@ class TeacherMembershipPaymentService
         float $monthlyTeacherAmount,
         float $paymentPercentage,
         string $teacherSubject,
-        float $teacherPercentage
+        float $teacherPercentage,
+        float $immediateWalletAmount, // Now directly receive this
+        float $partialMonthAmount = 0,
+        array $validated = []
     ) {
         $currentMonth = now()->format('Y-m');
         
-        // Check if current month is in selected months
+        // Check if current month is included in selected months
         $isCurrentMonthIncluded = in_array($currentMonth, $selectedMonths);
-        
-        // If current month is included, increment teacher wallet immediately
-        if ($isCurrentMonthIncluded) {
-            $teacher->increment('wallet', $monthlyTeacherAmount);
-            
-            Log::info('Immediately incremented teacher wallet for current month', [
+
+        // The immediateWalletAmount is now calculated in processTeacherPayment
+        // No need to recalculate here. Just ensure wallet increment if needed.
+
+        if ($immediateWalletAmount > 0) {
+            $teacher->increment('wallet', $immediateWalletAmount);
+            Log::info('Immediately incremented teacher wallet for current month (creation)', [
                 'teacher_id' => $teacher->id,
-                'amount' => $monthlyTeacherAmount,
-                'month' => $currentMonth
+                'amount' => $immediateWalletAmount,
+                'month' => $currentMonth,
+                'partial_month_amount' => round($partialMonthAmount, 2),
+                'teacher_percentage' => round($teacherPercentage, 2),
+                'is_partial_month' => ($validated['includePartialMonth'] ?? false) && $partialMonthAmount > 0,
             ]);
         }
-        
-        // Remove current month from unpaid months if it was included
-        $unpaidMonths = $selectedMonths;
-        if ($isCurrentMonthIncluded) {
-            $unpaidMonths = array_filter($selectedMonths, function($month) use ($currentMonth) {
-                return $month !== $currentMonth;
-            });
-        }
+
+        // Future months will be handled by scheduled payments
+        $futureMonths = array_filter($selectedMonths, function($month) use ($currentMonth) {
+            return $month > $currentMonth;
+        });
+
+        // If current month is included, it's already paid, so only future months remain unpaid
+        // If current month is not included, all selected months are unpaid
+        $unpaidMonths = array_values($futureMonths); // Always use future months as unpaid if current is handled.
 
         TeacherMembershipPayment::create([
             'student_id' => $membership->student_id,
@@ -157,12 +263,14 @@ class TeacherMembershipPaymentService
             'membership_id' => $membership->id,
             'invoice_id' => $invoice->id,
             'selected_months' => $selectedMonths,
-            'months_rest_not_paid_yet' => array_values($unpaidMonths), // Current month removed if included
-            'total_teacher_amount' => $totalTeacherAmount,
-            'monthly_teacher_amount' => $monthlyTeacherAmount,
-            'payment_percentage' => $paymentPercentage,
+            'months_rest_not_paid_yet' => $unpaidMonths, // Only future months
+            'total_teacher_amount' => round($totalTeacherAmount, 2),
+            'monthly_teacher_amount' => round($monthlyTeacherAmount, 2),
+            'payment_percentage' => round($paymentPercentage, 2),
             'teacher_subject' => $teacherSubject,
-            'teacher_percentage' => $teacherPercentage,
+            'teacher_percentage' => round($teacherPercentage, 2),
+            'immediate_wallet_amount' => round($immediateWalletAmount, 2), // Store the immediate amount
+            'total_paid_to_teacher' => round($immediateWalletAmount, 2), // Initial payment (immediate amount)
             'is_active' => true,
         ]);
 
@@ -170,10 +278,18 @@ class TeacherMembershipPaymentService
             'teacher_id' => $teacher->id,
             'membership_id' => $membership->id,
             'invoice_id' => $invoice->id,
-            'total_amount' => $totalTeacherAmount,
-            'monthly_amount' => $monthlyTeacherAmount,
+            'total_amount' => round($totalTeacherAmount, 2),
+            'monthly_amount' => round($monthlyTeacherAmount, 2),
             'selected_months' => $selectedMonths,
-            'current_month_paid_immediately' => $isCurrentMonthIncluded
+            'current_month' => $currentMonth,
+            'is_current_month_included' => $isCurrentMonthIncluded,
+            'current_month_paid_immediately' => $isCurrentMonthIncluded,
+            'immediate_wallet_amount' => round($immediateWalletAmount, 2),
+            'partial_month_amount' => round($partialMonthAmount, 2),
+            'include_partial_month' => $validated['includePartialMonth'] ?? false,
+            'unpaid_months_count' => count($unpaidMonths),
+            'future_months_remaining' => $futureMonths,
+            'unpaid_months_record' => $unpaidMonths,
         ]);
     }
 
@@ -183,50 +299,127 @@ class TeacherMembershipPaymentService
     private function updateExistingRecord(
         TeacherMembershipPayment $record,
         array $selectedMonths,
-        float $totalTeacherAmount,
-        float $monthlyTeacherAmount,
-        float $paymentPercentage
+        float $totalTeacherAmount, // This is the total amount from the original processTeacherPayment, not the new one.
+        float $monthlyTeacherAmount, // Same here, this is the original monthly amount.
+        float $paymentPercentage,
+        float $immediateWalletAmountFromCall, // This is the immediate amount calculated in processTeacherPayment
+        float $partialMonthAmount = 0,
+        array $validated = [] // Add validated to parameter list
     ) {
-        $currentMonth = now()->format('Y-m');
-        
         // Merge new selected months with existing ones
         $allSelectedMonths = array_unique(array_merge($record->selected_months ?? [], $selectedMonths));
-        
-        // Add new months to unpaid list
-        $unpaidMonths = array_unique(array_merge($record->months_rest_not_paid_yet ?? [], $selectedMonths));
-        
-        // Check if current month is in new selected months and not already paid
-        $isCurrentMonthNew = in_array($currentMonth, $selectedMonths) && !in_array($currentMonth, $record->months_rest_not_paid_yet ?? []);
-        
-        // If current month is new and included, increment teacher wallet immediately
-        if ($isCurrentMonthNew) {
+        sort($allSelectedMonths); // Ensure months are sorted
+
+        $offer = $record->membership->offer;
+        $teacherPercentage = round((float)($offer->percentage[$record->teacher_subject] ?? 0), 2);
+
+        // Get the current invoice to know the total amount paid by student
+        $currentInvoice = $record->invoice;
+        $studentTotalPaid = round((float)($currentInvoice->amountPaid ?? 0), 2);
+
+        // 1. Calculate total teacher amount based on student's payment × teacher percentage
+        $newTotalAmount = round(($studentTotalPaid * $teacherPercentage / 100), 2);
+
+        $currentMonth = now()->format('Y-m');
+        $isCurrentMonthIncluded = in_array($currentMonth, $allSelectedMonths);
+
+        // Get the old immediate wallet amount from the record
+        $oldImmediateWalletAmount = round((float)($record->immediate_wallet_amount ?? 0), 2);
+        $oldTotalPaidToTeacher = round((float)($record->total_paid_to_teacher ?? 0), 2);
+
+        // 2. Calculate new immediate wallet amount for current month
+        $newImmediateWalletAmount = 0;
+        if ($isCurrentMonthIncluded) {
+            if (($validated['includePartialMonth'] ?? false) && $partialMonthAmount > 0) {
+                // Student chose to pay for current month with partial amount
+                $newImmediateWalletAmount = round(($partialMonthAmount * $teacherPercentage / 100), 2);
+            } else {
+                // Current month is selected but no specific partial amount, means full month paid immediately
+                // Calculate actual monthly teacher amount based on total paid and all months
+                $allSelectedMonthsCount = count($allSelectedMonths);
+                $actualMonthlyShare = $allSelectedMonthsCount > 0 ? round(($newTotalAmount / $allSelectedMonthsCount), 2) : 0;
+                $newImmediateWalletAmount = $actualMonthlyShare;
+            }
+        }
+
+        // 3. Calculate the difference in immediate wallet amount
+        $walletDifference = round(($newImmediateWalletAmount - $oldImmediateWalletAmount), 2);
+
+        // Only modify wallet if there's a difference
+        if ($walletDifference != 0) {
             $teacher = Teacher::find($record->teacher_id);
             if ($teacher) {
-                $teacher->increment('wallet', $monthlyTeacherAmount);
-                
-                Log::info('Immediately incremented teacher wallet for current month in update', [
-                    'teacher_id' => $teacher->id,
-                    'amount' => $monthlyTeacherAmount,
-                    'month' => $currentMonth
-                ]);
+                $teacherWalletBefore = round((float)($teacher->wallet), 2);
+                if ($walletDifference > 0) {
+                    $teacher->increment('wallet', $walletDifference);
+                    Log::info('Incremented teacher wallet due to increased immediate amount in update', [
+                        'teacher_id' => $teacher->id,
+                        'old_immediate_amount' => $oldImmediateWalletAmount,
+                        'new_immediate_amount' => $newImmediateWalletAmount,
+                        'difference' => $walletDifference,
+                        'wallet_before_op' => $teacherWalletBefore,
+                        'wallet_after_op' => round((float)($teacher->wallet), 2),
+                        'expected_wallet_after' => round(($teacherWalletBefore + $walletDifference), 2),
+                    ]);
+                } else {
+                    $decrementAmount = abs($walletDifference);
+                    $teacher->decrement('wallet', $decrementAmount);
+                    Log::info('Decremented teacher wallet due to decreased immediate amount in update', [
+                        'teacher_id' => $teacher->id,
+                        'old_immediate_amount' => $oldImmediateWalletAmount,
+                        'new_immediate_amount' => $newImmediateWalletAmount,
+                        'difference' => $walletDifference,
+                        'decrement_amount' => $decrementAmount,
+                        'wallet_before_op' => $teacherWalletBefore,
+                        'wallet_after_op' => round((float)($teacher->wallet), 2),
+                        'expected_wallet_after' => round(($teacherWalletBefore - $decrementAmount), 2),
+                    ]);
+                }
             }
-            
-            // Remove current month from unpaid months
+        } else {
+            Log::info('No wallet change needed in update - immediate amount unchanged', [
+                'teacher_id' => $record->teacher_id,
+                'old_immediate_amount' => $oldImmediateWalletAmount,
+                'new_immediate_amount' => $newImmediateWalletAmount,
+                'difference' => $walletDifference
+            ]);
+        }
+
+        // 4. Calculate monthly amount for scheduled payments (future months only)
+        // This MUST be calculated AFTER newImmediateWalletAmount is finalized
+        $futureMonths = array_filter($allSelectedMonths, function($month) use ($currentMonth) {
+            return $month > $currentMonth;
+        });
+        $futureMonthsCount = count($futureMonths);
+
+        $newMonthlyAmount = 0;
+        if ($futureMonthsCount > 0) {
+            $remainingAmountForFutureMonths = round(($newTotalAmount - $newImmediateWalletAmount), 2);
+            $newMonthlyAmount = round(($remainingAmountForFutureMonths / $futureMonthsCount), 2);
+        }
+
+        // Add new months to unpaid list, filtering out current month if it's handled immediately
+        $unpaidMonths = array_unique(array_merge($record->months_rest_not_paid_yet ?? [], $selectedMonths));
+        if ($isCurrentMonthIncluded) {
             $unpaidMonths = array_filter($unpaidMonths, function($month) use ($currentMonth) {
                 return $month !== $currentMonth;
             });
         }
-        
-        // Recalculate total and monthly amounts
-        $newTotalAmount = $record->total_teacher_amount + $totalTeacherAmount;
-        $newMonthlyAmount = count($allSelectedMonths) > 0 ? $newTotalAmount / count($allSelectedMonths) : 0;
+        $unpaidMonths = array_values($unpaidMonths); // Re-index array
+
+        // Calculate new total paid to teacher (cumulative: immediate + already processed scheduled payments)
+        // We subtract the old immediate amount and add the new one, keeping previous scheduled payments.
+        $newTotalPaidToTeacher = round((($oldTotalPaidToTeacher - $oldImmediateWalletAmount) + $newImmediateWalletAmount), 2);
 
         $record->update([
             'selected_months' => $allSelectedMonths,
-            'months_rest_not_paid_yet' => array_values($unpaidMonths),
+            'months_rest_not_paid_yet' => $unpaidMonths,
             'total_teacher_amount' => $newTotalAmount,
             'monthly_teacher_amount' => $newMonthlyAmount,
             'payment_percentage' => $paymentPercentage,
+            'immediate_wallet_amount' => $newImmediateWalletAmount, // Recalculated, not added
+            'total_paid_to_teacher' => $newTotalPaidToTeacher, // Recalculated, cumulative
+            'is_active' => true, // Ensure record stays active for potential updates
         ]);
 
         Log::info('Updated teacher membership payment record', [
@@ -234,8 +427,83 @@ class TeacherMembershipPaymentService
             'new_total_amount' => $newTotalAmount,
             'new_monthly_amount' => $newMonthlyAmount,
             'all_selected_months' => $allSelectedMonths,
-            'current_month_paid_immediately' => $isCurrentMonthNew
+            'current_month_paid_immediately' => $isCurrentMonthIncluded,
+            'unpaid_months_count' => count($unpaidMonths),
+            'immediate_wallet_amount_before_record' => $oldImmediateWalletAmount,
+            'immediate_wallet_amount_after_record' => $newImmediateWalletAmount,
+            'total_paid_to_teacher_before_record' => $oldTotalPaidToTeacher,
+            'total_paid_to_teacher_after_record' => $newTotalPaidToTeacher, // Log cumulative
+            'wallet_difference_applied' => $walletDifference,
+            'record_reactivated' => true,
+            'recalculation_details' => [
+                'old_total_amount' => $record->total_teacher_amount,
+                'student_total_paid_cumulative' => $studentTotalPaid,
+                'teacher_percentage' => $teacherPercentage,
+                'total_selected_months_count' => count($allSelectedMonths),
+                'total_teacher_amount_formula' => "($studentTotalPaid × $teacherPercentage / 100)",
+                'monthly_amount_calculation' => [
+                    'future_months_count' => $futureMonthsCount,
+                    'remaining_amount_for_future_months' => round(($newTotalAmount - $newImmediateWalletAmount), 2),
+                    'monthly_amount_formula' => ($futureMonthsCount > 0 ? "($newTotalAmount - $newImmediateWalletAmount) / $futureMonthsCount" : "0"),
+                ],
+                'immediate_calculation_details' => [
+                    'current_month_included' => $isCurrentMonthIncluded,
+                    'partial_month_amount_input' => round($partialMonthAmount, 2),
+                    'calculated_immediate_amount' => $newImmediateWalletAmount,
+                    'reason' => ($isCurrentMonthIncluded ? (($partialMonthAmount > 0) ? 'partial_month_payment' : 'full_current_month_payment') : 'no_current_month_payment')
+                ],
+                'total_paid_to_teacher_cumulative_calc' => "($oldTotalPaidToTeacher - $oldImmediateWalletAmount) + $newImmediateWalletAmount"
+            ],
         ]);
+    }
+
+    /**
+     * Clean up duplicate records for the same invoice and teacher
+     * This method should be called manually to fix existing duplicates
+     */
+    public function cleanupDuplicateRecords()
+    {
+        Log::info('Starting cleanup of duplicate teacher membership payment records');
+        
+        $duplicates = DB::table('teacher_membership_payments')
+            ->select('invoice_id', 'teacher_id', DB::raw('COUNT(*) as count'))
+            ->groupBy('invoice_id', 'teacher_id')
+            ->having('count', '>', 1)
+            ->get();
+        
+        $cleanedCount = 0;
+        
+        foreach ($duplicates as $duplicate) {
+            $records = TeacherMembershipPayment::where('invoice_id', $duplicate->invoice_id)
+                ->where('teacher_id', $duplicate->teacher_id)
+                ->orderBy('created_at', 'desc')
+                ->get();
+            
+            // Keep the most recent record, delete the rest
+            $keepRecord = $records->first();
+            $deleteRecords = $records->slice(1);
+            
+            foreach ($deleteRecords as $deleteRecord) {
+                Log::info('Deleting duplicate record', [
+                    'duplicate_id' => $deleteRecord->id,
+                    'invoice_id' => $duplicate->invoice_id,
+                    'teacher_id' => $duplicate->teacher->id,
+                    'kept_record_id' => $keepRecord->id
+                ]);
+                $deleteRecord->delete();
+                $cleanedCount++;
+            }
+        }
+        
+        Log::info('Completed cleanup of duplicate records', [
+            'duplicates_found' => $duplicates->count(),
+            'records_deleted' => $cleanedCount
+        ]);
+        
+        return [
+            'duplicates_found' => $duplicates->count(),
+            'records_deleted' => $cleanedCount
+        ];
     }
 
     /**
@@ -262,23 +530,35 @@ class TeacherMembershipPaymentService
 
                 // Increment teacher wallet
                 $teacher = $record->teacher;
-                $teacher->increment('wallet', $record->monthly_teacher_amount);
+                $monthlyAmount = round((float)$record->monthly_teacher_amount, 2);
+                
+                $teacher->increment('wallet', $monthlyAmount);
+
+                // Update total paid to teacher
+                $record->increment('total_paid_to_teacher', $monthlyAmount);
 
                 // Mark this month as paid
                 $record->markMonthAsPaid($currentMonth);
 
-                // If all months are paid, deactivate the record
+                // Keep record active even when all months are paid
+                // This allows the record to be updated when invoices are modified
+                // Records are only deactivated when invoices are deleted
                 if ($record->isFullyPaid()) {
-                    $record->update(['is_active' => false]);
+                    Log::info('All months paid but keeping record active for potential updates', [
+                        'record_id' => $record->id,
+                        'teacher_id' => $teacher->id,
+                        'selected_months' => $record->selected_months,
+                        'months_rest_not_paid_yet' => $record->months_rest_not_paid_yet
+                    ]);
                 }
 
                 $processedCount++;
-                $totalAmount += $record->monthly_teacher_amount;
+                $totalAmount += $monthlyAmount;
 
                 Log::info('Processed monthly payment for teacher', [
                     'teacher_id' => $teacher->id,
                     'teacher_name' => $teacher->first_name . ' ' . $teacher->last_name,
-                    'amount' => $record->monthly_teacher_amount,
+                    'amount' => $monthlyAmount,
                     'month' => $currentMonth,
                     'student_name' => $record->student ? $record->student->firstName . ' ' . $record->student->lastName : 'Unknown'
                 ]);
@@ -334,46 +614,77 @@ class TeacherMembershipPaymentService
      */
     private function reverseTeacherPayment(TeacherMembershipPayment $record, Invoice $invoice)
     {
-        $teacher = Teacher::find($record->teacher_id);
-        if (!$teacher) {
-            return;
-        }
+        try {
+            $teacher = Teacher::find($record->teacher_id);
+            if (!$teacher) {
+                Log::warning('Teacher not found for reversal', ['record_id' => $record->id]);
+                return;
+            }
 
-        // Calculate how many months were actually paid
-        $totalSelectedMonths = count($record->selected_months ?? []);
-        $remainingUnpaidMonths = count($record->months_rest_not_paid_yet ?? []);
-        $monthsPaid = $totalSelectedMonths - $remainingUnpaidMonths;
-
-        // Calculate total amount to reverse
-        $amountToReverse = $monthsPaid * $record->monthly_teacher_amount;
-
-        if ($amountToReverse > 0) {
-            // Decrement teacher wallet
-            $teacher->decrement('wallet', $amountToReverse);
-
-            Log::info('Reversed teacher payment due to invoice deletion', [
+            // SIMPLIFIED LOGIC: Use total_paid_to_teacher field
+            // This field tracks ALL amounts paid to teacher (immediate + monthly)
+            $amountToReverse = round((float)($record->total_paid_to_teacher ?? 0), 2);
+            
+            // Debug logging for reversal calculation
+            Log::info('Reversal calculation debug', [
                 'record_id' => $record->id,
                 'teacher_id' => $teacher->id,
-                'teacher_name' => $teacher->first_name . ' ' . $teacher->last_name,
-                'invoice_id' => $invoice->id,
-                'total_selected_months' => $totalSelectedMonths,
-                'remaining_unpaid_months' => $remainingUnpaidMonths,
-                'months_paid' => $monthsPaid,
-                'monthly_amount' => $record->monthly_teacher_amount,
-                'total_amount_reversed' => $amountToReverse,
-                'teacher_wallet_before' => $teacher->wallet + $amountToReverse,
-                'teacher_wallet_after' => $teacher->wallet
+                'total_paid_to_teacher_record' => round((float)($record->total_paid_to_teacher ?? 0), 2),
+                'immediate_wallet_amount_record' => round((float)($record->immediate_wallet_amount ?? 0), 2),
+                'monthly_teacher_amount_record' => round((float)($record->monthly_teacher_amount ?? 0), 2),
+                'selected_months' => $record->selected_months,
+                'months_rest_not_paid_yet' => $record->months_rest_not_paid_yet,
+                'amount_to_reverse_calculated' => $amountToReverse,
             ]);
-        }
 
-        // Deactivate the record
-        $record->update(['is_active' => false]);
-        
-        Log::info('Deactivated teacher membership payment record', [
-            'record_id' => $record->id,
-            'teacher_id' => $teacher->id,
-            'invoice_id' => $invoice->id
-        ]);
+            if ($amountToReverse > 0) {
+                $teacherWalletBefore = round((float)($teacher->wallet), 2);
+                // Decrement teacher wallet
+                $teacher->decrement('wallet', $amountToReverse);
+
+                Log::info('Reversed teacher payment due to invoice deletion', [
+                    'record_id' => $record->id,
+                    'teacher_id' => $teacher->id,
+                    'teacher_name' => $teacher->first_name . ' ' . $teacher->last_name,
+                    'invoice_id' => $invoice->id,
+                    'total_paid_to_teacher_on_record' => $record->total_paid_to_teacher ?? 0,
+                    'total_amount_reversed' => $amountToReverse,
+                    'wallet_before_op' => $teacherWalletBefore,
+                    'wallet_after_op' => round((float)($teacher->wallet), 2),
+                    'expected_wallet_after' => round(($teacherWalletBefore - $amountToReverse), 2),
+                ]);
+            }
+
+            // Deactivate the record
+            $record->update(['is_active' => false]);
+            
+            Log::info('Deactivated teacher membership payment record', [
+                'record_id' => $record->id,
+                'teacher_id' => $teacher->id,
+                'invoice_id' => $invoice->id
+            ]);
+            
+        } catch (\Exception $e) {
+            // Log the error and DO NOT decrement wallet
+            Log::error('Error reversing teacher payment - wallet NOT decremented', [
+                'record_id' => $record->id,
+                'teacher_id' => $record->teacher_id,
+                'invoice_id' => $invoice->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            // Still deactivate the record to prevent further issues
+            try {
+                $record->update(['is_active' => false]);
+                Log::info('Record deactivated despite reversal error', ['record_id' => $record->id]);
+            } catch (\Exception $deactivationError) {
+                Log::error('Failed to deactivate record after reversal error', [
+                    'record_id' => $record->id,
+                    'error' => $deactivationError->getMessage()
+                ]);
+            }
+        }
     }
 
     /**
@@ -407,16 +718,23 @@ class TeacherMembershipPaymentService
         $totalSelectedMonths = count($record->selected_months ?? []);
         $remainingUnpaidMonths = count($record->months_rest_not_paid_yet ?? []);
         $monthsPaid = $totalSelectedMonths - $remainingUnpaidMonths;
-        $totalPaidAmount = $monthsPaid * $record->monthly_teacher_amount;
+        $scheduledPaidAmount = round(($monthsPaid * ($record->monthly_teacher_amount ?? 0)), 2);
+        
+        // Include immediate amount that was paid
+        $immediatePaidAmount = round((float)($record->immediate_wallet_amount ?? 0), 2);
+        $totalPaidAmount = round(($scheduledPaidAmount + $immediatePaidAmount), 2);
 
         return [
             'total_selected_months' => $totalSelectedMonths,
             'remaining_unpaid_months' => $remainingUnpaidMonths,
             'months_paid' => $monthsPaid,
-            'monthly_amount' => $record->monthly_teacher_amount,
+            'monthly_amount' => round((float)($record->monthly_teacher_amount ?? 0), 2),
+            'scheduled_paid_amount' => $scheduledPaidAmount,
+            'immediate_paid_amount' => $immediatePaidAmount,
             'total_paid_amount' => $totalPaidAmount,
             'selected_months' => $record->selected_months,
             'unpaid_months' => $record->months_rest_not_paid_yet
         ];
     }
+
 }

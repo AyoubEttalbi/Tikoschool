@@ -43,12 +43,6 @@ const InvoicesForm = ({
 }) => {
     // ...existing code...
     const today = new Date();
-    const firstOfNextMonth = new Date(
-        today.getFullYear(),
-        today.getMonth() + 1,
-        1,
-    );
-    const formattedFirstOfNextMonth = formatDateToYYYYMMDD(firstOfNextMonth);
     const todayFormatted = formatDateToYYYYMMDD(today);
 
     // State to track whether to include partial month
@@ -87,7 +81,12 @@ const InvoicesForm = ({
             months: data?.months || 1,
             billDate: data?.billDate
                 ? formatDateToYYYYMMDD(data.billDate)
-                : formattedFirstOfNextMonth,
+                : (() => {
+                    const currentYear = today.getFullYear();
+                    const currentMonth = today.getMonth();
+                    const startYear = currentMonth >= 7 ? currentYear : currentYear - 1;
+                    return `${startYear}-08-01`;
+                })(),
             creationDate: data?.creationDate || todayFormatted,
             totalAmount: data?.totalAmount || 0,
             amountPaid: data?.amountPaid || 0,
@@ -102,13 +101,28 @@ const InvoicesForm = ({
     });
 
     const selectedMembershipId = watch("membership_id");
-    // Months list: current month + next 11 months
+    // Months list: Moroccan school year (August to July)
     const monthsList = (() => {
         const months = [];
+        const currentYear = today.getFullYear();
+        const currentMonth = today.getMonth(); // 0-based
+        
+        // Moroccan school year: August (month 7) to July (month 6)
+        // If we're in August or later, start from current year
+        // If we're before August, start from previous year
+        const startYear = currentMonth >= 7 ? currentYear : currentYear - 1;
+        
         for (let i = 0; i < 12; i++) {
-            const date = new Date(today.getFullYear(), today.getMonth() + i, 1);
-            const label = date.toLocaleString("default", { month: "short", year: "numeric" });
-            const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+            const monthIndex = (7 + i) % 12; // Start from August (7), wrap around to July (6)
+            const year = startYear + Math.floor((7 + i) / 12);
+            
+            const date = new Date(year, monthIndex, 1);
+            const monthNames = [
+                'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+                'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'
+            ];
+            const label = `${monthNames[monthIndex]} ${year}`;
+            const value = `${year}-${String(monthIndex + 1).padStart(2, "0")}`;
             months.push({ label, value });
         }
         return months;
@@ -148,8 +162,25 @@ const InvoicesForm = ({
             const billMonth = data.billDate.slice(0, 7);
             return [billMonth];
         }
-        // 6. Otherwise, default to current month
-        return [monthsList[0].value];
+        // 6. For create mode: default to current month if it's in the school year, otherwise first month of school year
+        if (type === 'create') {
+            const currentMonth = today.getMonth(); // 0-based
+            const currentYear = today.getFullYear();
+            
+            // Check if current month is in the school year (August to July)
+            if (currentMonth >= 7) {
+                // We're in August or later, use current month
+                return [`${currentYear}-${String(currentMonth + 1).padStart(2, "0")}`];
+            } else {
+                // We're before August, use August of current year
+                return [`${currentYear}-08`];
+            }
+        }
+        // 7. Fallback to first month of school year
+        const currentYear = today.getFullYear();
+        const currentMonth = today.getMonth();
+        const startYear = currentMonth >= 7 ? currentYear : currentYear - 1;
+        return [`${startYear}-08`];
     });
 
     // Keep form value in sync with local state
@@ -206,8 +237,7 @@ const InvoicesForm = ({
             today.getMonth() + 1,
             0,
         ).getDate();
-        const remainingDays =
-            (firstOfNextMonth - today) / (1000 * 60 * 60 * 24);
+        const remainingDays = daysInCurrentMonth - today.getDate();
         const dailyRate = selectedMembership.price / daysInCurrentMonth;
         return Math.round(dailyRate * remainingDays);
     };
@@ -247,7 +277,11 @@ const InvoicesForm = ({
                 return formatDateToYYYYMMDD(firstDay);
             }
         }
-        return formattedFirstOfNextMonth;
+        // Default to first month of current school year if no months selected
+        const currentYear = today.getFullYear();
+        const currentMonth = today.getMonth();
+        const startYear = currentMonth >= 7 ? currentYear : currentYear - 1;
+        return `${startYear}-08-01`;
     };
 
     const calculateEndDate = () => {
@@ -268,7 +302,7 @@ const InvoicesForm = ({
             const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
             return formatDateToYYYYMMDD(lastDay);
         }
-        // Fallback: End of the first selected month or next month if none selected
+        // Fallback: End of the first selected month or end of current school year if none selected
         if (selectedMonths.length > 0) {
             const lastMonth = selectedMonths[selectedMonths.length - 1];
             const [year, month] = lastMonth.split("-").map(Number);
@@ -277,8 +311,11 @@ const InvoicesForm = ({
                 return formatDateToYYYYMMDD(lastDay);
             }
         }
-        const lastDayOfNextMonth = new Date(today.getFullYear(), today.getMonth() + 2, 0);
-        return formatDateToYYYYMMDD(lastDayOfNextMonth);
+        // Default to end of current school year (July 31st)
+        const currentYear = today.getFullYear();
+        const currentMonth = today.getMonth();
+        const endYear = currentMonth >= 7 ? currentYear : currentYear - 1;
+        return `${endYear}-07-31`;
     };
 
     const onSubmit = (formData) => {
@@ -297,7 +334,16 @@ const InvoicesForm = ({
         formData.totalAmount = Math.round(formData.totalAmount);
         formData.amountPaid = Math.round(Number(formData.amountPaid));
         formData.rest = Math.round(formData.rest);
-        formData.partialMonthAmount = Math.round(formData.partialMonthAmount);
+        formData.partialMonthAmount = Math.round(partialMonthAmount); // Use the calculated value
+
+        // Debug logging
+        console.log('Form submission data:', {
+            includePartialMonth,
+            partialMonthAmount,
+            selectedMonths,
+            totalAmount: formData.totalAmount,
+            months: formData.months
+        });
 
         // Always include selectedMonths as array in the payload
         formData.selectedMonths = selectedMonths;
@@ -630,8 +676,7 @@ const InvoicesForm = ({
                                                                 </span>
                                                                 (" "
                                                                 {Math.ceil(
-                                                                    (firstOfNextMonth - today) /
-                                                                    (1000 * 60 * 60 * 24),
+                                                                    (new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate() - today.getDate())
                                                                 )}{" "}
                                                                 jours restants dans le mois courant)
                                                             </p>

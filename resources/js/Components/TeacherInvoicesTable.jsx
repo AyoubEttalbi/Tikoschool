@@ -23,8 +23,11 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
     const [schoolFilter, setSchoolFilter] = useState("all");
     const [dateFilter, setDateFilter] = useState(new Date().toISOString().slice(0, 7));
     const [membershipStatusFilter, setMembershipStatusFilter] = useState("all");
+    const [paymentStatusFilter, setPaymentStatusFilter] = useState("all");
     const [filtersVisible, setFiltersVisible] = useState(false);
     const [selectedInvoices, setSelectedInvoices] = useState([]);
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 10;
 
     // Get unique classes, offers, and schools for dropdowns
     const uniqueClasses = [
@@ -59,8 +62,11 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                 (schoolFilter === "all" || studentSchool === schoolFilter) &&
                 (dateFilter === "" || billDate.startsWith(dateFilter)) &&
                 (membershipStatusFilter === "all" || 
-                 (membershipStatusFilter === "active" && !item.membership_deleted) ||
-                 (membershipStatusFilter === "deleted" && item.membership_deleted))
+                 (membershipStatusFilter === "active" && !invoice.membership_deleted) ||
+                 (membershipStatusFilter === "deleted" && invoice.membership_deleted)) &&
+                (paymentStatusFilter === "all" || 
+                 (paymentStatusFilter === "paid" && invoice.is_month_paid) ||
+                 (paymentStatusFilter === "pending" && !invoice.is_month_paid))
             );
         });
 
@@ -73,7 +79,25 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
         schoolFilter,
         dateFilter,
         membershipStatusFilter,
+        paymentStatusFilter,
     ]);
+
+    // Reset current page when filters change
+    React.useEffect(() => {
+        setCurrentPage(1);
+    }, [search, classFilter, offerFilter, schoolFilter, dateFilter, membershipStatusFilter, paymentStatusFilter]);
+
+    // Paginate the filtered invoices
+    const paginatedInvoices = useMemo(() => {
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        const endIndex = startIndex + itemsPerPage;
+        return filteredInvoices.slice(startIndex, endIndex);
+    }, [filteredInvoices, currentPage]);
+
+    // Calculate pagination info
+    const totalPages = Math.ceil(filteredInvoices.length / itemsPerPage);
+    const startItem = (currentPage - 1) * itemsPerPage + 1;
+    const endItem = Math.min(currentPage * itemsPerPage, filteredInvoices.length);
 
     // Calculate summary metrics
     const totalInvoices = filteredInvoices.length;
@@ -126,20 +150,11 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
         setSchoolFilter("all");
         setDateFilter("");
         setMembershipStatusFilter("all");
+        setPaymentStatusFilter("all");
+        setCurrentPage(1); // Reset to first page when filters change
     };
 
-    // Prepare filters for pagination
-    const paginationFilters = useMemo(
-        () => ({
-            search: search || undefined,
-            class: classFilter !== "all" ? classFilter : undefined,
-            offer: offerFilter !== "all" ? offerFilter : undefined,
-            school: schoolFilter !== "all" ? schoolFilter : undefined,
-            date: dateFilter || undefined,
-            membership_status: membershipStatusFilter !== "all" ? membershipStatusFilter : undefined,
-        }),
-        [search, classFilter, offerFilter, schoolFilter, dateFilter, membershipStatusFilter],
-    );
+    // Note: Removed paginationFilters since we're using frontend pagination now
 
     // Handle invoice download
     const handleDownloadInvoice = (invoiceId) => {
@@ -153,7 +168,7 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
         
         // Calculate totals for selected invoices
         const selectedInvoiceData = filteredInvoices.filter(invoice => 
-            selectedInvoices.includes(invoice.id)
+            selectedInvoices.includes(invoice.invoice_id)
         );
         
         const totalIncome = selectedInvoiceData.reduce(
@@ -310,10 +325,15 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                             <span className="w-2 h-2 bg-red-400 rounded-full mr-1"></span>
                             Adhésion supprimée
                         </span>
-                    ) : (
+                    ) : item.is_month_paid ? (
                         <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
                             <span className="w-2 h-2 bg-green-400 rounded-full mr-1"></span>
                             Actif
+                        </span>
+                    ) : (
+                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                            <span className="w-2 h-2 bg-yellow-400 rounded-full mr-1"></span>
+                            En attente
                         </span>
                     )}
                 </td>
@@ -388,11 +408,12 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                             />
                         </button>
 
-                        {(search ||
-                            classFilter !== "all" ||
-                            offerFilter !== "all" ||
-                            dateFilter ||
-                            membershipStatusFilter !== "all") && (
+                        {        (search ||
+            classFilter !== "all" ||
+            offerFilter !== "all" ||
+            dateFilter ||
+            membershipStatusFilter !== "all" ||
+            paymentStatusFilter !== "all") && (
                             <button
                                 onClick={resetFilters}
                                 className="flex items-center gap-1 px-3 py-2 rounded-lg bg-red-50 text-red-600 border border-red-200 text-sm hover:bg-red-100"
@@ -416,7 +437,7 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
 
                 {/* Filtres étendus */}
                 {filtersVisible && safeInvoices.length > 0 && (
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 mb-2 bg-gray-50 rounded-lg border border-gray-200 animate-fadeIn">
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4 p-4 mb-2 bg-gray-50 rounded-lg border border-gray-200 animate-fadeIn">
                         {/* Filtre Classe */}
                         <div>
                             <label
@@ -536,24 +557,54 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                                 <option value="deleted">Adhésions supprimées</option>
                             </select>
                         </div>
+
+                        {/* Filtre Statut de paiement */}
+                        <div>
+                            <label
+                                htmlFor="payment-status-filter"
+                                className="block text-sm font-medium text-gray-700 mb-1"
+                            >
+                                Statut de paiement
+                            </label>
+                            <select
+                                id="payment-status-filter"
+                                className="border w-full rounded-lg p-2 text-sm"
+                                value={paymentStatusFilter}
+                                onChange={(e) => setPaymentStatusFilter(e.target.value)}
+                            >
+                                <option value="all">Tous les statuts</option>
+                                <option value="paid">Mois payés</option>
+                                <option value="pending">Mois en attente</option>
+                            </select>
+                        </div>
                     </div>
                 )}
             </div>
 
             {/* Cartes de résumé */}
             {safeInvoices.length > 0 && (
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
                     <div className="bg-gradient-to-r from-blue-50 to-blue-100 p-4 rounded-lg shadow-sm border border-blue-200">
                         <p className="text-sm text-gray-700 font-medium mb-1">
                             Mois de paiement
+                            {dateFilter && (
+                                <span className="text-xs text-gray-500 ml-1">
+                                    ({dateFilter})
+                                </span>
+                            )}
                         </p>
                         <p className="text-2xl font-bold text-blue-800">
-                            {totalInvoices}
+                            {filteredInvoices.length}
                         </p>
                     </div>
                     <div className="bg-gradient-to-r from-green-50 to-green-100 p-4 rounded-lg shadow-sm border border-green-200">
                         <p className="text-sm text-gray-700 font-medium mb-1">
                             Gains totaux
+                            {dateFilter && (
+                                <span className="text-xs text-gray-500 ml-1">
+                                    ({dateFilter})
+                                </span>
+                            )}
                         </p>
                         <p className="text-2xl font-bold text-green-800">
                             {totalAmount.toFixed(1)} DH
@@ -562,6 +613,11 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                     <div className="bg-gradient-to-r from-purple-50 to-purple-100 p-4 rounded-lg shadow-sm border border-purple-200">
                         <p className="text-sm text-gray-700 font-medium mb-1">
                             Meilleure offre
+                            {dateFilter && (
+                                <span className="text-xs text-gray-500 ml-1">
+                                    ({dateFilter})
+                                </span>
+                            )}
                         </p>
                         <p className="text-xl font-bold text-purple-800">
                             {bestOffer.name}
@@ -573,12 +629,45 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                     <div className="bg-gradient-to-r from-orange-50 to-orange-100 p-4 rounded-lg shadow-sm border border-orange-200">
                         <p className="text-sm text-gray-700 font-medium mb-1">
                             Adhésions supprimées
+                            {dateFilter && (
+                                <span className="text-xs text-gray-500 ml-1">
+                                    ({dateFilter})
+                                </span>
+                            )}
                         </p>
                         <p className="text-2xl font-bold text-orange-800">
-                            {safeInvoices.filter(inv => inv.membership_deleted).length}
+                            {safeInvoices.filter(inv => 
+                                inv.membership_deleted && 
+                                (dateFilter === "" || inv.billDate?.startsWith(dateFilter))
+                            ).length}
                         </p>
                         <p className="text-sm text-orange-700">
-                            sur {safeInvoices.length} total
+                            sur {safeInvoices.filter(inv => 
+                                dateFilter === "" || inv.billDate?.startsWith(dateFilter)
+                            ).length} total
+                        </p>
+                    </div>
+                    <div className="bg-gradient-to-r from-yellow-50 to-yellow-100 p-4 rounded-lg shadow-sm border border-yellow-200">
+                        <p className="text-sm text-gray-700 font-medium mb-1">
+                            Mois en attente
+                            {dateFilter && (
+                                <span className="text-xs text-gray-500 ml-1">
+                                    ({dateFilter})
+                                </span>
+                            )}
+                        </p>
+                        <p className="text-2xl font-bold text-yellow-800">
+                            {safeInvoices.filter(inv => 
+                                !inv.is_month_paid && 
+                                !inv.membership_deleted && 
+                                (dateFilter === "" || inv.billDate?.startsWith(dateFilter))
+                            ).length}
+                        </p>
+                        <p className="text-sm text-yellow-700">
+                            sur {safeInvoices.filter(inv => 
+                                !inv.membership_deleted && 
+                                (dateFilter === "" || inv.billDate?.startsWith(dateFilter))
+                            ).length} actifs
                         </p>
                     </div>
                 </div>
@@ -613,25 +702,66 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                     <Table
                         columns={columns}
                         renderRow={renderRow}
-                        data={filteredInvoices}
+                        data={paginatedInvoices}
                     />
                 </div>
             )}
 
-            {/* Pagination */}
-            {invoiceslinks && invoiceslinks.length > 3 && (
+            {/* Frontend Pagination */}
+            {filteredInvoices.length > itemsPerPage && (
                 <div className="mt-6">
-                    <Pagination
-                        links={invoiceslinks}
-                        filters={paginationFilters}
-                    />
-                </div>
-            )}
-            
-            {/* Show pagination info */}
-            {invoiceslinks && invoiceslinks.length > 3 && (
-                <div className="mt-4 text-center text-sm text-gray-600">
-                    Affichage de {((parseInt(invoiceslinks[0]?.label || 1) - 1) * 10) + 1} à {Math.min(parseInt(invoiceslinks[0]?.label || 1) * 10, filteredInvoices.length)} sur {invoiceslinks[0]?.label ? 'plusieurs' : filteredInvoices.length} résultats
+                    <div className="flex items-center justify-between">
+                        <div className="text-sm text-gray-700">
+                            Affichage de {startItem} à {endItem} sur {filteredInvoices.length} résultats
+                        </div>
+                        <div className="flex items-center space-x-2">
+                            <button
+                                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                                disabled={currentPage === 1}
+                                className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Précédent
+                            </button>
+                            
+                            {/* Page numbers */}
+                            <div className="flex items-center space-x-1">
+                                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                                    let pageNum;
+                                    if (totalPages <= 5) {
+                                        pageNum = i + 1;
+                                    } else if (currentPage <= 3) {
+                                        pageNum = i + 1;
+                                    } else if (currentPage >= totalPages - 2) {
+                                        pageNum = totalPages - 4 + i;
+                                    } else {
+                                        pageNum = currentPage - 2 + i;
+                                    }
+                                    
+                                    return (
+                                        <button
+                                            key={pageNum}
+                                            onClick={() => setCurrentPage(pageNum)}
+                                            className={`px-3 py-2 text-sm font-medium rounded-md ${
+                                                currentPage === pageNum
+                                                    ? 'bg-blue-600 text-white'
+                                                    : 'text-gray-700 bg-white border border-gray-300 hover:bg-gray-50'
+                                            }`}
+                                        >
+                                            {pageNum}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            
+                            <button
+                                onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                                disabled={currentPage === totalPages}
+                                className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Suivant
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>
