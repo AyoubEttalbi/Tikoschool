@@ -641,19 +641,19 @@ class AssistantController extends Controller
                  
                  Log::info('Total expiring memberships count', ['count' => $totalExpiringMemberships]);
                  
-                 $expiringMemberships = $expiringMemberships->map(function($membership) use ($today) {
-                     $endDate = Carbon::parse($membership->end_date);
-                     $daysLeft = $today->diffInDays($endDate, false);
-                     
-                     return [
-                         'id' => $membership->id,
-                         'student_id' => $membership->student ? $membership->student->id : null,
-                         'student_name' => $membership->student ? $membership->student->firstName . ' ' . $membership->student->lastName : 'Unknown',
-                         'start_date' => $membership->start_date,
-                         'end_date' => $membership->end_date,
-                         'days_left' => max(0, $daysLeft)
-                     ];
-                 });
+                                 $expiringMemberships = $expiringMemberships->map(function($membership) use ($today) {
+                    $endDate = Carbon::parse($membership->end_date);
+                    $daysLeft = $today->diffInDays($endDate, false);
+                    
+                    return [
+                        'id' => $membership->id,
+                        'student_id' => $membership->student ? $membership->student->id : null,
+                        'student_name' => $membership->student ? $membership->student->firstName . ' ' . $membership->student->lastName : 'Unknown',
+                        'start_date' => $membership->start_date,
+                        'end_date' => $membership->end_date,
+                        'days_left' => max(0, round($daysLeft))
+                    ];
+                });
                          } catch (\Exception $e) {
                 Log::error('Error fetching expiring memberships: ' . $e->getMessage(), [
                      'trace' => $e->getTraceAsString(),

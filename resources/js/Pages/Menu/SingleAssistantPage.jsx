@@ -439,12 +439,12 @@ const SingleAssistantPage = ({
                                         {
                                             header: "Date de facture",
                                             accessor: (item) =>
-                                                formatDate(item.bill_date),
+                                                formatDate(item.billDate),
                                         },
                                         {
                                             header: "Total",
                                             accessor: (item) =>
-                                                `${item.total_amount} DH`,
+                                                `${item.totalAmount} DH`,
                                         },
                                         {
                                             header: "Restant",
@@ -525,7 +525,7 @@ const SingleAssistantPage = ({
                                             header: "Actions",
                                             accessor: (item) => (
                                                 <Link
-                                                    href={`/memberships/${item.id}`}
+                                                    href={`/students/${item.student_id}`}
                                                     className="text-blue-600 hover:text-blue-800"
                                                 >
                                                     <Eye className="w-4 h-4" />

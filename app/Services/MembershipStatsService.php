@@ -113,13 +113,13 @@ class MembershipStatsService
             }
         }
         
-        // Calculate unpaid (includes expired and pending)
-        $unpaidCount = $expiredCount + $pendingCount;
+        // Calculate total unpaid (includes expired, pending, and unpaid)
+        $totalUnpaidCount = $unpaidCount + $expiredCount + $pendingCount;
         
         $result = [
             'total_memberships' => $totalMemberships,
             'paid_count' => $paidCount,
-            'unpaid_count' => $unpaidCount,
+            'unpaid_count' => $totalUnpaidCount,
             'expired_count' => $expiredCount,
             'pending_count' => $pendingCount,
         ];
