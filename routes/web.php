@@ -87,7 +87,6 @@ Route::middleware('auth')->group(function () {
     // Methods that need authentication but aren't specific to admin
     Route::resources([
         'students' => StudentsController::class,
-        'teachers' => TeacherController::class,
         'classes' => ClassesController::class,
         'invoices' => InvoiceController::class,
         'memberships' => MembershipController::class,
@@ -108,12 +107,21 @@ Route::middleware('auth')->group(function () {
 
     // Resource routes specific to admin users (create, edit, store, update, destroy)
     Route::middleware(AdminMiddleware::class)->group(function () {
+        // Classes routes
         Route::post('/classes', [ClassesController::class, 'store'])->name('classes.store');
         Route::get('/classes/create', [ClassesController::class, 'create'])->name('classes.create');
         Route::get('/classes/{class}/edit', [ClassesController::class, 'edit'])->name('classes.edit');
         Route::put('/classes/{class}', [ClassesController::class, 'update'])->name('classes.update');
         Route::patch('/classes/{class}', [ClassesController::class, 'update']);
         Route::delete('/classes/{class}', [ClassesController::class, 'destroy'])->name('classes.destroy');
+        
+        // Teachers routes
+        Route::get('/teachers/create', [TeacherController::class, 'create'])->name('teachers.create');
+        Route::post('/teachers', [TeacherController::class, 'store'])->name('teachers.store');
+        Route::get('/teachers/{teacher}/edit', [TeacherController::class, 'edit'])->name('teachers.edit');
+        Route::put('/teachers/{teacher}', [TeacherController::class, 'update'])->name('teachers.update');
+        Route::patch('/teachers/{teacher}', [TeacherController::class, 'update']);
+        Route::delete('/teachers/{teacher}', [TeacherController::class, 'destroy'])->name('teachers.destroy');
     });
 
     // Invoice specific routes
