@@ -158,12 +158,15 @@ class InvoiceController extends Controller
             $paymentService = new \App\Services\TeacherMembershipPaymentService();
             $paymentService->processInvoicePayment($invoice, $validated);
 
-            // Always update start_date. Only update end_date if new endDate > old end_date (or if end_date is null)
+            // Always update start_date. Update end_date based on actual paid period
             $updateData = [
                 'start_date' => $validated['billDate'],
                 'payment_status' => ($validated['amountPaid'] >= $validated['totalAmount']) ? 'paid' : 'pending',
                 'is_active' => ($validated['amountPaid'] >= $validated['totalAmount']),
             ];
+            
+            // Update end_date: use invoice end_date if it's more recent than current membership end_date
+            // This ensures the membership reflects the actual paid period
             if (empty($membership->end_date) || (isset($validated['endDate']) && $validated['endDate'] > $membership->end_date)) {
                 $updateData['end_date'] = $validated['endDate'];
             }
@@ -434,12 +437,15 @@ class InvoiceController extends Controller
             $paymentService->processInvoicePayment($invoice, $validated);
             // --- END TEACHER MEMBERSHIP PAYMENT LOGIC ---
 
-            // Always update start_date. Only update end_date if new endDate > old end_date (or if end_date is null)
+            // Always update start_date. Update end_date based on actual paid period
             $updateData = [
                 'start_date' => $validated['billDate'],
                 'payment_status' => (round((float)($validated['amountPaid']), 2) >= round((float)($validated['totalAmount']), 2)) ? 'paid' : 'pending',
                 'is_active' => (round((float)($validated['amountPaid']), 2) >= round((float)($validated['totalAmount']), 2)),
             ];
+            
+            // Update end_date: use invoice end_date if it's more recent than current membership end_date
+            // This ensures the membership reflects the actual paid period
             if (empty($membership->end_date) || (isset($validated['endDate']) && Carbon::parse($validated['endDate']) > Carbon::parse($membership->end_date))) {
                 $updateData['end_date'] = $validated['endDate'];
             }
@@ -468,9 +474,22 @@ class InvoiceController extends Controller
             // --- NEW LOGIC: Update membership and reverse teacher payments ---
             $membership = $invoice->membership;
             if ($membership) {
-                // Update membership status
-                $membership->payment_status = 'expired';
-                $membership->is_active = 0;
+                // Find the latest active invoice for this membership (excluding the one being deleted)
+                $latestActiveInvoice = Invoice::where('membership_id', $membership->id)
+                    ->where('id', '!=', $invoice->id)
+                    ->orderBy('endDate', 'desc')
+                    ->first();
+
+                if ($latestActiveInvoice) {
+                    // Update membership based on the latest active invoice
+                    $membership->end_date = $latestActiveInvoice->endDate;
+                    $membership->payment_status = 'paid';
+                    $membership->is_active = true;
+                } else {
+                    // No other active invoices, set to expired
+                    $membership->payment_status = 'expired';
+                    $membership->is_active = false;
+                }
                 $membership->save();
 
                 // Reverse teacher payments using the new service

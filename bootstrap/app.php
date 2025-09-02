@@ -32,6 +32,9 @@ return Application::configure(basePath: dirname(__DIR__))
          // Schedule teacher monthly payments to run on the 1st of each month at 2 AM
          $schedule->command('teachers:process-monthly-payments')->monthlyOn(1, '02:00');
         
+        // Weekly monitoring: Fix any membership inconsistencies every Sunday at 2 AM
+        $schedule->command('memberships:fix-end-dates')->weekly()->sundays()->at('02:00');
+        
         // Clean up old stats monthly on the 1st at 3 AM
         $schedule->call(function () {
             $service = new \App\Services\MembershipStatsService();
