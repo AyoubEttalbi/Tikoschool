@@ -5,6 +5,7 @@ import AttendanceModal from "@/Pages/Attendance/AttendanceModal";
 import { useState } from "react";
 import { Edit } from "lucide-react";
 import { router } from '@inertiajs/react';
+import WhatsAppButton from './WhatsAppButton';
 
 const AbsenceLogTableForStudent = ({ absences, studentId, studentClassId }) => {
     const [showUpdateModal, setShowUpdateModal] = useState(false);
@@ -117,12 +118,11 @@ const AbsenceLogTableForStudent = ({ absences, studentId, studentClassId }) => {
                                     {absence.reason || "---"}
                                 </td>
                                 <td className="p-3 text-sm text-gray-900">
-                                    <button
-                                        className="btn btn-green"
-                                        onClick={() => router.post(route('absence.notify', absence.student_id))}
-                                    >
-                                        Envoyer WhatsApp
-                                    </button>
+                                    <WhatsAppButton 
+                                        studentId={absence.student_id}
+                                        studentName="Élève"
+                                        className="text-xs px-3 py-1.5"
+                                    />
                                 </td>
                             </tr>
                         ))}

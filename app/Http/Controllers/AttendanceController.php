@@ -417,7 +417,97 @@ class AttendanceController extends Controller
                     $student = Student::find($studentId);
                     if ($student && !empty($student->guardianNumber)) {
                         $studentName = trim($student->firstName . ' ' . $student->lastName);
-                        $message = "Bonjour, votre enfant {$studentName} est absent aujourd'hui.";
+                        $subject = $subjectName ?: 'غير محدد';
+                        $date = Carbon::parse($validated['date'])->locale('ar')->isoFormat('dddd، D MMMM YYYY');
+                        
+                        // Get teacher information
+                        $teacher = Teacher::find($teacherIdForRecord);
+                        $teacherName = $teacher ? $teacher->first_name . ' ' . $teacher->last_name : 'غير محدد';
+                        
+                        // Get class information
+                        $class = Classes::find($validated['class_id']);
+                        $className = $class ? $class->name : 'غير محدد';
+                        
+                        // Get school information
+                        $school = $student->school;
+                        $schoolName = 'Tiko School'; // Always use Tiko School as general name
+                        $schoolPhone = $school ? $school->phone_number : '05XX-XXX-XXX';
+                        $schoolEmail = $school ? $school->email : 'info@tikschool.com';
+                        
+                        // Get attendance statistics for current school year (August to August)
+                        $currentYear = now()->year;
+                        $schoolYearStart = Carbon::create($currentYear, 8, 1); // August 1st
+                        $schoolYearEnd = Carbon::create($currentYear + 1, 7, 31); // July 31st next year
+                        
+                        // If we're before August, use previous school year
+                        if (now()->month < 8) {
+                            $schoolYearStart = Carbon::create($currentYear - 1, 8, 1);
+                            $schoolYearEnd = Carbon::create($currentYear, 7, 31);
+                        }
+                        
+                        // Count attendance records for the school year
+                        $absentCount = $student->attendances()
+                            ->whereBetween('date', [$schoolYearStart, $schoolYearEnd])
+                            ->where('status', 'absent')
+                            ->count();
+                        $lateCount = $student->attendances()
+                            ->whereBetween('date', [$schoolYearStart, $schoolYearEnd])
+                            ->where('status', 'late')
+                            ->count();
+                        
+                        // Calculate total days from school year start to today (or end of school year)
+                        $endDate = now() > $schoolYearEnd ? $schoolYearEnd : now();
+                        $totalDays = $schoolYearStart->diffInDays($endDate) + 1;
+                        
+                        // Calculate attendance rate: (total days - absent - late) / total days * 100
+                        $presentDays = $totalDays - $absentCount - $lateCount;
+                        $attendanceRate = $totalDays > 0 ? round(($presentDays / $totalDays) * 100) : 100;
+                        
+                        // Ensure attendance rate is not negative
+                        $attendanceRate = max(0, $attendanceRate);
+                        
+                        // Determine gender-based pronouns
+                        $genderPronoun = 'ابنكم'; // Default to male
+                        $verb = 'تغيب';
+                        
+                        // You can add logic here to determine gender if you have a gender field
+                        // For now, we'll use a simple approach or you can modify based on your needs
+                        
+                        // NEW ENHANCED PROFESSIONAL MESSAGE WITH IMPROVED UX
+                        $message = "🏫 *{$schoolName}*  
+                        ───────────────────────────────  
+                        
+                        ✨ السلام عليكم ورحمة الله وبركاته ✨  
+                        
+                        📢 *تنبيه غياب طالب*  
+                        
+                        نود إبلاغكم أن {$genderPronoun} *{$studentName}*  
+                        قد {$verb} عن حصة مادة *{$subject}*  
+                        📅 بتاريخ: *{$date}*  
+                        🏫 بمركز *{$schoolName}*  
+                        
+                        ━━━━━━━━━━━━━━━━━━━━━━  
+                        👨‍🏫 *الأستاذ:* {$teacherName}  
+                        🏷️ *القسم / الفصل:* {$className}  
+                        📊 *نسبة الحضور لهذا العام:* {$attendanceRate}%  
+                        ━━━━━━━━━━━━━━━━━━━━━━  
+                        
+                        📞 *للاستفسار والتواصل:*  
+                        📱 {$schoolPhone}  
+                        📧 {$schoolEmail}  
+                        🕐 *ساعات العمل:* 8:00 - 17:00  
+                        
+                        🙏 نرجو منكم التفضل بالتواصل معنا لتوضيح سبب الغياب،  
+                        حتى نتمكن من متابعة مستواه وضمان استفادته الكاملة من الدروس.  
+                        
+                        🌷 شكراً لتعاونكم  
+                        *إدارة {$schoolName}*";
+                                                
+                        // OLD SIMPLE MESSAGE (COMMENTED FOR EASY ROLLBACK)
+                        /*
+                        $message = "السلام عليكم ورحمة الله وبركاته،\n\nنخبركم أن {$genderPronoun} {$studentName} قد {$verb} عن حصة {$subject} التي جرت يوم {$date} بمركز Tiko School.\n\nنرجو منكم التفضل بالتواصل معنا لتوضيح سبب الغياب، حتى نتمكن من متابعة مستواه وضمان استفادته الكاملة من الدروس.\n\nشكراً لتعاونكم 🌷\nإدارة Tiko school";
+                        */
+                        
                         // Queue job on dedicated WhatsApp queue
                         $job = (new SendWhatsAppNotification(
                             $student->guardianNumber,
@@ -769,7 +859,7 @@ class AttendanceController extends Controller
         ]);
     }
 
-    public function notifyParent($studentId)
+    public function notifyParent($studentId, Request $request = null)
     {
         $student = Student::findOrFail($studentId);
         // Use guardianNumber as the parent's phone number
@@ -778,7 +868,90 @@ class AttendanceController extends Controller
             return back()->with('error', "Le numéro de téléphone du tuteur n'est pas renseigné.");
         }
         $studentName = trim($student->firstName . ' ' . $student->lastName);
-        WasenderApi::sendText($fatherPhone, "Bonjour, votre enfant {$studentName} est absent aujourd’hui.");
+        $date = now()->locale('ar')->isoFormat('dddd، D MMMM YYYY');
+        
+        // Get subject from request or try to find it from today's attendance
+        $subject = 'غير محدد'; // Default subject
+        $teacherName = 'غير محدد';
+        $className = 'غير محدد';
+        
+        if ($request && $request->has('subject')) {
+            $subject = $request->input('subject');
+        } else {
+            // Try to find the subject from today's attendance record
+            $todayAttendance = Attendance::where('student_id', $studentId)
+                ->whereDate('date', now()->toDateString())
+                ->where('status', 'absent')
+                ->with(['teacher', 'class'])
+                ->first();
+            
+            if ($todayAttendance) {
+                if (!empty($todayAttendance->subject)) {
+                    $subject = $todayAttendance->subject;
+                }
+                if ($todayAttendance->teacher) {
+                    $teacherName = $todayAttendance->teacher->first_name . ' ' . $todayAttendance->teacher->last_name;
+                }
+                if ($todayAttendance->class) {
+                    $className = $todayAttendance->class->name;
+                }
+            }
+        }
+        
+        // Get school information
+        $school = $student->school;
+        $schoolName = 'Tiko School'; // Always use Tiko School as general name
+        $schoolPhone = $school ? $school->phone_number : '05XX-XXX-XXX';
+        $schoolEmail = $school ? $school->email : 'info@tikschool.com';
+        
+        // Get attendance statistics for current school year (August to August)
+        $currentYear = now()->year;
+        $schoolYearStart = Carbon::create($currentYear, 8, 1); // August 1st
+        $schoolYearEnd = Carbon::create($currentYear + 1, 7, 31); // July 31st next year
+        
+        // If we're before August, use previous school year
+        if (now()->month < 8) {
+            $schoolYearStart = Carbon::create($currentYear - 1, 8, 1);
+            $schoolYearEnd = Carbon::create($currentYear, 7, 31);
+        }
+        
+        // Count attendance records for the school year
+        $absentCount = $student->attendances()
+            ->whereBetween('date', [$schoolYearStart, $schoolYearEnd])
+            ->where('status', 'absent')
+            ->count();
+        $lateCount = $student->attendances()
+            ->whereBetween('date', [$schoolYearStart, $schoolYearEnd])
+            ->where('status', 'late')
+            ->count();
+        
+        // Calculate total days from school year start to today (or end of school year)
+        $endDate = now() > $schoolYearEnd ? $schoolYearEnd : now();
+        $totalDays = $schoolYearStart->diffInDays($endDate) + 1;
+        
+        // Calculate attendance rate: (total days - absent - late) / total days * 100
+        $presentDays = $totalDays - $absentCount - $lateCount;
+        $attendanceRate = $totalDays > 0 ? round(($presentDays / $totalDays) * 100) : 100;
+        
+        // Ensure attendance rate is not negative
+        $attendanceRate = max(0, $attendanceRate);
+        
+        // Determine gender-based pronouns
+        $genderPronoun = 'ابنكم'; // Default to male
+        $verb = 'تغيب';
+        
+        // You can add logic here to determine gender if you have a gender field
+        // For now, we'll use a simple approach or you can modify based on your needs
+        
+        // NEW ENHANCED PROFESSIONAL MESSAGE WITH IMPROVED UX
+        $message = "🏫 *{$schoolName}* 🌟\n\nالسلام عليكم ورحمة الله وبركاته،\n\n📋 *تنبيه غياب الطالب*\nنخبركم أن {$genderPronoun} *{$studentName}* قد {$verb} عن حصة *{$subject}* التي جرت يوم *{$date}* بمركز {$schoolName}.\n\n👨‍🏫 *المعلم:* {$teacherName}\n📅 *الفصل:* {$className}\n📊 *معدل الحضور لهذا العام:* {$attendanceRate}%\n\n📞 *للاستفسار والتواصل:*\n📱 {$schoolPhone}\n📧 {$schoolEmail}\n🕐 *ساعات العمل:* 8:00 - 17:00\n\nنرجو منكم التفضل بالتواصل معنا لتوضيح سبب الغياب، حتى نتمكن من متابعة مستواه وضمان استفادته الكاملة من الدروس.\n\nشكراً لتعاونكم 🌷\n*إدارة {$schoolName}*";
+        
+        // OLD SIMPLE MESSAGE (COMMENTED FOR EASY ROLLBACK)
+        /*
+        $message = "السلام عليكم ورحمة الله وبركاته،\n\nنخبركم أن {$genderPronoun} {$studentName} قد {$verb} عن حصة {$subject} التي جرت يوم {$date} بمركز Tiko School.\n\nنرجو منكم التفضل بالتواصل معنا لتوضيح سبب الغياب، حتى نتمكن من متابعة مستواه وضمان استفادته الكاملة من الدروس.\n\nشكراً لتعاونكم 🌷\nإدارة Tiko school";
+        */
+        
+        WasenderApi::sendText($fatherPhone, $message);
         return back()->with('success', 'WhatsApp message envoyé au parent.');
     }
 
