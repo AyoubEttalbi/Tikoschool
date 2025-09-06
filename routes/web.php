@@ -170,6 +170,7 @@ Route::middleware('auth')->group(function () {
     // Teachers, Students: accessible by admin, teacher, assistant
     // Assistants: index route is admin-only, but view route accessible by all authenticated users
     Route::get('/assistants/{assistant}', [AssistantController::class, 'show'])->name('assistants.show');
+    Route::get('/assistants/{assistant}/student-payments', [AssistantController::class, 'studentPayments'])->name('assistants.student-payments');
 
     // Announcements view all - accessible by all authenticated users
     Route::get('/ViewAllAnnouncements', [AnnouncementController::class, 'viewAllAnnouncements'])

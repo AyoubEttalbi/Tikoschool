@@ -138,7 +138,11 @@ class TeacherController extends Controller
               ->orWhere('last_name', 'LIKE', "%{$searchTerm}%")
               ->orWhere('phone_number', 'LIKE', "%{$searchTerm}%")
               ->orWhere('email', 'LIKE', "%{$searchTerm}%")
-              ->orWhere('address', 'LIKE', "%{$searchTerm}%");
+              ->orWhere('address', 'LIKE', "%{$searchTerm}%")
+              // Search by full name (first_name + last_name combined)
+              ->orWhereRaw("CONCAT(first_name, ' ', last_name) LIKE ?", ["%{$searchTerm}%"])
+              // Search by full name in reverse order (last_name + first_name)
+              ->orWhereRaw("CONCAT(last_name, ' ', first_name) LIKE ?", ["%{$searchTerm}%"]);
 
             // Search by related models through pivot tables
             $this->applyRelationshipSearch($q, $searchTerm);

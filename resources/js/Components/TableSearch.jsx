@@ -11,7 +11,7 @@ const TableSearch = ({ routeName, filters, value, onChange }) => {
     const today = new Date().toISOString().split("T")[0];
 
     const handleSearch = (e) => {
-        const value = e.target.value;
+        const value = e.target.value.trim(); // Trim leading/trailing spaces
         setSearchTerm(value);
         if (onChange) {
             onChange(value);

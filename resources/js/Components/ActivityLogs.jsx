@@ -12,6 +12,7 @@ import {
 
 const ActivityLogs = ({ logs = { data: [], links: [] } }) => {
     const [expandedLogs, setExpandedLogs] = useState({});
+    const [expanded, setExpanded] = useState(false);
 
     // Toggle visibility of log details
     const toggleLogDetails = (logId) => {
@@ -50,15 +51,26 @@ const ActivityLogs = ({ logs = { data: [], links: [] } }) => {
     return (
         <div className="bg-white p-6 rounded-lg shadow-sm">
             <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold text-gray-800">
-                    Journaux d'activité
-                </h2>
-                <span className="text-sm text-gray-500">
-                    {logs.data.length} activités
-                </span>
+                <div className="flex items-center">
+                    <Activity className="h-5 w-5 text-blue-600 mr-2" />
+                    <h2 className="text-xl font-semibold text-gray-800">
+                        Journaux d'activité
+                    </h2>
+                </div>
+                <div className="flex items-center gap-4">
+                    <span className="text-sm text-gray-500">
+                        {logs.data.length} activités
+                    </span>
+                    <button
+                        className="text-xs font-semibold text-blue-600 hover:underline px-2 py-1 rounded transition"
+                        onClick={() => setExpanded((prev) => !prev)}
+                    >
+                        {expanded ? 'Voir moins' : 'Voir plus'}
+                    </button>
+                </div>
             </div>
 
-            {logs.data && logs.data.length > 0 ? (
+            {expanded && logs.data && logs.data.length > 0 ? (
                 <div className="overflow-x-auto">
                     <table className="w-full">
                         <thead>
@@ -297,15 +309,15 @@ const ActivityLogs = ({ logs = { data: [], links: [] } }) => {
                         </tbody>
                     </table>
                 </div>
-            ) : (
+            ) : expanded ? (
                 <div className="text-center py-8">
                     <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-100 mb-4">
                         <Activity className="w-8 h-8 text-gray-400" />
                     </div>
                     <p className="text-gray-500">Aucun journal d'activité trouvé.</p>
                 </div>
-            )}
-            {logs.links && logs.links.length > 0 && (
+            ) : null}
+            {expanded && logs.links && logs.links.length > 0 && (
                 <div className="mt-6">
                     <Pagination links={logs.links} />
                 </div>

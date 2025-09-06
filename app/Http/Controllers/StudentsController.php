@@ -216,7 +216,11 @@ protected function applySearchFilter($query, $searchTerm)
           ->orWhere('email', 'LIKE', "%{$searchTerm}%")
           ->orWhere('address', 'LIKE', "%{$searchTerm}%")
           ->orWhere('guardianNumber', 'LIKE', "%{$searchTerm}%")
-          ->orWhere('guardianName', 'LIKE', "%{$searchTerm}%");
+          ->orWhere('guardianName', 'LIKE', "%{$searchTerm}%")
+          // Search by full name (firstName + lastName combined)
+          ->orWhereRaw("CONCAT(firstName, ' ', lastName) LIKE ?", ["%{$searchTerm}%"])
+          // Search by full name in reverse order (lastName + firstName)
+          ->orWhereRaw("CONCAT(lastName, ' ', firstName) LIKE ?", ["%{$searchTerm}%"]);
 
         // Search by class, school, and level names
         $this->applyRelationshipSearch($q, $searchTerm);

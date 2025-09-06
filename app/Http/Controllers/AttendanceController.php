@@ -95,19 +95,22 @@ class AttendanceController extends Controller
             Log::debug('No class ID provided, returning empty student collection');
         }
 
+        // Merge students with attendance status and class info
+        $currentTeacherId = $request->user()->role === 'teacher' ? $request->user()->teacher->id ?? null : ($request->input('teacher_id') ?? null);
+
         // Get existing attendance for selected date and class
         $existingAttendances = $classId
             ? Attendance::with('class')
                 ->where('classId', $classId)
                 ->whereDate('date', $date)
+                ->when($currentTeacherId, function($query) use ($currentTeacherId) {
+                    return $query->where('teacher_id', $currentTeacherId);
+                })
                 ->get()
                 ->groupBy(function($att) {
                     return $att->student_id . '|' . $att->teacher_id . '|' . $att->subject;
                 })
             : collect();
-
-        // Merge students with attendance status and class info
-        $currentTeacherId = $request->user()->role === 'teacher' ? $request->user()->teacher->id ?? null : ($request->input('teacher_id') ?? null);
 
         $selectedSubject = $request->input('subject');
 
@@ -166,11 +169,23 @@ class AttendanceController extends Controller
                 Log::info('Attendance lookup for student', [
                     'student_id' => $student->id,
                     'attendance_key' => $attendanceKey,
+                    'selected_subject' => $selectedSubject,
                 ]);
             }
-            // Only fetch attendance for this teacher and subject
-            $attendanceList = $existingAttendances[$attendanceKey] ?? collect();
-            $attendance = $attendanceList->first();
+            
+            // Try to find attendance for this specific teacher and subject
+            $attendance = null;
+            if ($selectedSubject) {
+                $attendanceList = $existingAttendances[$attendanceKey] ?? collect();
+                $attendance = $attendanceList->first();
+            } else {
+                // If no subject selected, find any attendance for this student/teacher combination
+                $attendance = $existingAttendances->filter(function($attendanceList) use ($student, $currentTeacherId) {
+                    return $attendanceList->first() && 
+                           $attendanceList->first()->student_id == $student->id && 
+                           $attendanceList->first()->teacher_id == $currentTeacherId;
+                })->first()?->first();
+            }
             $recordedByName = null;
             if ($attendance && $attendance->recorded_by) {
                 $user = \App\Models\User::find($attendance->recorded_by);
@@ -192,6 +207,19 @@ class AttendanceController extends Controller
                 }
             }
             $subjects = $subjects->unique()->values()->all();
+            
+            // Debug logging for attendance status
+            if (config('app.debug')) {
+                Log::info('Student attendance data', [
+                    'student_id' => $student->id,
+                    'student_name' => $student->firstName . ' ' . $student->lastName,
+                    'attendance_found' => (bool)$attendance,
+                    'attendance_status' => $attendance ? $attendance->status : 'none',
+                    'attendance_reason' => $attendance?->reason,
+                    'final_status' => $attendance ? $attendance->status : 'present',
+                ]);
+            }
+            
             return [
                 'id' => $attendance ? $attendance->id : null,
                 'student_id' => $student->id,

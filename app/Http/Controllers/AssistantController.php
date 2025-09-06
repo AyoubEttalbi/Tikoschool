@@ -138,7 +138,11 @@ class AssistantController extends Controller
                   ->orWhere('last_name', 'LIKE', "%{$searchTerm}%")
                   ->orWhere('phone_number', 'LIKE', "%{$searchTerm}%")
                   ->orWhere('email', 'LIKE', "%{$searchTerm}%")
-                  ->orWhere('address', 'LIKE', "%{$searchTerm}%");
+                  ->orWhere('address', 'LIKE', "%{$searchTerm}%")
+                  // Search by full name (first_name + last_name combined)
+                  ->orWhereRaw("CONCAT(first_name, ' ', last_name) LIKE ?", ["%{$searchTerm}%"])
+                  // Search by full name in reverse order (last_name + first_name)
+                  ->orWhereRaw("CONCAT(last_name, ' ', first_name) LIKE ?", ["%{$searchTerm}%"]);
 
                 // Search by school name
                 $q->orWhereHas('schools', function ($schoolQuery) use ($searchTerm) {
@@ -258,11 +262,11 @@ class AssistantController extends Controller
      * Display the specified resource.
      */
     
-     public function show($id)
+     public function show(Assistant $assistant)
      {
-         try {
-             // Get the assistant
-             $assistant = Assistant::with(['schools'])->findOrFail($id);
+        try {
+            // Load the assistant with schools relationship
+            $assistant->load(['schools']);
 
              // Get the assistant's user (for user_id in transactions)
              $assistantUser = User::where('email', $assistant->email)->first();
@@ -305,13 +309,13 @@ class AssistantController extends Controller
                  ? [$selectedSchoolId] 
                  : $assistant->schools->pluck('id')->toArray();
 
-             // Log assistant and school info
-             Log::info('Assistant dashboard data fetch started', [
-                 'assistant_id' => $id,
-                 'selected_school_id' => $selectedSchoolId,
-                 'assistant_schools' => $assistant->schools->pluck('id')->toArray(),
-                 'school_ids' => $schoolIds
-             ]);
+            // Log assistant and school info
+            Log::info('Assistant dashboard data fetch started', [
+                'assistant_id' => $assistant->id,
+                'selected_school_id' => $selectedSchoolId,
+                'assistant_schools' => $assistant->schools->pluck('id')->toArray(),
+                'school_ids' => $schoolIds
+            ]);
 
              // Get current date
              $today = Carbon::now();
@@ -329,33 +333,35 @@ class AssistantController extends Controller
              // Initialize logs with a default paginator structure
              $logs = new \Illuminate\Pagination\LengthAwarePaginator([], 0, 10);
 
-             // Get announcements if user exists
-             $announcements = [];
-             if ($user) {
-                 // Fetch the assistant's activity logs
-                 $logs = Activity::where('causer_type', User::class)
-                     ->where('causer_id', $selectedAssistant->id)
-                     ->latest()
-                     ->paginate(10);
+            // Get announcements if user exists
+            $announcements = [];
+            if ($selectedAssistant) {
+                // Fetch the assistant's activity logs
+                $logs = Activity::where('causer_type', User::class)
+                    ->where('causer_id', $selectedAssistant->id)
+                    ->latest()
+                    ->paginate(10);
 
-                 // Fetch announcements for the employee
-                 $now = Carbon::now();
-                 $announcements = Announcement::where(function($q) use ($now) {
-                     $q->where(function($subq) use ($now) {
-                         $subq->whereNull('date_start')
-                              ->orWhere('date_start', '<=', $now);
-                     })->where(function($subq) use ($now) {
-                         $subq->whereNull('date_end')
-                              ->orWhere('date_end', '>=', $now);
-                     });
-                 })
-                 ->where(function($q) use ($user) {
-                     $q->where('visibility', 'all')
-                       ->orWhere('visibility', $user->role);
-                 })
-                 ->orderBy('date_announcement', 'desc')
-                 ->limit(5)
-                 ->get();
+                // Fetch announcements for the employee
+                if ($user) {
+                    $now = Carbon::now();
+                    $announcements = Announcement::where(function($q) use ($now) {
+                        $q->where(function($subq) use ($now) {
+                            $subq->whereNull('date_start')
+                                 ->orWhere('date_start', '<=', $now);
+                        })->where(function($subq) use ($now) {
+                            $subq->whereNull('date_end')
+                                 ->orWhere('date_end', '>=', $now);
+                        });
+                    })
+                    ->where(function($q) use ($user) {
+                        $q->where('visibility', 'all')
+                          ->orWhere('visibility', $user->role);
+                    })
+                    ->orderBy('date_announcement', 'desc')
+                    ->limit(5)
+                    ->get();
+                }
              }
 
              // Get statistics
@@ -663,25 +669,28 @@ class AssistantController extends Controller
                  $totalExpiringMemberships = 0;
              }
              
-             // FEATURE 4: Recent payments
-             try {
-                 DB::enableQueryLog();
+            // FEATURE 4: Recent payments
+            $recentPaymentsData = [];
+            $recentPaymentsLinks = [];
+            $totalRecentPayments = 0;
+            
+            try {
+                DB::enableQueryLog();
                  Log::info('Fetching recent payments', [
                      'school_ids' => $schoolIds,
                      'today' => $today->format('Y-m-d'),
                      'thirty_days_ago' => $today->copy()->subDays(30)->format('Y-m-d')
                  ]);
                  
-                 $recentPayments = Invoice::with(['student', 'student.class', 'student.school', 'offer'])
-                     ->where(function($query) use ($schoolIds) {
-                         $query->whereHas('student', function($studentQuery) use ($schoolIds) {
-                             $studentQuery->whereIn('schoolId', $schoolIds);
-                         });
-                     })
-                     ->where('amountPaid', '>', 0)
-                     ->orderBy('creationDate', 'desc')
-                     ->limit(10)
-                     ->get();
+                $recentPayments = Invoice::with(['student', 'student.class', 'student.school', 'offer'])
+                    ->where(function($query) use ($schoolIds) {
+                        $query->whereHas('student', function($studentQuery) use ($schoolIds) {
+                            $studentQuery->whereIn('schoolId', $schoolIds);
+                        });
+                    })
+                    ->where('amountPaid', '>', 0)
+                    ->orderBy('creationDate', 'desc')
+                    ->paginate(10);
                  
                  // Log the executed query and results
                  Log::info('Recent payments query log', [
@@ -692,17 +701,11 @@ class AssistantController extends Controller
                  ]);
                  DB::disableQueryLog();
                  
-                 $totalRecentPayments = Invoice::where(function($query) use ($schoolIds) {
-                     $query->whereHas('student', function($studentQuery) use ($schoolIds) {
-                         $studentQuery->whereIn('schoolId', $schoolIds);
-                     });
-                 })
-                 ->where('amountPaid', '>', 0)
-                 ->count();
-                 
-                 Log::info('Total recent payments count', ['count' => $totalRecentPayments]);
-                 
-                 $recentPayments = $recentPayments->map(function($invoice) {
+                $totalRecentPayments = $recentPayments->total();
+                
+                Log::info('Total recent payments count', ['count' => $totalRecentPayments]);
+                
+                $recentPaymentsData = $recentPayments->map(function($invoice) {
                      $student = $invoice->student;
                      $offerName = $invoice->offer ? $invoice->offer->offer_name : 'N/A';
                      
@@ -721,8 +724,9 @@ class AssistantController extends Controller
                      'trace' => $e->getTraceAsString(),
                      'school_ids' => $schoolIds
                  ]);
-                 $recentPayments = [];
-                 $totalRecentPayments = 0;
+                $recentPaymentsData = [];
+                $recentPaymentsLinks = [];
+                $totalRecentPayments = 0;
              }
 
              // Log final data being sent to view
@@ -730,11 +734,11 @@ class AssistantController extends Controller
                  'recent_absences_count' => count($recentAbsences),
                  'unpaid_invoices_count' => count($unpaidInvoices),
                  'expiring_memberships_count' => count($expiringMemberships),
-                 'recent_payments_count' => count($recentPayments)
+                 'recent_payments_count' => count($recentPaymentsData)
              ]);
 
-             return Inertia::render('Menu/SingleAssistantPage', [
-                 'assistant' => $assistantUser ? array_merge($assistant->toArray(), ['user_id' => $assistantUser->id]) : $assistant,
+            return Inertia::render('Menu/SingleAssistantPage', [
+                'assistant' => $assistantUser ? array_merge($assistant->toArray(), ['user_id' => $assistantUser->id]) : array_merge($assistant->toArray(), ['user_id' => null]),
                  'transactions' => $transactions,
                  'announcements' => $announcements,
                  'classes' => $classes,
@@ -744,7 +748,8 @@ class AssistantController extends Controller
                  'recentAbsences' => $recentAbsences,
                  'unpaidInvoices' => $unpaidInvoices,
                  'expiringMemberships' => $expiringMemberships,
-                 'recentPayments' => $recentPayments,
+                 'recentPayments' => $recentPaymentsData,
+                'recentPaymentsLinks' => $recentPaymentsLinks,
                  'totalAbsences' => $totalAbsences,
                  'totalUnpaidInvoices' => $totalUnpaidInvoices,
                  'totalExpiringMemberships' => $totalExpiringMemberships,
@@ -754,12 +759,78 @@ class AssistantController extends Controller
              ]);
                  } catch (\Exception $e) {
             Log::error('Error in assistant dashboard: ' . $e->getMessage(), [
-                 'trace' => $e->getTraceAsString(),
-                 'assistant_id' => $id
-             ]);
+                'trace' => $e->getTraceAsString(),
+                'assistant_id' => $assistant->id
+            ]);
              return redirect()->back()->with('error', 'An error occurred while loading the assistant dashboard.');
          }
      }
+    /**
+     * Show all student payments visible to a specific assistant
+     */
+    public function studentPayments(Assistant $assistant)
+    {
+        try {
+            // Load the assistant with schools relationship
+            $assistant->load(['schools']);
+
+            // Get selected school from session or default to first school
+            $selectedSchoolId = session('school_id');
+            if (!$selectedSchoolId && $assistant->schools->isNotEmpty()) {
+                $selectedSchoolId = $assistant->schools->first()->id;
+            }
+
+            // Define schoolIds based on selected school or all assistant's schools
+            $schoolIds = $selectedSchoolId 
+                ? [$selectedSchoolId] 
+                : $assistant->schools->pluck('id')->toArray();
+
+            // Get paginated payments
+            $payments = Invoice::with(['student', 'student.class', 'student.school', 'offer'])
+                ->where(function($query) use ($schoolIds) {
+                    $query->whereHas('student', function($studentQuery) use ($schoolIds) {
+                        $studentQuery->whereIn('schoolId', $schoolIds);
+                    });
+                })
+                ->where('amountPaid', '>', 0)
+                ->orderBy('creationDate', 'desc')
+                ->paginate(20);
+
+            // Transform the data
+            $paymentsData = $payments->map(function($invoice) {
+                $student = $invoice->student;
+                $offerName = $invoice->offer ? $invoice->offer->offer_name : 'N/A';
+                
+                return [
+                    'id' => $invoice->id,
+                    'student_id' => $student ? $student->id : null,
+                    'student_name' => $student ? $student->firstName . ' ' . $student->lastName : 'Unknown',
+                    'payment_date' => $invoice->last_payment_date ? $invoice->last_payment_date->format('Y-m-d') : ($invoice->creationDate ? $invoice->creationDate->format('Y-m-d') : null),
+                    'amount' => is_numeric($invoice->amountPaid) ? floatval($invoice->amountPaid) : 0,
+                    'payment_method' => 'Cash',
+                    'offer_name' => $offerName
+                ];
+            });
+
+            return Inertia::render('Menu/StudentPaymentsPage', [
+                'assistant' => $assistant,
+                'studentPayments' => $paymentsData,
+                'paymentsLinks' => $payments->links(),
+                'totalPayments' => $payments->total(),
+                'selectedSchool' => $selectedSchoolId ? [
+                    'id' => $selectedSchoolId,
+                    'name' => session('school_name')
+                ] : null,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error in assistant payments: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+                'assistant_id' => $assistant->id
+            ]);
+            return redirect()->back()->with('error', 'An error occurred while loading the payments.');
+        }
+    }
+
     /**
      * Show the form for editing the specified resource.
      */

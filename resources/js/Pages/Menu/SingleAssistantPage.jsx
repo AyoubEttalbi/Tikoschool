@@ -33,6 +33,7 @@ const SingleAssistantPage = ({
     unpaidInvoices = [],
     expiringMemberships = [],
     recentPayments = [],
+    recentPaymentsLinks = [],
     totalAbsences = 0,
     totalUnpaidInvoices = 0,
     totalExpiringMemberships = 0,
@@ -605,16 +606,21 @@ const SingleAssistantPage = ({
                                     ]}
                                     emptyMessage="Aucun paiement récent trouvé"
                                 />
+                                {recentPaymentsLinks && recentPaymentsLinks.length > 0 && (
+                                    <div className="mt-4">
+                                        <Pagination links={recentPaymentsLinks} />
+                                    </div>
+                                )}
                                 {hasMoreItems(
                                     recentPayments,
                                     totalRecentPayments,
                                 ) && (
                                     <div className="mt-4 text-center">
                                         <Link
-                                            href={`/payments?filter=recent&school=${selectedSchool ? selectedSchool.id : ""}`}
+                                            href={`/assistants/${assistant.id}/student-payments`}
                                             className="flex items-center px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-800 justify-center"
                                         >
-                                            Voir tous les paiements récents ({totalRecentPayments})
+                                            Voir tous les paiements des étudiants ({totalRecentPayments})
                                             <ChevronRight className="ml-1 w-4 h-4" />
                                         </Link>
                                     </div>

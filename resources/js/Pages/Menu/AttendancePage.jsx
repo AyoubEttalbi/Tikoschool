@@ -112,6 +112,7 @@ const AttendancePage = ({
         }
         
         console.log('useEffect triggered with:', currentDeps);
+        console.log('filteredStudents data:', filteredStudents);
         
         // Update the ref with current values
         prevDeps.current = currentDeps;
@@ -119,14 +120,27 @@ const AttendancePage = ({
         if (filteredStudents?.length > 0) {
             // Always use the status/reason from the backend if present, otherwise default to 'present'
             const newAttendanceData = filteredStudents.map((student) => {
-                return {
+                const attendanceEntry = {
                     student_id: student.student_id || student.id,
-                    status: typeof student.status !== 'undefined' ? student.status : "present",
-                    reason: typeof student.reason !== 'undefined' ? student.reason : "",
+                    status: student.status || "present", // Use existing status from backend
+                    reason: student.reason || "",
                     date: student.date || memoizedFilters.date || new Date().toISOString().split("T")[0],
                     class_id: student.classId || memoizedFilters.class_id,
                     teacher_id: student.teacher_id || memoizedFilters.teacher_id,
                 };
+                
+                // Debug logging
+                if (process.env.NODE_ENV === 'development') {
+                    console.log('Creating attendance entry:', {
+                        studentId: attendanceEntry.student_id,
+                        studentName: `${student.firstName} ${student.lastName}`,
+                        originalStatus: student.status,
+                        finalStatus: attendanceEntry.status,
+                        reason: attendanceEntry.reason
+                    });
+                }
+                
+                return attendanceEntry;
             });
 
             setAttendanceData(newAttendanceData);
@@ -210,6 +224,7 @@ const AttendancePage = ({
                 // Use router.visit instead of window.location.href for better state management
                 router.visit(route("attendances.index", {
                     ...memoizedFilters,
+                    subject: selectedSubject,
                     date: formDate,
                     _timestamp: new Date().getTime(),
                 }), {
@@ -248,6 +263,18 @@ const AttendancePage = ({
     // Render row using students for display, attendanceData for status/reason
     const renderRow = (student) => {
         const att = getAttendanceEntry(student.student_id || student.id);
+        
+        // Debug logging to help troubleshoot status issues
+        if (process.env.NODE_ENV === 'development') {
+            console.log('Render row for student:', {
+                studentId: student.student_id || student.id,
+                studentName: `${student.firstName} ${student.lastName}`,
+                studentStatus: student.status,
+                attStatus: att.status,
+                attendanceDataLength: attendanceData.length
+            });
+        }
+        
         return (
             <tr
                 key={`${student.student_id || student.id}-${student.date || filters.date}`}

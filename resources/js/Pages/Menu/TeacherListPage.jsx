@@ -16,7 +16,8 @@ const TeacherListPage = ({
     schools,
     filters: initialFilters,
 }) => {
-    const role = usePage().props.auth.user.role;
+    const pageProps = usePage().props;
+    const role = pageProps.auth.user.role;
 
     const columns = [
         {
@@ -77,26 +78,169 @@ const TeacherListPage = ({
     });
 
     const [showFilters, setShowFilters] = useState(false);
+    const [isRestoring, setIsRestoring] = useState(false);
+    const [hasRestored, setHasRestored] = useState(false);
+    const [isPreservingPage, setIsPreservingPage] = useState(false);
+    
+    // Get current page from Inertia page props
+    const getCurrentPage = () => {
+        return pageProps.teachers?.current_page || 1;
+    };
+    
+    // Check for stored state or URL page parameter on component mount
+    useEffect(() => {
+        // First check for stored state from navigation
+        const storedState = sessionStorage.getItem('teacherListState');
+        if (storedState) {
+            try {
+                const parsedState = JSON.parse(storedState);
+                const maxPage = Math.ceil((teachers?.total || 0) / 10);
+                const validPage = Math.min(parsedState.page, maxPage);
+                
+                if (validPage > 0 && Date.now() - parsedState.timestamp < 300000) {
+                    setIsRestoring(true);
+                    setFilters(parsedState.filters);
+                    
+                    router.get(
+                        route("teachers.index"),
+                        { ...parsedState.filters, page: validPage },
+                        {
+                            preserveState: true,
+                            replace: true,
+                            preserveScroll: true,
+                            onSuccess: () => {
+                                setHasRestored(true);
+                                setTimeout(() => {
+                                    setIsRestoring(false);
+                                }, 1000);
+                            },
+                            onError: () => {
+                                setIsRestoring(false);
+                            }
+                        }
+                    );
+                    
+                    sessionStorage.removeItem('teacherListState');
+                }
+            } catch (error) {
+                sessionStorage.removeItem('teacherListState');
+            }
+        } else {
+            // No stored state, check if we need to preserve page from URL
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlPage = urlParams.get('page');
+            const currentPage = teachers?.current_page || 1;
+            
+            // If URL has a page parameter, ensure it's preserved
+            if (urlPage) {
+                setIsPreservingPage(true);
+                
+                // Get current filters from URL
+                const urlFilters = {
+                    school: urlParams.get('school') || '',
+                    class: urlParams.get('class') || '',
+                    subject: urlParams.get('subject') || '',
+                    status: urlParams.get('status') || '',
+                    search: (urlParams.get('search') || '').trim()
+                };
+                
+                // Update filters state to match URL
+                setFilters(urlFilters);
+                
+                // Build the full URL with all parameters
+                const params = new URLSearchParams();
+                Object.keys(urlFilters).forEach(key => {
+                    if (urlFilters[key] && urlFilters[key] !== 'all') {
+                        // Trim search value when building URL
+                        const value = key === 'search' ? urlFilters[key].trim() : urlFilters[key];
+                        if (value) {
+                            params.set(key, value);
+                        }
+                    }
+                });
+                params.set('page', urlPage);
+                
+                const queryString = params.toString();
+                const fullUrl = `/teachers${queryString ? `?${queryString}` : ''}`;
+                
+                // Navigate to ensure page state is preserved
+                router.visit(fullUrl, {
+                    preserveState: true,
+                    replace: true,
+                    preserveScroll: true,
+                    onSuccess: () => {
+                        // Reset the flag after a delay to prevent filter effect from overriding
+                        setTimeout(() => {
+                            setIsPreservingPage(false);
+                        }, 3000);
+                    },
+                    onError: () => {
+                        setIsPreservingPage(false);
+                    }
+                });
+            }
+        }
+    }, []);
 
     // Debounced function to apply filters
     useEffect(() => {
+        if (isRestoring || isPreservingPage) {
+            return; // Skip during restoration or page preservation
+        }
+        
+        // Skip if we just completed page preservation and we're on the correct page
+        // BUT only if we're in the initial state (no search, no active filters)
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlPage = urlParams.get('page');
+        const currentPage = teachers?.current_page || 1;
+        
+        // Check if we're in initial state (no search, no active filters)
+        const isInitialState = Object.values(filters).every(value => 
+            value === '' || value === 'all'
+        );
+        
+        if (urlPage && parseInt(urlPage) === currentPage && isInitialState) {
+            return; // Skip if page matches URL and in initial state
+        }
+        
+        // Skip if we just restored and filters haven't changed from initial state
+        if (hasRestored && isInitialState) {
+            return;
+        }
+        
         const timeoutId = setTimeout(() => {
+            // Trim search value before sending
+            const cleanFilters = {
+                ...filters,
+                search: filters.search ? filters.search.trim() : ''
+            };
+            
             router.get(
                 route("teachers.index"),
-                { ...filters },
+                cleanFilters,
                 { preserveState: true, replace: true, preserveScroll: true },
             );
         }, 300);
 
         return () => clearTimeout(timeoutId);
-    }, [filters]);
+    }, [filters, isRestoring, hasRestored, isPreservingPage]);
 
     // Handle filter changes
     const handleFilterChange = (e) => {
         const { name, value } = e.target;
-        const newFilters = { ...filters, [name]: value };
+
+        // Reset restoration and preservation flags when user manually changes filters
+        setHasRestored(false);
+        setIsPreservingPage(false);
+
+        // Trim search value if it's the search field
+        const cleanValue = name === 'search' ? value.trim() : value;
+
+        // Update the filters state
+        const newFilters = { ...filters, [name]: cleanValue };
         setFilters(newFilters);
 
+        // Use Inertia to navigate with the new filters while resetting to page 1
         router.get(
             route("teachers.index"),
             {
@@ -112,6 +256,10 @@ const TeacherListPage = ({
 
     // Clear filters and reset the page
     const clearFilters = () => {
+        // Reset restoration and preservation flags when user manually clears filters
+        setHasRestored(false);
+        setIsPreservingPage(false);
+        
         setFilters({
             school: "",
             class: "",
@@ -120,9 +268,10 @@ const TeacherListPage = ({
             search: "",
         });
 
+        // Navigate to the index route without any query parameters
         router.get(
             route("teachers.index"),
-            {},
+            {}, // No query parameters
             { preserveState: false, replace: true, preserveScroll: true },
         );
     };
@@ -131,17 +280,29 @@ const TeacherListPage = ({
     const toggleFilters = () => {
         setShowFilters(!showFilters);
     };
+    
+    // Navigate to teacher with preserved state
+    const navigateToTeacher = (teacherId) => {
+        const currentPage = getCurrentPage();
+        const currentState = {
+            page: currentPage,
+            filters: filters,
+            timestamp: Date.now()
+        };
+        sessionStorage.setItem('teacherListState', JSON.stringify(currentState));
+        router.visit(`/teachers/${teacherId}`);
+    };
 
     // Render table rows
     const renderRow = (item) => (
         <tr
             key={item.id}
-            className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
+            className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight cursor-pointer"
         >
             <td
-                className="flex items-center gap-4 p-4 cursor-pointer"
+                className="flex items-center gap-4 p-4"
                 onClick={() => {
-                    if (role === "admin") router.visit(`/teachers/${item.id}`);
+                    if (role === "admin") navigateToTeacher(item.id);
                 }}
             >
                 <img
@@ -183,11 +344,12 @@ const TeacherListPage = ({
             <td>
                 <div className="flex items-center gap-2">
                     {role === "admin" && (
-                        <Link href={`/teachers/${item.id}`}>
-                            <button className="w-7 h-7 flex items-center justify-center rounded-full bg-lamaSky">
-                                <Eye className="w-4 h-4 text-white" />
-                            </button>
-                        </Link>
+                        <button 
+                            onClick={() => navigateToTeacher(item.id)}
+                            className="w-7 h-7 flex items-center justify-center rounded-full bg-lamaSky"
+                        >
+                            <Eye className="w-4 h-4 text-white" />
+                        </button>
                     )}
                     {role === "admin" && (
                         <>
@@ -348,11 +510,11 @@ const TeacherListPage = ({
                 )}
                 data={sortedTeachers}
                 renderRow={renderRow}
-                filters={filters}
-                pagination={teachers.links}
+                emptyText="Aucun enseignant trouvé."
             />
-
+            
             {/* PAGINATION */}
+            <Pagination links={teachers.links} filters={filters} />
         </div>
     );
 };

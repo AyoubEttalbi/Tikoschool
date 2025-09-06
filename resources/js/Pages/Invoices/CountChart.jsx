@@ -12,8 +12,7 @@ const CountChart = ({ schoolId }) => {
         },
     } = usePage().props;
 
-    // Debug logging
-    console.log('CountChart props:', { membershipStats, schoolId });
+   
 
     const {
         paidCount,
