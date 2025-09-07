@@ -49,6 +49,7 @@ const MembershipForm = ({
             teachers: {},
         },
     });
+    const teachersWatch = watch("teachers");
 
     // Initialize form values when editing
     useEffect(() => {
@@ -63,10 +64,14 @@ const MembershipForm = ({
 
                 // Set initial values for teachers
                 const teachersObj = {};
-                data.teachers.forEach((teacher) => {
-                    teachersObj[teacher.subject] = {
-                        teacherId: teacher.teacherId,
-                    };
+                // Map teachers either by explicit subject or by index fallback
+                data.teachers.forEach((teacher, index) => {
+                    const subjectKey = teacher.subject || offer.subjects?.[index];
+                    if (subjectKey) {
+                        teachersObj[subjectKey] = {
+                            teacherId: String(teacher.teacherId ?? ""),
+                        };
+                    }
                 });
 
                 // Update form values
@@ -191,7 +196,7 @@ const MembershipForm = ({
                 <select
                     onChange={handleOfferChange}
                     className="w-full px-4 py-2 border rounded-md"
-                    defaultValue={data?.offer_id || ""}
+                    value={selectedOffer?.id || ""}
                 >
                     <option value="">Sélectionner une offre</option>
                     {offers.map((offer) => (
@@ -205,10 +210,13 @@ const MembershipForm = ({
             {/* Teacher Selection for Each Subject */}
             {selectedSubjects.length > 0 && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {selectedSubjects.map((subject) => {
-                        const defaultTeacher =
-                            data?.teachers?.find((t) => t.subject === subject)
-                                ?.teacherId || "";
+                    {selectedSubjects.map((subject, idx) => {
+                        const defaultTeacher = String(
+                            (
+                                data?.teachers?.find((t) => t.subject === subject)
+                                    ?.teacherId ?? data?.teachers?.[idx]?.teacherId ?? ""
+                            ),
+                        );
                         return (
                             <div
                                 key={subject}
@@ -225,14 +233,24 @@ const MembershipForm = ({
                                         `teachers.${subject}.teacherId`,
                                     )}
                                     className="w-full px-4 py-2 border rounded-md"
-                                    defaultValue={defaultTeacher}
+                                    value={
+                                        teachersWatch?.[subject]?.teacherId ??
+                                        defaultTeacher ??
+                                        ""
+                                    }
+                                    onChange={(e) =>
+                                        setValue(
+                                            `teachers.${subject}.teacherId`,
+                                            e.target.value,
+                                        )
+                                    }
                                 >
                                     <option value="">Sélectionner un enseignant</option>
                                     {getTeachersForSubject(subject).map(
                                         (teacher) => (
                                             <option
                                                 key={teacher.id}
-                                                value={teacher.id}
+                                                value={String(teacher.id)}
                                             >
                                                 {teacher.first_name}{" "}
                                                 {teacher.last_name}

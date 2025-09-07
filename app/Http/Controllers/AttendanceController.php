@@ -128,7 +128,8 @@ class AttendanceController extends Controller
         $filteredStudents = $students->filter(function ($student) use ($currentTeacherId) {
             if (!$currentTeacherId) return false;
             
-            $memberships = $student->memberships()->where('is_active', 1)->get();
+            // Include all memberships regardless of membership active status; rely on student status instead
+            $memberships = $student->memberships()->get();
             foreach ($memberships as $membership) {
                 $teacherArr = is_array($membership->teachers)
                     ? $membership->teachers

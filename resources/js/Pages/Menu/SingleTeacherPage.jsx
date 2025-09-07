@@ -87,7 +87,8 @@ const SingleTeacherPage = ({
                                 src={
                                     teacher.profile_image
                                         ? teacher.profile_image
-                                        : "https://images.pexels.com/photos/2888150/pexels-photo-2888150.jpeg?auto=compress&cs=tinysrgb&w=1200"
+                                        // : "https://images.pexels.com/photos/2888150/pexels-photo-2888150.jpeg?auto=compress&cs=tinysrgb&w=1200"
+                                        : "/teacherPrfile2.png"
                                 }
                                 alt={teacher.last_name}
                                 width={144}

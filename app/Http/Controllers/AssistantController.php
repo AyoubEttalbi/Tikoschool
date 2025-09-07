@@ -544,39 +544,41 @@ class AssistantController extends Controller
                      'seven_days_ago' => $today->copy()->subDays(7)->format('Y-m-d')
                  ]);
                  
-                 $unpaidInvoices = Invoice::with(['student', 'student.class', 'student.school', 'offer'])
+                 $unpaidInvoicesQuery = Invoice::with(['student', 'student.class', 'student.school', 'offer'])
                      ->where(function($query) use ($schoolIds) {
                          $query->whereHas('student', function($studentQuery) use ($schoolIds) {
                              $studentQuery->whereIn('schoolId', $schoolIds);
                          });
                      })
-                     ->where('rest', '>', 0)
-                     ->orderBy('billDate', 'asc')
-                     ->limit(10)
-                     ->get();
+                     ->whereNull('deleted_at')
+                     ->where('type', 'invoice')
+                     ->where(function($q) {
+                         $q->whereRaw('COALESCE(rest, 0) > 0')
+                           ->orWhereRaw('COALESCE(totalAmount, 0) > COALESCE(amountPaid, 0)');
+                     })
+                     ->orderBy('creationDate', 'desc')
+                     ->orderBy('billDate', 'desc');
+
+                 $unpaidInvoices = $unpaidInvoicesQuery->paginate(10);
                  
                  // Log the executed query and results
                  Log::info('Unpaid invoices query log', [
                      'queries' => DB::getQueryLog(),
                      'count' => $unpaidInvoices->count(),
-                     'first_record' => $unpaidInvoices->first() ? $unpaidInvoices->first()->toArray() : null,
-                     'all_records' => $unpaidInvoices->toArray()
+                     'first_record' => $unpaidInvoices->firstItem() ? $unpaidInvoices->items()[0] : null
                  ]);
                  DB::disableQueryLog();
                  
-                 $totalUnpaidInvoices = Invoice::where(function($query) use ($schoolIds) {
-                     $query->whereHas('student', function($studentQuery) use ($schoolIds) {
-                         $studentQuery->whereIn('schoolId', $schoolIds);
-                     });
-                 })
-                 ->where('rest', '>', 0)
-                 ->count();
+                 $totalUnpaidInvoices = $unpaidInvoices->total();
                  
                  Log::info('Total unpaid invoices count', ['count' => $totalUnpaidInvoices]);
                  
-                 $unpaidInvoices = $unpaidInvoices->map(function($invoice) {
+                 $unpaidInvoicesData = collect($unpaidInvoices->items())->map(function($invoice) {
                      $student = $invoice->student;
                      $offerName = $invoice->offer ? $invoice->offer->offer_name : 'N/A';
+                     $total = is_numeric($invoice->totalAmount) ? floatval($invoice->totalAmount) : 0.0;
+                     $paid = is_numeric($invoice->amountPaid) ? floatval($invoice->amountPaid) : 0.0;
+                     $computedRest = max(0.0, $total - $paid);
                      
                      return [
                          'id' => $invoice->id,
@@ -587,9 +589,9 @@ class AssistantController extends Controller
                          'billDate' => $invoice->billDate ? $invoice->billDate->format('Y-m-d') : null,
                          'creationDate' => $invoice->creationDate ? $invoice->creationDate->format('Y-m-d') : null,
                          'endDate' => $invoice->endDate ? $invoice->endDate->format('Y-m-d') : null,
-                         'totalAmount' => is_numeric($invoice->totalAmount) ? floatval($invoice->totalAmount) : 0,
-                         'amountPaid' => is_numeric($invoice->amountPaid) ? floatval($invoice->amountPaid) : 0,
-                         'rest' => is_numeric($invoice->rest) ? floatval($invoice->rest) : 0,
+                         'totalAmount' => $total,
+                         'amountPaid' => $paid,
+                         'rest' => $computedRest,
                          'months' => $invoice->months ?? 1,
                          'offer_name' => $offerName,
                          'offer_id' => $invoice->offer_id,
@@ -600,6 +602,7 @@ class AssistantController extends Controller
                          ]] : [],
                      ];
                  });
+                 $unpaidInvoicesLinks = $unpaidInvoices->linkCollection();
                          } catch (\Exception $e) {
                 Log::error('Error fetching unpaid invoices: ' . $e->getMessage(), [
                      'trace' => $e->getTraceAsString(),
@@ -614,52 +617,65 @@ class AssistantController extends Controller
                  DB::enableQueryLog();
                  Log::info('Fetching expiring memberships', ['school_ids' => $schoolIds]);
                  
-                 $expiringMemberships = Membership::with(['student'])
+                 $expiringMembershipsQuery = Membership::with(['student'])
                      ->whereNull('deleted_at')
+                     ->whereNotNull('end_date')
                      ->where(function($query) use ($schoolIds) {
                          $query->whereHas('student', function($studentQuery) use ($schoolIds) {
                              $studentQuery->whereIn('schoolId', $schoolIds);
                          });
                      })
-                     ->where('end_date', '>=', $today)
+                     // Include already expired and those expiring within next 30 days
                      ->where('end_date', '<=', $today->copy()->addDays(30))
-                     ->orderBy('end_date', 'asc')
-                     ->limit(10)
-                     ->get();
+                     // Logical ordering: expired first, then <= 3 days, then others by end_date
+                     ->orderByRaw(
+                         "CASE 
+                             WHEN end_date < ? THEN 0 
+                             WHEN end_date <= ? THEN 1 
+                             ELSE 2 
+                          END",
+                         [
+                             $today->toDateString(),
+                             $today->copy()->addDays(3)->toDateString()
+                         ]
+                     )
+                     ->orderBy('end_date', 'asc');
+
+                 $expiringMemberships = $expiringMembershipsQuery->paginate(10);
                  
                  // Log the executed query and results
                  Log::info('Expiring memberships query log', [
                      'queries' => DB::getQueryLog(),
                      'count' => $expiringMemberships->count(),
-                     'first_record' => $expiringMemberships->first() ? $expiringMemberships->first()->toArray() : null
+                     'first_record' => $expiringMemberships->firstItem() ? $expiringMemberships->items()[0] : null
                  ]);
                  DB::disableQueryLog();
                  
-                 $totalExpiringMemberships = Membership::whereNull('deleted_at')
-                     ->where(function($query) use ($schoolIds) {
-                         $query->whereHas('student', function($studentQuery) use ($schoolIds) {
-                             $studentQuery->whereIn('schoolId', $schoolIds);
-                         });
-                     })
-                     ->where('end_date', '>=', $today)
-                     ->where('end_date', '<=', $today->copy()->addDays(30))
-                     ->count();
+                 $totalExpiringMemberships = $expiringMemberships->total();
                  
                  Log::info('Total expiring memberships count', ['count' => $totalExpiringMemberships]);
                  
-                                 $expiringMemberships = $expiringMemberships->map(function($membership) use ($today) {
-                    $endDate = Carbon::parse($membership->end_date);
-                    $daysLeft = $today->diffInDays($endDate, false);
-                    
-                    return [
-                        'id' => $membership->id,
-                        'student_id' => $membership->student ? $membership->student->id : null,
-                        'student_name' => $membership->student ? $membership->student->firstName . ' ' . $membership->student->lastName : 'Unknown',
-                        'start_date' => $membership->start_date,
-                        'end_date' => $membership->end_date,
-                        'days_left' => max(0, round($daysLeft))
-                    ];
-                });
+                 $expiringMembershipsData = collect($expiringMemberships->items())->map(function($membership) use ($today) {
+                     $endDate = Carbon::parse($membership->end_date);
+                     $daysLeft = $today->diffInDays($endDate, false);
+                     $urgency = 'upcoming';
+                     if ($daysLeft < 0) {
+                         $urgency = 'expired';
+                     } elseif ($daysLeft <= 3) {
+                         $urgency = 'due_soon';
+                     }
+                     
+                     return [
+                         'id' => $membership->id,
+                         'student_id' => $membership->student ? $membership->student->id : null,
+                         'student_name' => $membership->student ? $membership->student->firstName . ' ' . $membership->student->lastName : 'Unknown',
+                         'start_date' => $membership->start_date,
+                         'end_date' => $membership->end_date,
+                         'days_left' => max(0, round($daysLeft)),
+                         'urgency' => $urgency
+                     ];
+                 });
+                 $expiringMembershipsLinks = $expiringMemberships->linkCollection();
                          } catch (\Exception $e) {
                 Log::error('Error fetching expiring memberships: ' . $e->getMessage(), [
                      'trace' => $e->getTraceAsString(),
@@ -732,8 +748,8 @@ class AssistantController extends Controller
              // Log final data being sent to view
              Log::info('Assistant dashboard data being sent to view', [
                  'recent_absences_count' => count($recentAbsences),
-                 'unpaid_invoices_count' => count($unpaidInvoices),
-                 'expiring_memberships_count' => count($expiringMemberships),
+                 'unpaid_invoices_count' => count($unpaidInvoicesData),
+                 'expiring_memberships_count' => count($expiringMembershipsData),
                  'recent_payments_count' => count($recentPaymentsData)
              ]);
 
@@ -746,8 +762,10 @@ class AssistantController extends Controller
                  'schools' => $schools,
                  'logs' => $logs,
                  'recentAbsences' => $recentAbsences,
-                 'unpaidInvoices' => $unpaidInvoices,
-                 'expiringMemberships' => $expiringMemberships,
+                 'unpaidInvoices' => $unpaidInvoicesData,
+                 'unpaidInvoicesLinks' => $unpaidInvoicesLinks,
+                 'expiringMemberships' => $expiringMembershipsData,
+                 'expiringMembershipsLinks' => $expiringMembershipsLinks,
                  'recentPayments' => $recentPaymentsData,
                 'recentPaymentsLinks' => $recentPaymentsLinks,
                  'totalAbsences' => $totalAbsences,

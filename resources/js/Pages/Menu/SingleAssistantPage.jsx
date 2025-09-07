@@ -44,6 +44,8 @@ const SingleAssistantPage = ({
         classes_count: 0,
     },
     transactions,
+    unpaidInvoicesLinks = [],
+    expiringMembershipsLinks = [],
 }) => {
     const role = usePage().props.auth.user.role;
     
@@ -58,6 +60,10 @@ const SingleAssistantPage = ({
 
     // State to ensure schools list is always available for the update form
     const [schools, setSchools] = useState(initialSchools || []);
+
+    const renderCount = (count) => (
+        <span className={`${count === 0 ? "text-green-600" : "text-red-600"} ml-1`}>({count})</span>
+    );
 
     // Function to open invoice modal
     const openInvoiceModal = (invoice) => {
@@ -170,7 +176,8 @@ const SingleAssistantPage = ({
                             <img
                                 src={
                                     assistant.profile_image ||
-                                    "https://images.pexels.com/photos/2888150/pexels-photo-2888150.jpeg?auto=compress&cs=tinysrgb&w=1200"
+                                    // "https://images.pexels.com/photos/2888150/pexels-photo-2888150.jpeg?auto=compress&cs=tinysrgb&w=1200"
+                                    "/assistantProfile.png"
                                 }
                                 alt={assistant.last_name}
                                 width={144}
@@ -337,25 +344,25 @@ const SingleAssistantPage = ({
                                 onClick={() => setActiveTab("absences")}
                                 isActive={activeTab === "absences"}
                                 icon={<AlertCircle className="w-4 h-4 mr-1" />}
-                                text="Absences récentes"
+                                text={<><span>Absences récentes</span> {renderCount(totalAbsences)}</>}
                             />
                             <TabButton
                                 onClick={() => setActiveTab("unpaid")}
                                 isActive={activeTab === "unpaid"}
                                 icon={<FileText className="w-4 h-4 mr-1" />}
-                                text="Factures impayées"
+                                text={<><span>Factures impayées</span> {renderCount(totalUnpaidInvoices)}</>}
                             />
                             <TabButton
                                 onClick={() => setActiveTab("memberships")}
                                 isActive={activeTab === "memberships"}
                                 icon={<Calendar className="w-4 h-4 mr-1" />}
-                                text="Adhésions expirant bientôt"
+                                text={<><span>Adhésions expirant bientôt</span> {renderCount(totalExpiringMemberships)}</>}
                             />
                             <TabButton
                                 onClick={() => setActiveTab("payments")}
                                 isActive={activeTab === "payments"}
                                 icon={<DollarSign className="w-4 h-4 mr-1" />}
-                                text="Paiements récents"
+                                text={<><span>Paiements récents</span> {renderCount(totalRecentPayments)}</>}
                             />
                         </nav>
                     </div>
@@ -471,6 +478,11 @@ const SingleAssistantPage = ({
                                     ]}
                                     emptyMessage="Aucune facture impayée trouvée"
                                 />
+                                {unpaidInvoicesLinks && unpaidInvoicesLinks.length > 0 && (
+                                    <div className="mt-4">
+                                        <Pagination links={unpaidInvoicesLinks} />
+                                    </div>
+                                )}
                                 {hasMoreItems(
                                     unpaidInvoices,
                                     totalUnpaidInvoices,
@@ -536,6 +548,11 @@ const SingleAssistantPage = ({
                                     ]}
                                     emptyMessage="Aucune adhésion expirant bientôt"
                                 />
+                                {expiringMembershipsLinks && expiringMembershipsLinks.length > 0 && (
+                                    <div className="mt-4">
+                                        <Pagination links={expiringMembershipsLinks} />
+                                    </div>
+                                )}
                                 {hasMoreItems(
                                     expiringMemberships,
                                     totalExpiringMemberships,
