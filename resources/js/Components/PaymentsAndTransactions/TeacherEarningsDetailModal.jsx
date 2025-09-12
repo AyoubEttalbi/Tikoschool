@@ -183,11 +183,11 @@ const TeacherEarningsDetailModal = ({ teacherId, teacherName, month, open, onClo
                 className="bg-white rounded-xl shadow-lg max-w-2xl w-full pt-2 px-6 pb-6 relative"
             >
                 <button
-                    className="absolute top-2 right-2 text-gray-500 hover:text-black"
+                    className="absolute top-2 right-1 cursor-pointer text-gray-500 hover:text-black"
                     onClick={onClose}
                     aria-label="Fermer"
                 >
-                    <X className="w-6 h-6" />
+                    <X className="cursor-pointer w-6 h-6 " />
                 </button>
                 <div className="flex items-center justify-between mb-1">
                     <h2 className="text-lg font-bold">

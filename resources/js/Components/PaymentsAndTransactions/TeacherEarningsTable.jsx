@@ -71,7 +71,6 @@ const TeacherEarningsTable = ({ teachers = [] }) => {
     // Pagination state
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(20);
-    const [teacherInvoiceCounts, setTeacherInvoiceCounts] = useState({});
 
     // Close teacher select dropdown on outside click
     React.useEffect(() => {
@@ -128,37 +127,6 @@ const TeacherEarningsTable = ({ teachers = [] }) => {
             .finally(() => setLoading(false));
     }, [selectedMonth, selectedTeacher, selectedSchool, selectedClass]);
 
-    // Fetch actual invoice counts for each teacher when "Tous les mois" is selected
-    React.useEffect(() => {
-        if (selectedMonth === "" && data.length > 0) {
-            const teacherIds = [...new Set(data.map(row => row.teacherId))];
-            
-            // Fetch invoice counts for each teacher
-            const fetchInvoiceCounts = async () => {
-                const counts = {};
-                
-                for (const teacherId of teacherIds) {
-                    try {
-                        const response = await axios.get("/teacher-invoice-breakdown", {
-                            params: {
-                                teacher_id: teacherId,
-                                month: "all",
-                                page: 1,
-                                per_page: 1 // We only need the total count
-                            }
-                        });
-                        counts[teacherId] = response.data.pagination?.total || 0;
-                    } catch (error) {
-                        console.error(`Error fetching invoice count for teacher ${teacherId}:`, error);
-                        counts[teacherId] = 0;
-                    }
-                }
-                setTeacherInvoiceCounts(counts);
-            };
-            
-            fetchInvoiceCounts();
-        }
-    }, [selectedMonth, data]);
 
     // Get unique teachers for filter dropdown
     const teacherOptions = React.useMemo(() => {
@@ -192,7 +160,7 @@ const TeacherEarningsTable = ({ teachers = [] }) => {
                     };
                 }
                 grouped[row.teacherId].totalEarned += row.totalEarned;
-                // Don't sum invoice counts - they're already double-counted
+                grouped[row.teacherId].invoiceCount += row.invoiceCount; // Sum invoice counts from each month
                 grouped[row.teacherId].months.push(row.month);
                 if (!grouped[row.teacherId].lastPaymentDate || 
                     (row.lastPaymentDate && row.lastPaymentDate > grouped[row.teacherId].lastPaymentDate)) {
@@ -200,16 +168,13 @@ const TeacherEarningsTable = ({ teachers = [] }) => {
                 }
             });
             
-            // Set the actual invoice counts and convert to array
-            const result = Object.values(grouped).map(teacher => ({
-                ...teacher,
-                invoiceCount: teacherInvoiceCounts[teacher.teacherId] || 0
-            })).sort((a, b) => b.totalEarned - a.totalEarned);
+            // Convert to array and sort
+            const result = Object.values(grouped).sort((a, b) => b.totalEarned - a.totalEarned);
             
             return result;
         }
         return data;
-    }, [data, selectedMonth, teacherInvoiceCounts]);
+    }, [data, selectedMonth]);
 
     // Calculate statistics
     const stats = React.useMemo(() => {

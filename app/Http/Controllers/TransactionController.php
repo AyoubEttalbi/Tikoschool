@@ -2024,9 +2024,9 @@ public function processMonthRecurringTransactions(Request $request)
         $schoolId = $request->input('school_id');
         $classId = $request->input('class_id');
 
-        // Get all paid invoices
-        $invoices = \App\Models\Invoice::whereNull('deleted_at')
-            ->whereColumn('amountPaid', '>=', 'totalAmount')
+        // Get all memberships with payments (including partial payments) - same approach as TeacherController
+        $memberships = \App\Models\Membership::withTrashed()
+            ->whereIn('payment_status', ['paid', 'pending'])
             ->when($schoolId, function($q) use ($schoolId) {
                 $q->whereHas('student', function($q2) use ($schoolId) {
                     $q2->where('schoolId', $schoolId);
@@ -2038,11 +2038,18 @@ public function processMonthRecurringTransactions(Request $request)
                 });
             })
             ->when($teacherId, function($q) use ($teacherId) {
-                $q->whereHas('membership', function($q2) use ($teacherId) {
-                    $q2->withTrashed()->whereJsonContains('teachers', [['teacherId' => (string)$teacherId]]);
-                });
+                $q->whereJsonContains('teachers', [['teacherId' => (string)$teacherId]]);
             })
+            ->with(['invoices' => function($query) {
+                // Only include non-deleted invoices with payments
+                $query->whereNull('deleted_at')->where('amountPaid', '>', 0);
+            }, 'student', 'student.school', 'student.class', 'offer'])
             ->get();
+        
+        // Extract invoices from memberships
+        $invoices = $memberships->flatMap(function ($membership) {
+            return $membership->invoices;
+        });
 
         $earnings = [];
         foreach ($invoices as $invoice) {
@@ -2108,7 +2115,7 @@ public function processMonthRecurringTransactions(Request $request)
                     }
                     
                     $earnings[$key]['totalEarned'] += $earningsPerMonth;
-                    $earnings[$key]['invoiceCount'] += 1;
+                    $earnings[$key]['invoiceCount'] += 1; // Count each month as separate invoice (same as TeacherController)
                     
                     // Update lastPaymentDate if this invoice is newer
                     $currentDate = $invoice->billDate ? $invoice->billDate->format('Y-m-d') : null;
@@ -2147,9 +2154,9 @@ public function processMonthRecurringTransactions(Request $request)
             return response()->json(['error' => 'teacher_id is required'], 400);
         }
         
-        // First, get all invoices that match the basic criteria
-        $invoices = \App\Models\Invoice::whereNull('deleted_at')
-            ->whereColumn('amountPaid', '>=', 'totalAmount')
+        // Get all memberships with payments (including partial payments) - same approach as TeacherController
+        $memberships = \App\Models\Membership::withTrashed()
+            ->whereIn('payment_status', ['paid', 'pending'])
             ->when($schoolId, function($q) use ($schoolId) {
                 $q->whereHas('student', function($q2) use ($schoolId) {
                     $q2->where('schoolId', $schoolId);
@@ -2160,10 +2167,20 @@ public function processMonthRecurringTransactions(Request $request)
                     $q2->where('classId', $classId);
                 });
             })
-            ->whereHas('membership', function($q) use ($teacherId) {
-                $q->withTrashed()->whereJsonContains('teachers', [['teacherId' => (string)$teacherId]]);
+            ->when($teacherId, function($q) use ($teacherId) {
+                $q->whereJsonContains('teachers', [['teacherId' => (string)$teacherId]]);
             })
+            ->with(['invoices' => function($query) {
+                // Only include non-deleted invoices with payments
+                $query->whereNull('deleted_at')->where('amountPaid', '>', 0);
+            }, 'student', 'student.school', 'student.class', 'offer'])
             ->get();
+        
+        // Extract invoices from memberships
+        $invoices = $memberships->flatMap(function ($membership) {
+            return $membership->invoices;
+        });
+        
         $result = [];
         foreach ($invoices as $invoice) {
             $membership = $invoice->membership;
@@ -2182,39 +2199,48 @@ public function processMonthRecurringTransactions(Request $request)
                 $selectedMonths = [$invoice->billDate ? $invoice->billDate->format('Y-m') : null];
             }
             
-            // Filter by month if specified (skip if month is "all")
-            if ($month && !empty($month) && $month !== "all" && !in_array($month, $selectedMonths)) continue;
-            
-            $teacherShare = null;
-            foreach ($membership->teachers as $teacherData) {
-                if (isset($teacherData['teacherId']) && (string)$teacherData['teacherId'] === (string)$teacherId) {
-                    // Calculate teacher share for this specific month based on Offer percentage
-                    $offer = $invoice->offer;
-                    $teacherSubject = $teacherData['subject'] ?? null;
-                    
-                    if ($offer && $teacherSubject && is_array($offer->percentage)) {
-                        // Get teacher percentage from offer
-                        $teacherPercentage = $offer->percentage[$teacherSubject] ?? 0;
+            // Create one row per month (same logic as TeacherController)
+            foreach ($selectedMonths as $selectedMonth) {
+                if (empty($selectedMonth)) continue;
+                
+                // Filter by month if specified (skip if month is "all")
+                if ($month && !empty($month) && $month !== "all" && $selectedMonth !== $month) continue;
+                
+                $teacherShare = null;
+                foreach ($membership->teachers as $teacherData) {
+                    if (isset($teacherData['teacherId']) && (string)$teacherData['teacherId'] === (string)$teacherId) {
+                        // Calculate teacher share for this specific month based on Offer percentage
+                        $offer = $invoice->offer;
+                        $teacherSubject = $teacherData['subject'] ?? null;
                         
-                        // Calculate teacher earnings from amountPaid
-                        $teacherAmountFromPaid = $invoice->amountPaid * ($teacherPercentage / 100);
-                        $monthsCount = count($selectedMonths);
-                        $teacherShare = $monthsCount > 0 ? $teacherAmountFromPaid / $monthsCount : 0;
-                        break;
+                        if ($offer && $teacherSubject && is_array($offer->percentage)) {
+                            // Get teacher percentage from offer
+                            $teacherPercentage = $offer->percentage[$teacherSubject] ?? 0;
+                            
+                            // Calculate teacher earnings from amountPaid
+                            $teacherAmountFromPaid = $invoice->amountPaid * ($teacherPercentage / 100);
+                            $monthsCount = count($selectedMonths);
+                            $teacherShare = $monthsCount > 0 ? $teacherAmountFromPaid / $monthsCount : 0;
+                            break;
+                        }
                     }
                 }
+                
+                // Only create row if teacher share was calculated successfully
+                if ($teacherShare !== null) {
+                    $student = $invoice->student;
+                    $offer = $invoice->offer;
+                    $result[] = [
+                        'invoiceId' => $invoice->id,
+                        'date' => $selectedMonth . '-01', // Use month start date like TeacherController
+                        'studentName' => $student ? ($student->firstName . ' ' . $student->lastName) : '',
+                        'offerName' => $offer ? $offer->offer_name : '',
+                        'amountPaid' => $invoice->amountPaid,
+                        'teacherShare' => $teacherShare,
+                        'month' => $selectedMonth, // Add month for reference
+                    ];
+                }
             }
-            
-            $student = $invoice->student;
-            $offer = $invoice->offer;
-            $result[] = [
-                'invoiceId' => $invoice->id,
-                'date' => $invoice->billDate ? $invoice->billDate->format('Y-m-d') : null,
-                'studentName' => $student ? ($student->firstName . ' ' . $student->lastName) : '',
-                'offerName' => $offer ? $offer->offer_name : '',
-                'amountPaid' => $invoice->amountPaid,
-                'teacherShare' => $teacherShare,
-            ];
         }
         
         // Apply manual pagination to the filtered results
