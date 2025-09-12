@@ -67,6 +67,11 @@ const TeacherEarningsTable = ({ teachers = [] }) => {
     const [isTeacherSelectOpen, setIsTeacherSelectOpen] = useState(false);
     const [teacherSearchTerm, setTeacherSearchTerm] = useState("");
     const teacherSelectRef = React.useRef(null);
+    
+    // Pagination state
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(20);
+    const [teacherInvoiceCounts, setTeacherInvoiceCounts] = useState({});
 
     // Close teacher select dropdown on outside click
     React.useEffect(() => {
@@ -107,6 +112,8 @@ const TeacherEarningsTable = ({ teachers = [] }) => {
     useEffect(() => {
         setLoading(true);
         setError(null);
+        // Reset to first page when filters change
+        setCurrentPage(1);
         axios
             .get("/teacher-earnings-report", {
                 params: {
@@ -120,6 +127,38 @@ const TeacherEarningsTable = ({ teachers = [] }) => {
             .catch((err) => setError("Erreur lors du chargement des données."))
             .finally(() => setLoading(false));
     }, [selectedMonth, selectedTeacher, selectedSchool, selectedClass]);
+
+    // Fetch actual invoice counts for each teacher when "Tous les mois" is selected
+    React.useEffect(() => {
+        if (selectedMonth === "" && data.length > 0) {
+            const teacherIds = [...new Set(data.map(row => row.teacherId))];
+            
+            // Fetch invoice counts for each teacher
+            const fetchInvoiceCounts = async () => {
+                const counts = {};
+                
+                for (const teacherId of teacherIds) {
+                    try {
+                        const response = await axios.get("/teacher-invoice-breakdown", {
+                            params: {
+                                teacher_id: teacherId,
+                                month: "all",
+                                page: 1,
+                                per_page: 1 // We only need the total count
+                            }
+                        });
+                        counts[teacherId] = response.data.pagination?.total || 0;
+                    } catch (error) {
+                        console.error(`Error fetching invoice count for teacher ${teacherId}:`, error);
+                        counts[teacherId] = 0;
+                    }
+                }
+                setTeacherInvoiceCounts(counts);
+            };
+            
+            fetchInvoiceCounts();
+        }
+    }, [selectedMonth, data]);
 
     // Get unique teachers for filter dropdown
     const teacherOptions = React.useMemo(() => {
@@ -135,43 +174,69 @@ const TeacherEarningsTable = ({ teachers = [] }) => {
         teacher.name.toLowerCase().includes(teacherSearchTerm.toLowerCase())
     );
 
+    // Group data by teacher when "Tous les mois" is selected
+    const processedData = React.useMemo(() => {
+        if (selectedMonth === "") {
+            // Group by teacher when showing all months
+            const grouped = {};
+            data.forEach((row) => {
+                if (!grouped[row.teacherId]) {
+                    grouped[row.teacherId] = {
+                        teacherId: row.teacherId,
+                        teacherName: row.teacherName,
+                        totalEarned: 0,
+                        invoiceCount: 0, // This will be set to the actual count later
+                        months: [],
+                        lastPaymentDate: null,
+                        year: row.year
+                    };
+                }
+                grouped[row.teacherId].totalEarned += row.totalEarned;
+                // Don't sum invoice counts - they're already double-counted
+                grouped[row.teacherId].months.push(row.month);
+                if (!grouped[row.teacherId].lastPaymentDate || 
+                    (row.lastPaymentDate && row.lastPaymentDate > grouped[row.teacherId].lastPaymentDate)) {
+                    grouped[row.teacherId].lastPaymentDate = row.lastPaymentDate;
+                }
+            });
+            
+            // Set the actual invoice counts and convert to array
+            const result = Object.values(grouped).map(teacher => ({
+                ...teacher,
+                invoiceCount: teacherInvoiceCounts[teacher.teacherId] || 0
+            })).sort((a, b) => b.totalEarned - a.totalEarned);
+            
+            return result;
+        }
+        return data;
+    }, [data, selectedMonth, teacherInvoiceCounts]);
+
     // Calculate statistics
     const stats = React.useMemo(() => {
-        const total = data.reduce((sum, row) => sum + row.totalEarned, 0);
-        const avgPerTeacher = teacherOptions.length > 0 ? total / teacherOptions.length : 0;
-        const totalInvoices = data.reduce((sum, row) => sum + row.invoiceCount, 0);
-        return { total, avgPerTeacher, totalInvoices, teacherCount: teacherOptions.length };
-    }, [data, teacherOptions]);
+        const total = processedData.reduce((sum, row) => sum + row.totalEarned, 0);
+        const avgPerTeacher = processedData.length > 0 ? total / processedData.length : 0;
+        const totalInvoices = processedData.reduce((sum, row) => sum + row.invoiceCount, 0);
+        return { total, avgPerTeacher, totalInvoices, teacherCount: processedData.length };
+    }, [processedData]);
 
     // Chart data calculations
     const pieChartData = React.useMemo(() => {
-        if (!data.length) return [];
-        const map = {};
-        data.forEach((row) => {
-            if (!selectedMonth || row.month === selectedMonth) {
-                map[row.teacherName] = (map[row.teacherName] || 0) + row.totalEarned;
-            }
-        });
-        return Object.entries(map)
-            .map(([name, value]) => ({ name, value }))
+        if (!processedData.length) return [];
+        return processedData
+            .map(row => ({ name: row.teacherName, value: row.totalEarned }))
             .sort((a, b) => b.value - a.value);
-    }, [data, selectedMonth]);
+    }, [processedData]);
 
     const barChartData = React.useMemo(() => {
-        if (!data.length) return [];
-        const map = {};
-        data.forEach((row) => {
-            if (!selectedMonth || row.month === selectedMonth) {
-                map[row.teacherId] = map[row.teacherId] || { 
-                    teacherName: row.teacherName, 
-                    totalEarned: 0, 
-                    teacherId: row.teacherId 
-                };
-                map[row.teacherId].totalEarned += row.totalEarned;
-            }
-        });
-        return Object.values(map).sort((a, b) => b.totalEarned - a.totalEarned);
-    }, [data, selectedMonth]);
+        if (!processedData.length) return [];
+        return processedData
+            .map(row => ({ 
+                teacherName: row.teacherName, 
+                totalEarned: row.totalEarned, 
+                teacherId: row.teacherId 
+            }))
+            .sort((a, b) => b.totalEarned - a.totalEarned);
+    }, [processedData]);
 
     const multiLineChartData = React.useMemo(() => {
         if (!selectedLineTeachers.length) return [];
@@ -188,44 +253,73 @@ const TeacherEarningsTable = ({ teachers = [] }) => {
         });
     }, [data, selectedLineTeachers]);
 
+    // Pagination calculations
+    const totalItems = processedData.length;
+    const totalPages = Math.ceil(totalItems / itemsPerPage);
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const paginatedData = processedData.slice(startIndex, endIndex);
+
     const clearFilters = () => {
         setSelectedMonth("");
         setSelectedTeacher("");
         setSelectedSchool("");
         setSelectedClass("");
+        setCurrentPage(1);
     };
 
     const hasActiveFilters = selectedMonth || selectedTeacher || selectedSchool || selectedClass;
 
     // Export functions
     const handleExport = () => {
-        const header = "Enseignant,Mois,Année,Total Gagné,Nombre de factures,Dernier paiement\n";
-        const rows = data.map(
-            (row) =>
-                `"${row.teacherName}","${row.month}","${row.year}","${row.totalEarned.toFixed(2)} DH","${row.invoiceCount}","${row.lastPaymentDate || ''}"`
-        );
+        const header = selectedMonth === "" 
+            ? "Enseignant,Période,Total Gagné,Nombre de factures,Dernier paiement\n"
+            : "Enseignant,Mois,Année,Total Gagné,Nombre de factures,Dernier paiement\n";
+        
+        const rows = processedData.map((row) => {
+            if (selectedMonth === "") {
+                return `"${row.teacherName}","${row.months ? row.months.join(', ') : 'N/A'}","${row.totalEarned.toFixed(2)} DH","${row.invoiceCount}","${row.lastPaymentDate || ''}"`;
+            } else {
+                return `"${row.teacherName}","${row.month}","${row.year}","${row.totalEarned.toFixed(2)} DH","${row.invoiceCount}","${row.lastPaymentDate || ''}"`;
+            }
+        });
+        
         const csv = header + rows.join("\n");
         const blob = new Blob([csv], { type: "text/csv" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = "teacher_earnings.csv";
+        a.download = selectedMonth === "" ? "teacher_earnings_all_months.csv" : "teacher_earnings.csv";
         a.click();
         URL.revokeObjectURL(url);
     };
 
     const handleExportExcel = () => {
-        const ws = XLSX.utils.json_to_sheet(data.map(row => ({
-            "Enseignant": row.teacherName,
-            "Mois": row.month,
-            "Année": row.year,
-            "Total Gagné": row.totalEarned,
-            "Nombre de factures": row.invoiceCount,
-            "Dernier paiement": row.lastPaymentDate
-        })));
+        const exportData = processedData.map(row => {
+            if (selectedMonth === "") {
+                return {
+                    "Enseignant": row.teacherName,
+                    "Période": row.months ? row.months.join(', ') : 'N/A',
+                    "Total Gagné": row.totalEarned,
+                    "Nombre de factures": row.invoiceCount,
+                    "Dernier paiement": row.lastPaymentDate
+                };
+            } else {
+                return {
+                    "Enseignant": row.teacherName,
+                    "Mois": row.month,
+                    "Année": row.year,
+                    "Total Gagné": row.totalEarned,
+                    "Nombre de factures": row.invoiceCount,
+                    "Dernier paiement": row.lastPaymentDate
+                };
+            }
+        });
+        
+        const ws = XLSX.utils.json_to_sheet(exportData);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "Gains enseignants");
-        XLSX.writeFile(wb, "gains_enseignants.xlsx");
+        XLSX.writeFile(wb, selectedMonth === "" ? "gains_enseignants_tous_mois.xlsx" : "gains_enseignants.xlsx");
     };
 
     const handleTeacherSelect = (teacherId) => {
@@ -238,6 +332,7 @@ const TeacherEarningsTable = ({ teachers = [] }) => {
     };
 
     return (
+        <>
         <div className="space-y-6">
             {/* Header */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -490,18 +585,28 @@ const TeacherEarningsTable = ({ teachers = [] }) => {
                  {/* Data Table */}
                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                         <div className="px-6 py-4 border-b border-gray-200">
-                            <h3 className="text-lg font-semibold text-gray-900">Détail des Gains</h3>
+                            <div className="flex items-center justify-between">
+                                <h3 className="text-lg font-semibold text-gray-900">Détail des Gains</h3>
+                                {data.length > 0 && (
+                                    <div className="text-sm text-gray-500">
+                                        {totalItems} résultat{totalItems !== 1 ? 's' : ''} au total
+                                    </div>
+                                )}
+                            </div>
                         </div>
                         
                         <div className="overflow-x-auto">
                             <table className="min-w-full divide-y divide-gray-200">
                                 <thead className="bg-gray-50">
                                     <tr>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">
+                                            N°
+                                        </th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                             Enseignant
                                         </th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Période
+                                            {selectedMonth === "" ? "Période (Tous)" : "Période"}
                                         </th>
                                         <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                                             Total Gagné
@@ -524,9 +629,9 @@ const TeacherEarningsTable = ({ teachers = [] }) => {
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
-                                    {data.length === 0 ? (
+                                    {paginatedData.length === 0 ? (
                                         <tr>
-                                            <td colSpan={6} className="px-6 py-12 text-center">
+                                            <td colSpan={7} className="px-6 py-12 text-center">
                                                 <div className="flex flex-col items-center space-y-3">
                                                     <Users className="w-12 h-12 text-gray-300" />
                                                     <div>
@@ -539,11 +644,16 @@ const TeacherEarningsTable = ({ teachers = [] }) => {
                                             </td>
                                         </tr>
                                     ) : (
-                                        data.map((row, i) => (
+                                        paginatedData.map((row, i) => {
+                                            const globalIndex = startIndex + i + 1;
+                                            return (
                                             <tr 
                                                 key={i} 
                                                 className={`${i % 2 === 0 ? "bg-white" : "bg-gray-50"} hover:bg-blue-50 transition-colors duration-200`}
                                             >
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-500">
+                                                    {globalIndex}
+                                                </td>
                                                 <td className="px-6 py-4 whitespace-nowrap">
                                                     <div className="flex items-center">
                                                         <div className="bg-blue-100 p-2 rounded-full mr-3">
@@ -560,8 +670,21 @@ const TeacherEarningsTable = ({ teachers = [] }) => {
                                                     <div className="flex items-center space-x-2">
                                                         <Calendar className="w-4 h-4 text-gray-400" />
                                                         <div>
-                                                            <div className="text-sm text-gray-900">{row.month}</div>
-                                                            <div className="text-xs text-gray-500">{row.year}</div>
+                                                            {selectedMonth === "" ? (
+                                                                <div>
+                                                                    <div className="text-sm text-gray-900">
+                                                                        {row.months ? `${row.months.length} mois` : row.month}
+                                                                    </div>
+                                                                    <div className="text-xs text-gray-500">
+                                                                        {row.months ? `${row.months[0]} - ${row.months[row.months.length - 1]}` : row.year}
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                <div>
+                                                                    <div className="text-sm text-gray-900">{row.month}</div>
+                                                                    <div className="text-xs text-gray-500">{row.year}</div>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 </td>
@@ -585,22 +708,23 @@ const TeacherEarningsTable = ({ teachers = [] }) => {
                                                         onClick={() => setDetail({
                                                             teacherId: row.teacherId,
                                                             teacherName: row.teacherName,
-                                                            month: row.month
+                                                            month: selectedMonth === "" ? "all" : row.month
                                                         })}
                                                         className="inline-flex items-center p-2 text-blue-600 hover:text-blue-900 hover:bg-blue-100 rounded-lg transition-colors duration-200"
-                                                        title="Voir le détail"
+                                                        title={selectedMonth === "" ? "Voir le détail de tous les mois" : "Voir le détail"}
                                                     >
                                                         <Eye className="w-4 h-4" />
                                                     </button>
                                                 </td>
                                             </tr>
-                                        ))
+                                            );
+                                        })
                                     )}
                                 </tbody>
                                 {data.length > 0 && (
                                     <tfoot className="bg-gray-50">
                                         <tr>
-                                            <td colSpan={2} className="px-6 py-4 text-right font-semibold text-gray-900">
+                                            <td colSpan={3} className="px-6 py-4 text-right font-semibold text-gray-900">
                                                 Total Général:
                                             </td>
                                             <td className="px-6 py-4 text-right font-bold text-blue-600">
@@ -612,6 +736,99 @@ const TeacherEarningsTable = ({ teachers = [] }) => {
                                 )}
                             </table>
                         </div>
+                        
+                        {/* Pagination Controls */}
+                        {data.length > 0 && totalPages > 1 && (
+                            <div className="bg-white px-6 py-4 border-t border-gray-200">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center space-x-4">
+                                        <div className="text-sm text-gray-700">
+                                            Affichage de <span className="font-medium">{startIndex + 1}</span> à{' '}
+                                            <span className="font-medium">{Math.min(endIndex, totalItems)}</span> sur{' '}
+                                            <span className="font-medium">{totalItems}</span> résultats
+                                        </div>
+                                        <div className="flex items-center space-x-2">
+                                            <label className="text-sm text-gray-700">Par page:</label>
+                                            <select
+                                                value={itemsPerPage}
+                                                onChange={(e) => {
+                                                    setItemsPerPage(Number(e.target.value));
+                                                    setCurrentPage(1);
+                                                }}
+                                                className="border border-gray-300 rounded-md px-2 py-1 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                            >
+                                                <option value={10}>10</option>
+                                                <option value={20}>20</option>
+                                                <option value={50}>50</option>
+                                                <option value={100}>100</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="flex items-center space-x-2">
+                                        <button
+                                            onClick={() => setCurrentPage(1)}
+                                            disabled={currentPage === 1}
+                                            className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            Première
+                                        </button>
+                                        <button
+                                            onClick={() => setCurrentPage(currentPage - 1)}
+                                            disabled={currentPage === 1}
+                                            className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            Précédent
+                                        </button>
+                                        
+                                        {/* Page numbers */}
+                                        <div className="flex items-center space-x-1">
+                                            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                                                let pageNum;
+                                                if (totalPages <= 5) {
+                                                    pageNum = i + 1;
+                                                } else if (currentPage <= 3) {
+                                                    pageNum = i + 1;
+                                                } else if (currentPage >= totalPages - 2) {
+                                                    pageNum = totalPages - 4 + i;
+                                                } else {
+                                                    pageNum = currentPage - 2 + i;
+                                                }
+                                                
+                                                return (
+                                                    <button
+                                                        key={pageNum}
+                                                        onClick={() => setCurrentPage(pageNum)}
+                                                        className={`px-3 py-1 text-sm border rounded-md ${
+                                                            currentPage === pageNum
+                                                                ? 'bg-blue-600 text-white border-blue-600'
+                                                                : 'border-gray-300 hover:bg-gray-50'
+                                                        }`}
+                                                    >
+                                                        {pageNum}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                        
+                                        <button
+                                            onClick={() => setCurrentPage(currentPage + 1)}
+                                            disabled={currentPage === totalPages}
+                                            className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            Suivant
+                                        </button>
+                                        <button
+                                            onClick={() => setCurrentPage(totalPages)}
+                                            disabled={currentPage === totalPages}
+                                            className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            Dernière
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                     {/* Charts */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -813,15 +1030,17 @@ const TeacherEarningsTable = ({ teachers = [] }) => {
                 </>
             )}
 
-            {/* Detail Modal */}
-            <TeacherEarningsDetailModal
-                teacherId={detail?.teacherId}
-                teacherName={detail?.teacherName}
-                month={detail?.month}
-                open={!!detail}
-                onClose={() => setDetail(null)}
-            />
         </div>
+        
+        {/* Detail Modal - Outside main container to avoid spacing issues */}
+        <TeacherEarningsDetailModal
+            teacherId={detail?.teacherId}
+            teacherName={detail?.teacherName}
+            month={detail?.month}
+            open={!!detail}
+            onClose={() => setDetail(null)}
+        />
+        </>
     );
 };
 

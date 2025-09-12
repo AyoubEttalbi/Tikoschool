@@ -287,14 +287,18 @@ class TeacherController extends Controller
             // Eager load teacher relationships
             $teacher->load(['subjects', 'classes', 'schools']);
             
-            // Log teacher data for debugging
-            Log::info('Teacher show method called', [
-                'teacher_id' => $teacher->id,
-                'teacher_email' => $teacher->email,
-                'teacher_name' => $teacher->first_name . ' ' . $teacher->last_name,
-                'request_id' => $request->id ?? 'no_id',
-                'route_parameters' => $request->route()->parameters()
-            ]);
+            // Get filter parameters from request
+            $filters = [
+                'search' => $request->get('search', ''),
+                'class_filter' => $request->get('class_filter', 'all'),
+                'offer_filter' => $request->get('offer_filter', 'all'),
+                'school_filter' => $request->get('school_filter', 'all'),
+                'date_filter' => $request->get('date_filter', ''),
+                'membership_status_filter' => $request->get('membership_status_filter', 'all'),
+                'payment_status_filter' => $request->get('payment_status_filter', 'all'),
+                'page' => $request->get('page', 1),
+            ];
+            
             
             // Fetch announcements first
             $announcementStatus = $request->query('status', 'all'); // 'all', 'active', 'upcoming', 'expired'
@@ -451,16 +455,16 @@ class TeacherController extends Controller
                 ->get();
             
             // Extract invoices from memberships and calculate the teacher's share by month
-            $invoices = $memberships->flatMap(function ($membership) use ($teacher) {
+            $invoices = $memberships->flatMap(function ($membership) use ($teacher, $filters) {
                 // Skip if the student doesn't exist
                 if (!$membership->student) {
                     return [];
                 }
                 
-                return $membership->invoices->flatMap(function ($invoice) use ($membership, $teacher) {
+                return $membership->invoices->flatMap(function ($invoice) use ($membership, $teacher, $filters) {
                     // Find the teacher's data in the membership
                     $teacherData = collect($membership->teachers)->first(function($item) use ($teacher) {
-                        return isset($item['teacherId']) && $item['teacherId'] == $teacher->id;
+                        return isset($item['teacherId']) && $item['teacherId'] == (string)$teacher->id;
                     });
                     
                     if (!$teacherData || !isset($teacherData['subject'])) {
@@ -568,12 +572,89 @@ class TeacherController extends Controller
                 });
             });
             
+            // Apply filters to invoices
+            $invoices = $invoices->filter(function ($invoice) use ($filters) {
+                // Search filter
+                if (!empty($filters['search'])) {
+                    $studentName = $invoice['student_name'] ?? '';
+                    if (stripos($studentName, $filters['search']) === false) {
+                        return false;
+                    }
+                }
+                
+                // Class filter
+                if ($filters['class_filter'] !== 'all') {
+                    if (($invoice['student_class'] ?? '') !== $filters['class_filter']) {
+                        return false;
+                    }
+                }
+                
+                // Offer filter
+                if ($filters['offer_filter'] !== 'all') {
+                    if (($invoice['offer_name'] ?? '') !== $filters['offer_filter']) {
+                        return false;
+                    }
+                }
+                
+                // School filter
+                if ($filters['school_filter'] !== 'all') {
+                    if (($invoice['student_school'] ?? '') !== $filters['school_filter']) {
+                        return false;
+                    }
+                }
+                
+                // Date filter
+                if (!empty($filters['date_filter'])) {
+                    $billDate = $invoice['billDate'] ?? '';
+                    if (strpos($billDate, $filters['date_filter']) !== 0) {
+                        return false;
+                    }
+                }
+                
+                // Membership status filter
+                if ($filters['membership_status_filter'] !== 'all') {
+                    $isDeleted = $invoice['membership_deleted'] ?? false;
+                    if ($filters['membership_status_filter'] === 'active' && $isDeleted) {
+                        return false;
+                    }
+                    if ($filters['membership_status_filter'] === 'deleted' && !$isDeleted) {
+                        return false;
+                    }
+                }
+                
+                // Payment status filter
+                if ($filters['payment_status_filter'] !== 'all') {
+                    $isPaid = $invoice['is_month_paid'] ?? false;
+                    if ($filters['payment_status_filter'] === 'paid' && !$isPaid) {
+                        return false;
+                    }
+                    if ($filters['payment_status_filter'] === 'pending' && $isPaid) {
+                        return false;
+                    }
+                }
+                
+                return true;
+            });
+            
             // Sort invoices by creation date (newest first) - this ensures the most recently created invoices appear first
             $invoices = $invoices->sortByDesc('created_at')->values();
             
+            // Calculate stats from ALL filtered invoices (before pagination)
+            $stats = [
+                'total_invoices' => $invoices->count(),
+                'total_amount' => $invoices->sum('teacher_amount'),
+                'unique_students' => $invoices->pluck('student_id')->unique()->count(),
+                'best_offer' => $this->calculateBestOffer($invoices),
+                'current_month_amount' => $this->calculateCurrentMonthAmount($invoices),
+                'deleted_memberships' => 0, // This would need to be calculated separately if needed
+                'pending_months' => $this->calculatePendingMonths($invoices),
+                'active_memberships' => $invoices->pluck('membership_id')->unique()->count(),
+            ];
+            
+            
             // Paginate the invoices
-            $perPage = 10; // Number of invoices per page (reduced for better UX)
-            $currentPage = request()->get('page', 1); // Get the current page from the request
+            $perPage = 10; // Number of invoices per page
+            $currentPage = (int) $filters['page']; // Use filter page parameter and ensure it's an integer
             $paginatedInvoices = new \Illuminate\Pagination\LengthAwarePaginator(
                 $invoices->forPage($currentPage, $perPage),
                 $invoices->count(),
@@ -582,10 +663,61 @@ class TeacherController extends Controller
                 ['path' => request()->url(), 'query' => request()->query()]
             );
             
+            
+            
             // Fetch other necessary data
             $schools = School::all();
             $classes = Classes::all();
             $subjects = Subject::all();
+            
+            // Get unique filter options from all invoices (not just filtered ones)
+            $allInvoices = $memberships->flatMap(function ($membership) use ($teacher) {
+                if (!$membership->student) return [];
+                
+                return $membership->invoices->flatMap(function ($invoice) use ($membership, $teacher) {
+                    $teacherData = collect($membership->teachers)->first(function($item) use ($teacher) {
+                        return isset($item['teacherId']) && $item['teacherId'] == (string)$teacher->id;
+                    });
+                    
+                    if (!$teacherData || !isset($teacherData['subject'])) return [];
+                    
+                    $selectedMonths = $invoice->selected_months ?? [];
+                    if (is_string($selectedMonths)) {
+                        $selectedMonths = json_decode($selectedMonths, true) ?? [];
+                    }
+                    if (empty($selectedMonths)) {
+                        $selectedMonths = [$invoice->billDate ? $invoice->billDate->format('Y-m') : null];
+                    }
+                    
+                    $schoolName = 'Unknown';
+                    if ($membership->student->school) {
+                        $schoolName = $membership->student->school->name;
+                    } else {
+                        $school = School::find($membership->student->schoolId);
+                        if ($school) {
+                            $schoolName = $school->name;
+                        }
+                    }
+                    
+                    $className = $membership->student->class ? $membership->student->class->name : 'Unknown';
+                    $offerName = $invoice->offer ? $invoice->offer->offer_name : null;
+                    
+                    return collect($selectedMonths)->map(function($month) use ($className, $schoolName, $offerName) {
+                        return [
+                            'student_class' => $className,
+                            'student_school' => $schoolName,
+                            'offer_name' => $offerName,
+                        ];
+                    });
+                });
+            });
+            
+            // Extract unique values for filter dropdowns
+            $filterOptions = [
+                'classes' => $allInvoices->pluck('student_class')->unique()->filter()->values()->toArray(),
+                'offers' => $allInvoices->pluck('offer_name')->unique()->filter()->values()->toArray(),
+                'schools' => $allInvoices->pluck('student_school')->unique()->filter()->values()->toArray(),
+            ];
             
             // Get recurring transactions for this teacher
             $recurringTransactions = collect();
@@ -662,13 +794,16 @@ class TeacherController extends Controller
             return Inertia::render('Menu/SingleTeacherPage', [
                 'teacher' => $teacherUser ? array_merge($teacher->toArray(), ['user_id' => $teacherUser->id, 'totalStudents' => $totalStudents]) : array_merge($teacher->toArray(), ['totalStudents' => $totalStudents]),
                 'invoices' => $paginatedInvoices,
+                'invoiceStats' => $stats, // Add calculated stats
                 'schools' => $schools,
                 'subjects' => $subjects,
                 'classes' => $classes,
                 'announcements' => $announcements,
                 'filters' => [
                     'status' => $announcementStatus,
+                    'invoice_filters' => $filters, // Add invoice filters
                 ],
+                'filterOptions' => $filterOptions, // Add filter options for dropdowns
                 'userRole' => $userRole,
                 'selectedSchool' => $selectedSchool, // Add the selected school
                 'recurringTransactions' => $recurringTransactions, // Add the recurring transactions
@@ -925,5 +1060,49 @@ class TeacherController extends Controller
                 return redirect()->back()->with('error', 'Failed to create user and teacher.');
             }
         }
+    }
+
+    /**
+     * Calculate the best offer from invoices
+     */
+    private function calculateBestOffer($invoices)
+    {
+        $offerTotals = $invoices->groupBy('offer_name')->map(function ($group) {
+            return $group->sum('teacher_amount');
+        });
+
+        if ($offerTotals->isEmpty()) {
+            return ['name' => 'N/A', 'amount' => 0];
+        }
+
+        $bestOffer = $offerTotals->sortDesc()->first();
+        $bestOfferName = $offerTotals->sortDesc()->keys()->first();
+
+        return [
+            'name' => $bestOfferName ?: 'N/A',
+            'amount' => number_format($bestOffer, 2)
+        ];
+    }
+
+    /**
+     * Calculate current month amount
+     */
+    private function calculateCurrentMonthAmount($invoices)
+    {
+        $currentMonth = now()->format('Y-m');
+        
+        return $invoices->filter(function ($invoice) use ($currentMonth) {
+            return strpos($invoice['billDate'], $currentMonth) === 0;
+        })->sum('teacher_amount');
+    }
+
+    /**
+     * Calculate pending months
+     */
+    private function calculatePendingMonths($invoices)
+    {
+        // This would need to be calculated based on your business logic
+        // For now, returning a placeholder
+        return 0;
     }
 }

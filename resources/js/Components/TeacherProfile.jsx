@@ -9,6 +9,9 @@ export default function TeacherProfile({
     paginate = [],
     teacher = {},
     transactions = [],
+    filterOptions = {},
+    filters = {},
+    invoiceStats = {},
 }) {
     return (
         <div className="space-y-6">
@@ -19,6 +22,10 @@ export default function TeacherProfile({
                 <TeacherInvoicesTable
                     invoices={invoices}
                     invoiceslinks={paginate}
+                    filterOptions={filterOptions}
+                    filters={filters.invoice_filters || {}}
+                    teacherId={teacher.id}
+                    invoiceStats={invoiceStats}
                 />
             </Suspense>
             {/* Section des paiements */}

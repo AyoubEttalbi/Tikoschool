@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import Table from "@/Components/Table";
-import Pagination from "@/Components/Pagination";
+import TeacherInvoicesPagination from "@/Components/TeacherInvoicesPagination";
 import {
     Eye,
     Download,
@@ -13,134 +13,92 @@ import {
 } from "lucide-react";
 import { Link, router } from "@inertiajs/react";
 
-const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
+const TeacherInvoicesTable = ({ 
+    invoices = [], 
+    invoiceslinks = [], 
+    filterOptions = {},
+    filters = {},
+    teacherId = null,
+    invoiceStats = {}
+}) => {
     const safeInvoices = Array.isArray(invoices) ? invoices : [];
 
+    // Get initial filter values from props or use defaults
+    const initialFilters = {
+        search: filters.search || "",
+        classFilter: filters.class_filter || "all",
+        offerFilter: filters.offer_filter || "all",
+        schoolFilter: filters.school_filter || "all",
+        dateFilter: filters.date_filter || new Date().toISOString().slice(0, 7),
+        membershipStatusFilter: filters.membership_status_filter || "all",
+        paymentStatusFilter: filters.payment_status_filter || "all",
+    };
+
     // Filters State
-    const [search, setSearch] = useState("");
-    const [classFilter, setClassFilter] = useState("all");
-    const [offerFilter, setOfferFilter] = useState("all");
-    const [schoolFilter, setSchoolFilter] = useState("all");
-    const [dateFilter, setDateFilter] = useState(new Date().toISOString().slice(0, 7));
-    const [membershipStatusFilter, setMembershipStatusFilter] = useState("all");
-    const [paymentStatusFilter, setPaymentStatusFilter] = useState("all");
+    const [search, setSearch] = useState(initialFilters.search);
+    const [classFilter, setClassFilter] = useState(initialFilters.classFilter);
+    const [offerFilter, setOfferFilter] = useState(initialFilters.offerFilter);
+    const [schoolFilter, setSchoolFilter] = useState(initialFilters.schoolFilter);
+    const [dateFilter, setDateFilter] = useState(initialFilters.dateFilter);
+    const [membershipStatusFilter, setMembershipStatusFilter] = useState(initialFilters.membershipStatusFilter);
+    const [paymentStatusFilter, setPaymentStatusFilter] = useState(initialFilters.paymentStatusFilter);
     const [filtersVisible, setFiltersVisible] = useState(false);
     const [selectedInvoices, setSelectedInvoices] = useState([]);
-    const [currentPage, setCurrentPage] = useState(1);
-    const itemsPerPage = 10;
+    const [isLoading, setIsLoading] = useState(false);
 
-    // Get unique classes, offers, and schools for dropdowns
-    const uniqueClasses = [
-        ...new Set(safeInvoices.map((inv) => inv.student_class)),
-    ];
-    const uniqueOffers = [
-        ...new Set(safeInvoices.map((inv) => inv.offer_name)),
-    ];
-    const uniqueSchools = [
-        ...new Set(safeInvoices.map((inv) => inv.student_school)),
-    ];
+    // Get unique classes, offers, and schools for dropdowns from backend
+    const uniqueClasses = filterOptions.classes || [];
+    const uniqueOffers = filterOptions.offers || [];
+    const uniqueSchools = filterOptions.schools || [];
 
 
 
-    // Filter invoices (sorting is now handled by backend)
-    const filteredInvoices = useMemo(() => {
-        let filtered = safeInvoices.filter((invoice) => {
-            // Skip invalid invoices
-            if (!invoice || typeof invoice !== "object") return false;
+    // Backend filtering - no frontend filtering needed
+    const filteredInvoices = safeInvoices;
 
-            // Handle potentially missing properties safely
-            const studentName = invoice.student_name || "";
-            const studentClass = invoice.student_class || "";
-            const studentSchool = invoice.student_school || "";
-            const offerName = invoice.offer_name || "";
-            const billDate = invoice.billDate || "";
+    // Function to apply filters via backend
+    const applyFilters = (newFilters = {}) => {
+        setIsLoading(true);
+        const filterParams = {
+            search: newFilters.search !== undefined ? newFilters.search : search,
+            class_filter: newFilters.classFilter !== undefined ? newFilters.classFilter : classFilter,
+            offer_filter: newFilters.offerFilter !== undefined ? newFilters.offerFilter : offerFilter,
+            school_filter: newFilters.schoolFilter !== undefined ? newFilters.schoolFilter : schoolFilter,
+            date_filter: newFilters.dateFilter !== undefined ? newFilters.dateFilter : dateFilter,
+            membership_status_filter: newFilters.membershipStatusFilter !== undefined ? newFilters.membershipStatusFilter : membershipStatusFilter,
+            payment_status_filter: newFilters.paymentStatusFilter !== undefined ? newFilters.paymentStatusFilter : paymentStatusFilter,
+            page: 1, // Reset to first page when filters change
+        };
 
-            return (
-                studentName.toLowerCase().includes(search.toLowerCase()) &&
-                (classFilter === "all" || studentClass === classFilter) &&
-                (offerFilter === "all" || offerName === offerFilter) &&
-                (schoolFilter === "all" || studentSchool === schoolFilter) &&
-                (dateFilter === "" || billDate.startsWith(dateFilter)) &&
-                (membershipStatusFilter === "all" || 
-                 (membershipStatusFilter === "active" && !invoice.membership_deleted) ||
-                 (membershipStatusFilter === "deleted" && invoice.membership_deleted)) &&
-                (paymentStatusFilter === "all" || 
-                 (paymentStatusFilter === "paid" && invoice.is_month_paid) ||
-                 (paymentStatusFilter === "pending" && !invoice.is_month_paid))
-            );
-        });
+        if (teacherId) {
+            router.get(route('teachers.show', { teacher: teacherId }), filterParams, {
+                preserveState: true,
+                preserveScroll: true,
+                onFinish: () => setIsLoading(false),
+            });
+        }
+    };
 
-        return filtered;
-    }, [
-        safeInvoices,
-        search,
-        classFilter,
-        offerFilter,
-        schoolFilter,
-        dateFilter,
-        membershipStatusFilter,
-        paymentStatusFilter,
-    ]);
-
-    // Reset current page when filters change
+    // Apply filters when they change
     React.useEffect(() => {
-        setCurrentPage(1);
+        const timeoutId = setTimeout(() => {
+            applyFilters();
+        }, 300); // Debounce search
+
+        return () => clearTimeout(timeoutId);
     }, [search, classFilter, offerFilter, schoolFilter, dateFilter, membershipStatusFilter, paymentStatusFilter]);
 
-    // Paginate the filtered invoices
-    const paginatedInvoices = useMemo(() => {
-        const startIndex = (currentPage - 1) * itemsPerPage;
-        const endIndex = startIndex + itemsPerPage;
-        return filteredInvoices.slice(startIndex, endIndex);
-    }, [filteredInvoices, currentPage]);
+    // Use backend pagination - no frontend pagination needed
+    const paginatedInvoices = filteredInvoices;
 
-    // Calculate pagination info
-    const totalPages = Math.ceil(filteredInvoices.length / itemsPerPage);
-    const startItem = (currentPage - 1) * itemsPerPage + 1;
-    const endItem = Math.min(currentPage * itemsPerPage, filteredInvoices.length);
-
-    // Calculate summary metrics
-    const totalInvoices = filteredInvoices.length;
-    const totalAmount = filteredInvoices.reduce(
-        (sum, invoice) => sum + parseFloat(invoice?.teacher_amount || 0),
-        0,
-    );
-    
-    // Calculate unique students (since we now have multiple rows per student)
-    const uniqueStudents = [...new Set(filteredInvoices.map(inv => inv.student_id))].length;
-
-    // Calculate the best offer (offer with the highest total amount)
-    const bestOffer = useMemo(() => {
-        const offerTotals = filteredInvoices.reduce((acc, invoice) => {
-            const offerName = invoice?.offer_name || "Inconnu";
-            if (!acc[offerName]) {
-                acc[offerName] = 0;
-            }
-            acc[offerName] += parseFloat(invoice?.teacher_amount || 0);
-            return acc;
-        }, {});
-
-        let bestOfferName = "N/A";
-        let bestOfferAmount = 0;
-
-        Object.entries(offerTotals).forEach(([offerName, totalAmount]) => {
-            if (totalAmount > bestOfferAmount) {
-                bestOfferName = offerName;
-                bestOfferAmount = totalAmount;
-            }
-        });
-
-        return { name: bestOfferName, amount: bestOfferAmount.toFixed(2) };
-    }, [filteredInvoices]);
-
-    // Calculate total amount for this month
-    const currentMonth = new Date().toISOString().slice(0, 7);
-    const totalAmountThisMonth = filteredInvoices
-        .filter((invoice) => invoice?.billDate?.startsWith(currentMonth))
-        .reduce(
-            (sum, invoice) => sum + parseFloat(invoice?.teacher_amount || 0),
-            0,
-        );
+    // Use backend-calculated stats instead of frontend calculation
+    const totalInvoices = invoiceStats.total_invoices || 0;
+    const totalAmount = invoiceStats.total_amount || 0;
+    const uniqueStudents = invoiceStats.unique_students || 0;
+    const bestOffer = invoiceStats.best_offer || { name: "N/A", amount: "0.00" };
+    const totalAmountThisMonth = invoiceStats.current_month_amount || 0;
+    const pendingMonths = invoiceStats.pending_months || 0;
+    const activeMemberships = invoiceStats.active_memberships || 0;
 
     // Reset all filters
     const resetFilters = () => {
@@ -151,7 +109,17 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
         setDateFilter("");
         setMembershipStatusFilter("all");
         setPaymentStatusFilter("all");
-        setCurrentPage(1); // Reset to first page when filters change
+        
+        // Apply reset filters via backend
+        applyFilters({
+            search: "",
+            classFilter: "all",
+            offerFilter: "all",
+            schoolFilter: "all",
+            dateFilter: "",
+            membershipStatusFilter: "all",
+            paymentStatusFilter: "all",
+        });
     };
 
     // Note: Removed paginationFilters since we're using frontend pagination now
@@ -383,7 +351,10 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                                 className="border rounded-lg p-2 pl-8 text-sm w-full md:w-44"
                                 placeholder="Rechercher un élève..."
                                 value={search}
-                                onChange={(e) => setSearch(e.target.value)}
+                                onChange={(e) => {
+                                    setSearch(e.target.value);
+                                    // applyFilters will be called by useEffect
+                                }}
                             />
                             <Search className="absolute left-2 top-2.5 w-4 h-4 text-gray-500" />
                             {search && (
@@ -436,7 +407,7 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                 </div>
 
                 {/* Filtres étendus */}
-                {filtersVisible && safeInvoices.length > 0 && (
+                {filtersVisible && (
                     <div className="grid grid-cols-1 md:grid-cols-5 gap-4 p-4 mb-2 bg-gray-50 rounded-lg border border-gray-200 animate-fadeIn">
                         {/* Filtre Classe */}
                         <div>
@@ -450,7 +421,10 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                                 id="class-filter"
                                 className="border w-full rounded-lg p-2 text-sm"
                                 value={classFilter}
-                                onChange={(e) => setClassFilter(e.target.value)}
+                                onChange={(e) => {
+                                    setClassFilter(e.target.value);
+                                    // applyFilters will be called by useEffect
+                                }}
                             >
                                 <option value="all">Toutes les classes</option>
                                 {uniqueClasses.map((className, index) => (
@@ -473,7 +447,10 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                                 id="offer-filter"
                                 className="border w-full rounded-lg p-2 text-sm"
                                 value={offerFilter}
-                                onChange={(e) => setOfferFilter(e.target.value)}
+                                onChange={(e) => {
+                                    setOfferFilter(e.target.value);
+                                    // applyFilters will be called by useEffect
+                                }}
                             >
                                 <option value="all">Toutes les offres</option>
                                 {uniqueOffers.map((offerName, index) => (
@@ -496,9 +473,10 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                                 id="school-filter"
                                 className="border w-full rounded-lg p-2 text-sm"
                                 value={schoolFilter}
-                                onChange={(e) =>
-                                    setSchoolFilter(e.target.value)
-                                }
+                                onChange={(e) => {
+                                    setSchoolFilter(e.target.value);
+                                    // applyFilters will be called by useEffect
+                                }}
                             >
                                 <option value="all">Toutes les écoles</option>
                                 {uniqueSchools.map((schoolName, index) => (
@@ -523,9 +501,10 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                                     type="month"
                                     className="border w-full rounded-lg p-2 pl-8 text-sm"
                                     value={dateFilter}
-                                    onChange={(e) =>
-                                        setDateFilter(e.target.value)
-                                    }
+                                    onChange={(e) => {
+                                        setDateFilter(e.target.value);
+                                        // applyFilters will be called by useEffect
+                                    }}
                                 />
                                 <Calendar className="absolute left-2 top-2.5 w-4 h-4 text-gray-500" />
                                 {/* {dateFilter && (
@@ -550,7 +529,10 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                                 id="membership-status-filter"
                                 className="border w-full rounded-lg p-2 text-sm"
                                 value={membershipStatusFilter}
-                                onChange={(e) => setMembershipStatusFilter(e.target.value)}
+                                onChange={(e) => {
+                                    setMembershipStatusFilter(e.target.value);
+                                    // applyFilters will be called by useEffect
+                                }}
                             >
                                 <option value="all">Tous les statuts</option>
                                 <option value="active">Adhésions actives</option>
@@ -570,7 +552,10 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                                 id="payment-status-filter"
                                 className="border w-full rounded-lg p-2 text-sm"
                                 value={paymentStatusFilter}
-                                onChange={(e) => setPaymentStatusFilter(e.target.value)}
+                                onChange={(e) => {
+                                    setPaymentStatusFilter(e.target.value);
+                                    // applyFilters will be called by useEffect
+                                }}
                             >
                                 <option value="all">Tous les statuts</option>
                                 <option value="paid">Mois payés</option>
@@ -594,7 +579,7 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                             )}
                         </p>
                         <p className="text-2xl font-bold text-blue-800">
-                            {filteredInvoices.length}
+                            {totalInvoices}
                         </p>
                     </div>
                     <div className="bg-gradient-to-r from-green-50 to-green-100 p-4 rounded-lg shadow-sm border border-green-200">
@@ -636,15 +621,10 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                             )}
                         </p>
                         <p className="text-2xl font-bold text-orange-800">
-                            {safeInvoices.filter(inv => 
-                                inv.membership_deleted && 
-                                (dateFilter === "" || inv.billDate?.startsWith(dateFilter))
-                            ).length}
+                            {invoiceStats.deleted_memberships || 0}
                         </p>
                         <p className="text-sm text-orange-700">
-                            sur {safeInvoices.filter(inv => 
-                                dateFilter === "" || inv.billDate?.startsWith(dateFilter)
-                            ).length} total
+                            sur {totalInvoices} total
                         </p>
                     </div>
                     <div className="bg-gradient-to-r from-yellow-50 to-yellow-100 p-4 rounded-lg shadow-sm border border-yellow-200">
@@ -657,17 +637,10 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                             )}
                         </p>
                         <p className="text-2xl font-bold text-yellow-800">
-                            {safeInvoices.filter(inv => 
-                                !inv.is_month_paid && 
-                                !inv.membership_deleted && 
-                                (dateFilter === "" || inv.billDate?.startsWith(dateFilter))
-                            ).length}
+                            {pendingMonths}
                         </p>
                         <p className="text-sm text-yellow-700">
-                            sur {safeInvoices.filter(inv => 
-                                !inv.membership_deleted && 
-                                (dateFilter === "" || inv.billDate?.startsWith(dateFilter))
-                            ).length} actifs
+                            sur {activeMemberships} actifs
                         </p>
                     </div>
                 </div>
@@ -707,61 +680,10 @@ const TeacherInvoicesTable = ({ invoices = [], invoiceslinks = [] }) => {
                 </div>
             )}
 
-            {/* Frontend Pagination */}
-            {filteredInvoices.length > itemsPerPage && (
+            {/* Backend Pagination */}
+            {invoiceslinks && invoiceslinks.length > 0 && (
                 <div className="mt-6">
-                    <div className="flex items-center justify-between">
-                        <div className="text-sm text-gray-700">
-                            Affichage de {startItem} à {endItem} sur {filteredInvoices.length} résultats
-                        </div>
-                        <div className="flex items-center space-x-2">
-                            <button
-                                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                                disabled={currentPage === 1}
-                                className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                Précédent
-                            </button>
-                            
-                            {/* Page numbers */}
-                            <div className="flex items-center space-x-1">
-                                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                                    let pageNum;
-                                    if (totalPages <= 5) {
-                                        pageNum = i + 1;
-                                    } else if (currentPage <= 3) {
-                                        pageNum = i + 1;
-                                    } else if (currentPage >= totalPages - 2) {
-                                        pageNum = totalPages - 4 + i;
-                                    } else {
-                                        pageNum = currentPage - 2 + i;
-                                    }
-                                    
-                                    return (
-                                        <button
-                                            key={pageNum}
-                                            onClick={() => setCurrentPage(pageNum)}
-                                            className={`px-3 py-2 text-sm font-medium rounded-md ${
-                                                currentPage === pageNum
-                                                    ? 'bg-blue-600 text-white'
-                                                    : 'text-gray-700 bg-white border border-gray-300 hover:bg-gray-50'
-                                            }`}
-                                        >
-                                            {pageNum}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                            
-                            <button
-                                onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-                                disabled={currentPage === totalPages}
-                                className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                Suivant
-                            </button>
-                        </div>
-                    </div>
+                    <TeacherInvoicesPagination links={invoiceslinks} />
                 </div>
             )}
         </div>

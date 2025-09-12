@@ -75,51 +75,68 @@ if (empty($date)) {
             });
         }
 
-        $invoices = $query->orderBy('created_at', 'desc')->paginate(50);
-
-        // For chart: group by hour and sum amountPaid
-        $chartDataQuery = Invoice::whereDate('created_at', $date)
+        // Get all filtered invoices for statistics calculation (before pagination)
+        $allFilteredInvoices = $query->get();
+        
+        // Calculate statistics from all filtered invoices
+        $totalPaid = $allFilteredInvoices->sum('amountPaid');
+        $totalInvoices = $allFilteredInvoices->count();
+        $averagePayment = $totalInvoices > 0 ? $totalPaid / $totalInvoices : 0;
+        
+        // Find peak hour from all filtered invoices
+        $hourlyData = $allFilteredInvoices->groupBy(function ($invoice) {
+            return $invoice->created_at->format('H');
+        })->map(function ($invoices, $hour) {
+            return [
+                'hour' => (int) $hour,
+                'total' => $invoices->sum('amountPaid')
+            ];
+        });
+        $peakHour = $hourlyData->sortByDesc('total')->first() ?? ['hour' => 0, 'total' => 0];
+        
+        // Calculate previous day total for trend comparison
+        $previousDate = Carbon::parse($date)->subDay()->toDateString();
+        $previousDayQuery = Invoice::whereDate('created_at', $previousDate)
             ->where('amountPaid', '>', 0);
+        
+        // Apply same filters to previous day query
         if ($isAssistant && count($assistantSchoolIds) > 0) {
-            $chartDataQuery->whereHas('student', function ($studentQuery) use ($assistantSchoolIds) {
+            $previousDayQuery->whereHas('student', function ($studentQuery) use ($assistantSchoolIds) {
                 $studentQuery->whereIn('schoolId', $assistantSchoolIds);
             });
         }
-        // Apply all filters to chartDataQuery
         if ($request->filled('membership_id')) {
-            $chartDataQuery->where('membership_id', $request->membership_id);
+            $previousDayQuery->where('membership_id', $request->membership_id);
         }
         if ($request->filled('student_id')) {
-            $chartDataQuery->where('student_id', $request->student_id);
+            $previousDayQuery->where('student_id', $request->student_id);
         }
         if ($request->filled('creator_id')) {
-            $chartDataQuery->where('created_by', $request->creator_id);
+            $previousDayQuery->where('created_by', $request->creator_id);
         }
         if ($request->filled('school_id')) {
-            $chartDataQuery->whereHas('student', function ($studentQuery) use ($request) {
+            $previousDayQuery->whereHas('student', function ($studentQuery) use ($request) {
                 $studentQuery->where('schoolId', $request->school_id);
             });
         }
         if ($request->filled('offer_id')) {
-            $chartDataQuery->whereHas('membership', function ($membershipQuery) use ($request) {
+            $previousDayQuery->whereHas('membership', function ($membershipQuery) use ($request) {
                 $membershipQuery->withTrashed()->where('offer_id', $request->offer_id);
             });
         }
-        $chartData = $chartDataQuery
-            ->selectRaw('HOUR(created_at) as hour, SUM(amountPaid) as total')
-            ->groupBy('hour')
-            ->orderBy('hour')
-            ->get()
-            ->map(function ($item) {
-                return [
-                    'hour' => $item->hour,
-                    'total' => (float) $item->total,
-                    'label' => sprintf('%02d:00', $item->hour)
-                ];
-            });
+        $previousDayTotal = $previousDayQuery->sum('amountPaid');
 
-        // Total for the day
-        $totalPaid = $invoices->sum('amountPaid');
+        // Now paginate the results for display
+        $invoices = $query->orderBy('created_at', 'desc')->paginate(20);
+
+        // For chart: group by hour and sum amountPaid (using the same filtered data)
+        $chartData = $hourlyData->sortBy('hour')->values()->map(function ($item) {
+            return [
+                'hour' => $item['hour'],
+                'total' => (float) $item['total'],
+                'label' => sprintf('%02d:00', $item['hour'])
+            ];
+        });
 
         // For filters: get all memberships with their offers (including deleted ones)
         $membershipsQuery = Membership::withTrashed()->with('offer')->whereHas('offer');
@@ -203,6 +220,13 @@ if (empty($date)) {
             ],
             'chartData' => $chartData,
             'totalPaid' => (float) $totalPaid,
+            'previousDayTotal' => (float) $previousDayTotal,
+            'cashierStats' => [
+                'totalInvoices' => $totalInvoices,
+                'totalPaid' => (float) $totalPaid,
+                'averagePayment' => (float) $averagePayment,
+                'peakHour' => $peakHour,
+            ],
             'date' => $date,
             'filters' => [
                 'memberships' => $memberships,

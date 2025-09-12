@@ -475,34 +475,29 @@ class AttendanceController extends Controller
                         // For now, we'll use a simple approach or you can modify based on your needs
                         
                         // NEW ENHANCED PROFESSIONAL MESSAGE WITH IMPROVED UX
-                        $message = "🏫 *{$schoolName}*  
-                        ───────────────────────────────  
-                        
-                        ✨ السلام عليكم ورحمة الله وبركاته ✨  
-                        
-                        📢 *تنبيه غياب طالب*  
-                        
-                        نود إبلاغكم أن {$genderPronoun} *{$studentName}*  
-                        قد {$verb} عن حصة مادة *{$subject}*  
-                        📅 بتاريخ: *{$date}*  
-                        🏫 بمركز *{$schoolName}*  
-                        
-                        ━━━━━━━━━━━━━━━━━━━━━━  
-                        👨‍🏫 *الأستاذ:* {$teacherName}  
-                        🏷️ *القسم / الفصل:* {$className}  
-                        📊 *نسبة الحضور لهذا العام:* {$attendanceRate}%  
-                        ━━━━━━━━━━━━━━━━━━━━━━  
-                        
-                        📞 *للاستفسار والتواصل:*  
-                        📱 {$schoolPhone}  
-                        📧 {$schoolEmail}  
-                        🕐 *ساعات العمل:* 8:00 - 17:00  
-                        
-                        🙏 نرجو منكم التفضل بالتواصل معنا لتوضيح سبب الغياب،  
-                        حتى نتمكن من متابعة مستواه وضمان استفادته الكاملة من الدروس.  
-                        
-                        🌷 شكراً لتعاونكم  
-                        *إدارة {$schoolName}*";
+                        $message = "🏫 *{$schoolName}* 🌟
+
+السلام عليكم ورحمة الله وبركاته،
+
+📋 *تنبيه غياب الطالب*
+نخبركم أن {$genderPronoun} *{$studentName}* قد {$verb} عن حصة *{$subject}* التي جرت يوم *{$date}* بمركز {$schoolName}.
+
+👨‍🏫 *المعلم:* {$teacherName}
+📅 *الفصل:* {$className}
+📊 *معدل الحضور لهذا العام:* {$attendanceRate}%
+
+📞 *للاستفسار والتواصل:*
+📱 {$schoolPhone}
+Ig: https://www.instagram.com/tikoschool?igsh=MXg1NjJwam80eTNoMw%3D%3D&utm_source=qr
+
+🕐 
+ساعات العمل:*من 10:00 إلى 13:00
+ومن 16:30 الى *22:30*
+
+نرجو منكم التفضل بالتواصل معنا لتوضيح سبب الغياب، حتى نتمكن من متابعة مستواه وضمان استفادته الكاملة من الدروس.
+
+شكراً لتعاونكم 🌷
+*إدارة {$schoolName}*";
                                                 
                         // OLD SIMPLE MESSAGE (COMMENTED FOR EASY ROLLBACK)
                         /*
@@ -945,7 +940,29 @@ class AttendanceController extends Controller
         // For now, we'll use a simple approach or you can modify based on your needs
         
         // NEW ENHANCED PROFESSIONAL MESSAGE WITH IMPROVED UX
-        $message = "🏫 *{$schoolName}* 🌟\n\nالسلام عليكم ورحمة الله وبركاته،\n\n📋 *تنبيه غياب الطالب*\nنخبركم أن {$genderPronoun} *{$studentName}* قد {$verb} عن حصة *{$subject}* التي جرت يوم *{$date}* بمركز {$schoolName}.\n\n👨‍🏫 *المعلم:* {$teacherName}\n📅 *الفصل:* {$className}\n📊 *معدل الحضور لهذا العام:* {$attendanceRate}%\n\n📞 *للاستفسار والتواصل:*\n📱 {$schoolPhone}\n📧 {$schoolEmail}\n🕐 *ساعات العمل:* 8:00 - 17:00\n\nنرجو منكم التفضل بالتواصل معنا لتوضيح سبب الغياب، حتى نتمكن من متابعة مستواه وضمان استفادته الكاملة من الدروس.\n\nشكراً لتعاونكم 🌷\n*إدارة {$schoolName}*";
+        $message = "🏫 *{$schoolName}* 🌟
+
+السلام عليكم ورحمة الله وبركاته،
+
+📋 *تنبيه غياب الطالب*
+نخبركم أن {$genderPronoun} *{$studentName}* قد {$verb} عن حصة *{$subject}* التي جرت يوم *{$date}* بمركز {$schoolName}.
+
+👨‍🏫 *المعلم:* {$teacherName}
+📅 *الفصل:* {$className}
+📊 *معدل الحضور لهذا العام:* {$attendanceRate}%
+
+📞 *للاستفسار والتواصل:*
+📱 {$schoolPhone}
+Ig: https://www.instagram.com/tikoschool?igsh=MXg1NjJwam80eTNoMw%3D%3D&utm_source=qr
+
+🕐 
+ساعات العمل:*من 10:00 إلى 13:00
+ومن 16:30 الى *22:30*
+
+نرجو منكم التفضل بالتواصل معنا لتوضيح سبب الغياب، حتى نتمكن من متابعة مستواه وضمان استفادته الكاملة من الدروس.
+
+شكراً لتعاونكم 🌷
+*إدارة {$schoolName}*";
         
         // OLD SIMPLE MESSAGE (COMMENTED FOR EASY ROLLBACK)
         /*

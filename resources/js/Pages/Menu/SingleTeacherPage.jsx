@@ -13,10 +13,13 @@ const SingleTeacherPage = ({
     subjects,
     schools,
     invoices,
+    invoiceStats = {},
     selectedSchool,
     teacherSchools = [],
     recurringTransactions = [],
     transactions,
+    filterOptions = {},
+    filters = {},
 }) => {
     const role = usePage().props.auth.user.role;
     const isAdmin = role === "admin";
@@ -216,13 +219,16 @@ const SingleTeacherPage = ({
                     <Suspense fallback={<span>Chargement...</span>}>
                         <TeacherProfile
                             invoices={
-                                invoices && invoices.data ? invoices.data : []
+                                invoices && invoices.data ? Object.values(invoices.data) : (invoices || [])
                             }
                             paginate={
                                 invoices && invoices.links ? invoices.links : []
                             }
                             transactions={transactions}
                             teacher={teacher}
+                            filterOptions={filterOptions}
+                            filters={filters}
+                            invoiceStats={invoiceStats}
                         />
                     </Suspense>
                 </div>

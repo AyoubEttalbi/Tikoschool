@@ -175,10 +175,28 @@ const DotsIcon = ({ className }) => (
   </svg>
 )
 
+const ExternalLinkIcon = ({ className }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+    />
+  </svg>
+)
+
 const CashierPage = ({
   invoices = [],
   chartData = [],
   totalPaid = 0,
+  previousDayTotal = 0,
+  cashierStats = {
+    totalInvoices: 0,
+    totalPaid: 0,
+    averagePayment: 0,
+    peakHour: { hour: 0, total: 0 }
+  },
   date = new Date().toISOString().slice(0, 10),
   filters = { memberships: [], students: [], creators: [], schools: [], offers: [] },
   currentFilters = {
@@ -189,7 +207,6 @@ const CashierPage = ({
     school_id: "",
     offer_id: "",
   },
-  previousDayTotal = 0,
   pagination = null,
   role = null,
 }) => {
@@ -240,11 +257,11 @@ const CashierPage = ({
     ],
   }
 
-  // Calculate trends and statistics
-  const dailyChange = totalPaid - previousDayTotal
+  // Calculate trends and statistics using backend data
+  const dailyChange = cashierStats.totalPaid - previousDayTotal
   const dailyChangePercent = previousDayTotal > 0 ? (dailyChange / previousDayTotal) * 100 : 0
-  const averagePayment = invoices.length > 0 ? totalPaid / invoices.length : 0
-  const peakHour = chartData.reduce((max, curr) => (curr.total > max.total ? curr : max), { hour: 0, total: 0 })
+  const averagePayment = cashierStats.averagePayment
+  const peakHour = cashierStats.peakHour
 
   // Filter invoices based on search
   const filteredInvoices = invoices.filter(
@@ -572,7 +589,7 @@ const CashierPage = ({
             <div className="flex items-center justify-between">
               <div className="space-y-2">
                 <p className="text-sm font-medium text-slate-600">Total encaissé</p>
-                <p className="text-3xl font-bold text-green-700">{totalPaid.toLocaleString()} DH</p>
+                <p className="text-3xl font-bold text-green-700">{cashierStats.totalPaid.toLocaleString()} DH</p>
                 <div className="flex items-center gap-1 text-sm">
                   {dailyChange >= 0 ? (
                     <ArrowUpIcon className="h-4 w-4 text-green-600" />
@@ -595,7 +612,7 @@ const CashierPage = ({
             <div className="flex items-center justify-between">
               <div className="space-y-2">
                 <p className="text-sm font-medium text-slate-600">Factures</p>
-                <p className="text-3xl font-bold text-blue-700">{invoices.length}</p>
+                <p className="text-3xl font-bold text-blue-700">{cashierStats.totalInvoices}</p>
                 <p className="text-sm text-slate-500">{filteredInvoices.length} affichées</p>
               </div>
               <div className="p-3 bg-blue-100 rounded-xl">
@@ -624,7 +641,7 @@ const CashierPage = ({
               <div className="space-y-2">
                 <p className="text-sm font-medium text-slate-600">Heure de pointe</p>
                 <p className="text-3xl font-bold text-orange-700">{peakHour.hour.toString().padStart(2, "0")}h</p>
-                <p className="text-sm text-slate-500">{peakHour.total} DH encaissés</p>
+                <p className="text-sm text-slate-500">{peakHour.total.toLocaleString()} DH encaissés</p>
               </div>
               <div className="p-3 bg-orange-100 rounded-xl">
                 <ClockIcon className="h-8 w-8 text-orange-600" />
@@ -695,10 +712,13 @@ const CashierPage = ({
                 <thead className="bg-slate-50/50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider w-16">
-                      #
+                      N°
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                      Élève
+                      <span className="flex items-center gap-1">
+                        Élève
+                        <ExternalLinkIcon className="h-3 w-3" />
+                      </span>
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
                       Adhésion
@@ -718,12 +738,23 @@ const CashierPage = ({
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-200">
-                  {filteredInvoices.map((invoice, index) => (
+                  {filteredInvoices.map((invoice, index) => {
+                    // Calculate global position based on pagination
+                    const globalIndex = pagination ? 
+                      (pagination.current_page - 1) * pagination.per_page + index + 1 : 
+                      index + 1;
+                    return (
                     <tr key={invoice.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-500">{index + 1}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-500">{globalIndex}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         {invoice.student ? (
-                          <div className="font-medium text-slate-900">{invoice.student.name}</div>
+                          <a 
+                            href={route('students.show', { student: invoice.student.id })}
+                            className="inline-flex items-center gap-1 font-medium text-blue-600 hover:text-blue-800 hover:underline transition-colors"
+                          >
+                            {invoice.student.name}
+                            <ExternalLinkIcon className="h-3 w-3" />
+                          </a>
                         ) : (
                           <span className="text-slate-400">-</span>
                         )}
@@ -787,7 +818,8 @@ const CashierPage = ({
                         )}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
               {/* Pagination Controls */}

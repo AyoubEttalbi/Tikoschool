@@ -7,12 +7,12 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 class TransactionController extends Controller
 {
@@ -2119,6 +2119,12 @@ public function processMonthRecurringTransactions(Request $request)
             }
         }
         
+        // Clean up temporary tracking arrays
+        foreach ($earnings as &$earning) {
+            unset($earning['_processed_invoices']);
+        }
+        
+        
         // Return as array
         return response()->json(array_values($earnings));
     }
@@ -2134,9 +2140,14 @@ public function processMonthRecurringTransactions(Request $request)
         $month = $request->input('month'); // format: YYYY-MM
         $schoolId = $request->input('school_id');
         $classId = $request->input('class_id');
-        if (!$teacherId || !$month) {
-            return response()->json(['error' => 'teacher_id and month are required'], 400);
+        $page = $request->input('page', 1);
+        $perPage = $request->input('per_page', 10);
+        
+        if (!$teacherId) {
+            return response()->json(['error' => 'teacher_id is required'], 400);
         }
+        
+        // First, get all invoices that match the basic criteria
         $invoices = \App\Models\Invoice::whereNull('deleted_at')
             ->whereColumn('amountPaid', '>=', 'totalAmount')
             ->when($schoolId, function($q) use ($schoolId) {
@@ -2171,8 +2182,8 @@ public function processMonthRecurringTransactions(Request $request)
                 $selectedMonths = [$invoice->billDate ? $invoice->billDate->format('Y-m') : null];
             }
             
-            // Filter by month if specified
-            if (!empty($month) && !in_array($month, $selectedMonths)) continue;
+            // Filter by month if specified (skip if month is "all")
+            if ($month && !empty($month) && $month !== "all" && !in_array($month, $selectedMonths)) continue;
             
             $teacherShare = null;
             foreach ($membership->teachers as $teacherData) {
@@ -2205,6 +2216,24 @@ public function processMonthRecurringTransactions(Request $request)
                 'teacherShare' => $teacherShare,
             ];
         }
-        return response()->json($result);
+        
+        // Apply manual pagination to the filtered results
+        $total = count($result);
+        $lastPage = ceil($total / $perPage);
+        $offset = ($page - 1) * $perPage;
+        $paginatedResult = array_slice($result, $offset, $perPage);
+        
+        
+        return response()->json([
+            'data' => $paginatedResult,
+            'pagination' => [
+                'current_page' => $page,
+                'last_page' => $lastPage,
+                'per_page' => $perPage,
+                'total' => $total,
+                'from' => $total > 0 ? $offset + 1 : 0,
+                'to' => min($offset + $perPage, $total),
+            ]
+        ]);
     }
 }

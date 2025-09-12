@@ -58,6 +58,12 @@ const InvoicesForm = ({
         data?.amountPaid || 0,
     );
 
+    // Track if user is actively typing in amountPaid field
+    const [isTypingAmountPaid, setIsTypingAmountPaid] = useState(false);
+    
+    // Track invalid input attempts
+    const [showInvalidInput, setShowInvalidInput] = useState(false);
+
     // Format date to display in a more readable way
     const formatDateForDisplay = (dateString) => {
         const date = new Date(dateString);
@@ -258,13 +264,17 @@ const InvoicesForm = ({
     const restAmount = totalAmount - (amountPaid ? Math.round(Number(amountPaid)) : 0);
 
     // Keep the form value in sync with the computed totalAmount and restAmount
+    // Only update if the user is not actively typing in amountPaid field
     useEffect(() => {
         setValue("totalAmount", computedTotalAmount);
     }, [computedTotalAmount, setValue]);
 
     useEffect(() => {
-        setValue("rest", restAmount);
-    }, [restAmount, setValue]);
+        // Only update rest amount if user is not actively typing
+        if (!isTypingAmountPaid) {
+            setValue("rest", restAmount);
+        }
+    }, [restAmount, setValue, isTypingAmountPaid]);
 
     // Function to calculate the billing date (date debut) and end date (date fin)
     const calculateBillingDate = () => {
@@ -410,6 +420,48 @@ const InvoicesForm = ({
     const handleAutoFill = () => {
         setValue("amountPaid", totalAmount);
         setValue("rest", 0);
+        setIsTypingAmountPaid(false); // Reset typing state after auto-fill
+    };
+
+    // Handle amountPaid input events
+    const handleAmountPaidFocus = () => {
+        setIsTypingAmountPaid(true);
+    };
+
+    const handleAmountPaidBlur = () => {
+        setIsTypingAmountPaid(false);
+        // Update rest amount when user finishes typing
+        const currentAmountPaid = watch("amountPaid");
+        const newRestAmount = totalAmount - (currentAmountPaid ? Math.round(Number(currentAmountPaid)) : 0);
+        setValue("rest", newRestAmount);
+    };
+
+    // Handle amountPaid input change with debouncing and validation
+    const handleAmountPaidChange = (e) => {
+        setIsTypingAmountPaid(true);
+        
+        // Allow only numbers, decimal point, and empty string
+        const value = e.target.value;
+        const isValidInput = /^[0-9]*\.?[0-9]*$/.test(value);
+        
+        if (isValidInput || value === '') {
+            // Update the form value
+            setValue("amountPaid", value);
+            setShowInvalidInput(false);
+            
+            // Debounced update of rest amount
+            setTimeout(() => {
+                if (!isTypingAmountPaid) {
+                    const currentAmountPaid = value;
+                    const newRestAmount = totalAmount - (currentAmountPaid ? Math.round(Number(currentAmountPaid)) : 0);
+                    setValue("rest", newRestAmount);
+                }
+            }, 500);
+        } else {
+            // Show invalid input warning
+            setShowInvalidInput(true);
+            setTimeout(() => setShowInvalidInput(false), 2000);
+        }
     };
 
     // Handle partial month checkbox change (must be inside component)
@@ -755,7 +807,7 @@ const InvoicesForm = ({
                                     Montant total (DH)
                                 </label>
                                 <input
-                                    type="number"
+                                    type="text"
                                     id="totalAmount"
                                     {...register("totalAmount")}
                                     className="p-2 border border-gray-200 rounded-md bg-gray-100"
@@ -788,17 +840,37 @@ const InvoicesForm = ({
                                     className="text-sm font-medium text-gray-700"
                                 >
                                     Montant payé (DH)
+                                    {isTypingAmountPaid && (
+                                        <span className="ml-2 text-xs text-blue-600 font-normal">
+                                            (Saisie en cours...)
+                                        </span>
+                                    )}
                                 </label>
+                                <p className="text-xs text-gray-500">
+                                    Entrez uniquement des chiffres (ex: 150 ou 150.50)
+                                </p>
+                                {showInvalidInput && (
+                                    <p className="text-xs text-red-500 animate-pulse">
+                                        ⚠️ Seuls les chiffres et le point décimal sont autorisés
+                                    </p>
+                                )}
 
                                 {/* Input Container */}
                                 <div className="relative">
                                     {/* Amount Paid Input */}
                                     <input
-                                        type="number"
+                                        type="text"
                                         id="amountPaid"
                                         placeholder="0"
                                         {...register("amountPaid")}
-                                        className="block w-full p-2 pr-10 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        onChange={handleAmountPaidChange}
+                                        onFocus={handleAmountPaidFocus}
+                                        onBlur={handleAmountPaidBlur}
+                                        className={`block w-full p-2 pr-10 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                                            showInvalidInput 
+                                                ? 'border-red-300 bg-red-50' 
+                                                : 'border-gray-300'
+                                        }`}
                                     />
 
                                     {/* Button with Icon */}
@@ -835,7 +907,7 @@ const InvoicesForm = ({
                                     Montant restant (DH)
                                 </label>
                                 <input
-                                    type="number"
+                                    type="text"
                                     id="rest"
                                     {...register("rest")}
                                     className="p-2 border border-gray-200 rounded-md bg-gray-100"
