@@ -49,7 +49,7 @@ const TableSearch = ({ routeName, filters, value, onChange }) => {
                 date: finalDate,
                 search: searchTerm,
             },
-            { preserveState: true },
+            { preserveState: true, replace: true },
         );
     };
 

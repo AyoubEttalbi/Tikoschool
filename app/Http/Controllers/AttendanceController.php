@@ -986,8 +986,8 @@ Ig: https://www.instagram.com/tikoschool?igsh=MXg1NjJwam80eTNoMw%3D%3D&utm_sourc
         $teacher = \App\Models\Teacher::findOrFail($request->teacher_id);
         $class = \App\Models\Classes::with('level')->findOrFail($request->class_id);
         
-        // Get all students in the class first
-        $allStudents = $class->students()->orderBy('lastName')->get();
+        // Get all students in the class first, filtering by active status
+        $allStudents = $class->students()->where('status', 'active')->orderBy('lastName')->get();
         
         // Filter students to only include those taught by the selected teacher through memberships
         $students = $allStudents->filter(function ($student) use ($teacher) {
@@ -999,31 +999,14 @@ Ig: https://www.instagram.com/tikoschool?igsh=MXg1NjJwam80eTNoMw%3D%3D&utm_sourc
                 if (is_array($teacherArr)) {
                     foreach ($teacherArr as $t) {
                         if ((string)($t['teacherId'] ?? null) === (string)$teacher->id) {
-                            Log::debug('Student is taught by teacher (AbsenceList)', [
-                                'student_id' => $student->id,
-                                'student_name' => $student->firstName . ' ' . $student->lastName,
-                                'teacher_id' => $teacher->id,
-                                'membership_id' => $membership->id
-                            ]);
                             return true; // Student is taught by this teacher
                         }
                     }
                 }
             }
-            Log::debug('Student is NOT taught by teacher (AbsenceList)', [
-                'student_id' => $student->id,
-                'student_name' => $student->firstName . ' ' . $student->lastName,
-                'teacher_id' => $teacher->id
-            ]);
             return false; // Student is not taught by this teacher
         });
 
-        Log::info('AbsenceList student filtering results', [
-            'total_students_in_class' => $allStudents->count(),
-            'filtered_students_by_teacher' => $students->count(),
-            'teacher_id' => $teacher->id,
-            'class_id' => $class->id
-        ]);
         
         $date = $request->input('date', now()->format('Y-m-d'));
 

@@ -74,6 +74,7 @@ const TeacherInvoicesTable = ({
             router.get(route('teachers.show', { teacher: teacherId }), filterParams, {
                 preserveState: true,
                 preserveScroll: true,
+                replace: true,
                 onFinish: () => setIsLoading(false),
             });
         }

@@ -1,4 +1,4 @@
-import React, { Suspense } from "react";
+import React, { Suspense, useEffect } from "react";
 const Announcements = React.lazy(() => import("@/Pages/Menu/Announcements/Announcements"));
 const BigCalendar = React.lazy(() => import("@/Components/BigCalender"));
 const FormModal = React.lazy(() => import("@/Components/FormModal"));
@@ -29,6 +29,19 @@ const SingleTeacherPage = ({
     const handleSchoolChange = () => {
         router.visit("/select-profile");
     };
+
+    // Clean up browser history for proper back button behavior
+    useEffect(() => {
+        const referrer = document.referrer;
+        const isFromTeachersList = referrer.includes('/teachers') && !referrer.includes('/teachers/');
+        
+        if (isFromTeachersList) {
+            // Replace the current history entry with a clean teachers list URL
+            // This ensures the back button goes directly to the clean teachers list
+            const cleanTeachersUrl = route('teachers.index');
+            window.history.replaceState(null, '', cleanTeachersUrl);
+        }
+    }, []);
 
     return (
         <div className="flex-1 p-4 flex flex-col gap-4 xl:flex-row">
@@ -181,7 +194,7 @@ const SingleTeacherPage = ({
                                     type="update"
                                     data={teacher}
                                     schools={schools}
-                                    groups={classes}
+                                    classes={classes}
                                     subjects={subjects}
                                     icon={"updateIcon2"}
                                 />
