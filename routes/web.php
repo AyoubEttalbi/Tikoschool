@@ -87,7 +87,6 @@ Route::middleware('auth')->group(function () {
     // Methods that need authentication but aren't specific to admin
     Route::resources([
         'students' => StudentsController::class,
-        'classes' => ClassesController::class,
         'invoices' => InvoiceController::class,
         'memberships' => MembershipController::class,
         'results' => ResultsController::class,
@@ -112,7 +111,6 @@ Route::middleware('auth')->group(function () {
         Route::get('/classes/create', [ClassesController::class, 'create'])->name('classes.create');
         Route::get('/classes/{class}/edit', [ClassesController::class, 'edit'])->name('classes.edit');
         Route::put('/classes/{class}', [ClassesController::class, 'update'])->name('classes.update');
-        Route::patch('/classes/{class}', [ClassesController::class, 'update']);
         Route::delete('/classes/{class}', [ClassesController::class, 'destroy'])->name('classes.destroy');
         
         // Teachers routes
