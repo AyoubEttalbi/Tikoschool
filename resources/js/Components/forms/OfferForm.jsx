@@ -38,7 +38,7 @@ const OfferForm = ({ type, data, setOpen, subjects, levels }) => {
             router.post("/offers", formDataWithSubjectsAndPercentage, {
                 onSuccess: () => {
                     setShowConfetti(true);
-                    setTimeout(() => setOpen(false), 2000);
+                    setOpen(false);
                 },
             });
         }
