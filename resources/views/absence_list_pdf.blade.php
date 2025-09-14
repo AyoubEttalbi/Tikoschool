@@ -22,6 +22,9 @@
         .st-paid { color: #1a7f37; font-size: 13px; }
         .st-unpaid { color: #a00; }
         .st-rest { color: #e67e22; }
+        table.absence-list td.assurance { font-weight: bold; }
+        .assurance-paid { color: #1a7f37; font-size: 13px; }
+        .assurance-unpaid { color: #a00; }
     </style>
 </head>
 <body>
@@ -51,6 +54,7 @@
                 <th class="name">Name</th>
                 <th class="billing">Billing Date</th>
                 <th style="width: 18px;">ST</th>
+                <th style="width: 18px;">AS</th>
                 @php
                     // Determine number of days in the selected month
                     $month = 1; $year = date('Y');
@@ -89,6 +93,13 @@
                         }
                         echo implode('', $icons) ?: '<span style="color:#bbb;">-</span>';
                     @endphp
+                </td>
+                <td class="assurance">
+                    @if($student->assurance == 1)
+                        <span class="assurance-paid">&#10003;</span>
+                    @else
+                        <span class="assurance-unpaid">&#10007;</span>
+                    @endif
                 </td>
                 @for ($d = 1; $d <= $daysInMonth; $d++)
                     <td>
