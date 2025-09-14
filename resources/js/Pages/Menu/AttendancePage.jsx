@@ -68,12 +68,19 @@ const AttendancePage = ({
 
     // Filtered students by selected subject - only show students taught by this teacher in this subject
     const filteredStudents = useMemo(() => {
-        if (!selectedSubject) return students || [];
+        if (!students || students.length === 0) return [];
         
-        return (students || []).filter(student => {
-            // Only show students who have this subject and are taught by this teacher
+        return students.filter(student => {
+            // Check if student is taught by this teacher
+            const isTaughtByTeacher = String(student.teacher_id) === String(memoizedFilters.teacher_id);
+            
+            // If no subject is selected, show all students taught by this teacher
+            if (!selectedSubject) {
+                return isTaughtByTeacher;
+            }
+            
+            // If subject is selected, check if student has this subject
             const hasSubject = (student.subjects || []).includes(selectedSubject);
-            const isTaughtByTeacher = student.teacher_id === memoizedFilters.teacher_id;
             
             // Debug logging
             if (process.env.NODE_ENV === 'development') {
@@ -85,11 +92,12 @@ const AttendancePage = ({
                     studentSubjects: student.subjects,
                     studentTeacherId: student.teacher_id,
                     filterTeacherId: memoizedFilters.teacher_id,
-                    selectedSubject
+                    selectedSubject,
+                    willShow: selectedSubject ? (hasSubject && isTaughtByTeacher) : isTaughtByTeacher
                 });
             }
             
-            return hasSubject && isTaughtByTeacher;
+            return selectedSubject ? (hasSubject && isTaughtByTeacher) : isTaughtByTeacher;
         });
     }, [students, selectedSubject, memoizedFilters.teacher_id]);
 
@@ -146,7 +154,8 @@ const AttendancePage = ({
             setAttendanceData(newAttendanceData);
 
             // Pre-select subject if only one subject is available for the teacher in this class
-            if (allSubjects.length === 1 && !memoizedFilters.subject && selectedSubject !== allSubjects[0]) {
+            if (allSubjects.length === 1 && !selectedSubject) {
+                console.log('Auto-selecting subject:', allSubjects[0]);
                 setSelectedSubject(allSubjects[0]);
             }
         } else {
@@ -154,6 +163,21 @@ const AttendancePage = ({
             setAttendanceData([]);
         }
     }, [filteredStudents, memoizedFilters.date, memoizedFilters.class_id, memoizedFilters.subject, allSubjects.length]);
+
+    // Debug useEffect to track state changes
+    useEffect(() => {
+        if (process.env.NODE_ENV === 'development') {
+            console.log('AttendancePage state:', {
+                studentsCount: students?.length || 0,
+                filteredStudentsCount: filteredStudents?.length || 0,
+                selectedSubject,
+                allSubjects,
+                teacherId: memoizedFilters.teacher_id,
+                classId: memoizedFilters.class_id,
+                attendanceDataCount: attendanceData.length
+            });
+        }
+    }, [students, filteredStudents, selectedSubject, allSubjects, memoizedFilters.teacher_id, memoizedFilters.class_id, attendanceData]);
 
     // Handle subject change without causing infinite loops
     const handleSubjectChange = (newSubject) => {
