@@ -27,6 +27,9 @@ class Kernel extends ConsoleKernel
             $service = new MembershipStatsService();
             $service->cleanupOldStats(2); // Keep 2 years of stats
         })->monthlyOn(1, '03:00');
+        
+        // Schedule payment consistency check to run daily at 5 AM
+        $schedule->command('payments:check-consistency --fix')->dailyAt('05:00');
     }
 
     /**

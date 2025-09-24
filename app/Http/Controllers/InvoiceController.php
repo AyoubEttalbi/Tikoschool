@@ -154,9 +154,20 @@ class InvoiceController extends Controller
             // Log the activity
             $this->logActivity('created', $invoice, null, $invoice->toArray());
 
-            // Process teacher membership payments using the new service
+            // Process teacher membership payments using the new service with validation
             $paymentService = new \App\Services\TeacherMembershipPaymentService();
-            $paymentService->processInvoicePayment($invoice, $validated);
+            $paymentResult = $paymentService->processInvoicePayment($invoice, $validated);
+            
+            // Validate that payment records were created successfully
+            if (!$paymentResult || !$paymentResult['success']) {
+                throw new \Exception('Failed to create teacher payment records: ' . implode(', ', $paymentResult['errors'] ?? ['Unknown error']));
+            }
+            
+            Log::info('Payment records created successfully', [
+                'invoice_id' => $invoice->id,
+                'created_records' => $paymentResult['created_records'] ?? 0,
+                'updated_records' => $paymentResult['updated_records'] ?? 0
+            ]);
 
             // Always update start_date. Update end_date based on actual paid period
             $updateData = [
@@ -434,7 +445,26 @@ class InvoiceController extends Controller
             // --- TEACHER MEMBERSHIP PAYMENT LOGIC ---
             // The payment service now handles updates incrementally without full reversal
             $paymentService = new \App\Services\TeacherMembershipPaymentService();
-            $paymentService->processInvoicePayment($invoice, $validated);
+            $paymentResult = $paymentService->processInvoicePayment($invoice, $validated);
+            
+            // Log warning if payment processing has issues but don't fail the update
+            if (!$paymentResult || !$paymentResult['success']) {
+                Log::warning('Payment processing had issues during invoice update', [
+                    'invoice_id' => $invoice->id,
+                    'errors' => $paymentResult['errors'] ?? ['Unknown error']
+                ]);
+            }
+            
+            // If invoice is fully paid, reactivate any inactive payment records
+            if ($invoice->amountPaid >= $invoice->totalAmount) {
+                $reactivationResult = $paymentService->reactivatePaymentRecords($invoice);
+                if ($reactivationResult['success'] && $reactivationResult['reactivated_records'] > 0) {
+                    Log::info('Reactivated payment records for fully paid invoice', [
+                        'invoice_id' => $invoice->id,
+                        'reactivated_count' => $reactivationResult['reactivated_records']
+                    ]);
+                }
+            }
             // --- END TEACHER MEMBERSHIP PAYMENT LOGIC ---
 
             // Always update start_date. Update end_date based on actual paid period
