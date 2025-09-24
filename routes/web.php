@@ -446,4 +446,4 @@ Route::middleware('auth')->get('/classesForFilters', [ClassesController::class, 
 // Global fallback route: redirect any not found route to dashboard
 Route::fallback(function () {
     return redirect('/dashboard');
-});a
+});
