@@ -81,6 +81,38 @@ class AttendanceController extends Controller
             $studentsQuery->where('schoolId', $selectedSchoolId);
             Log::debug('Filtering students by school ID', ['schoolId' => $selectedSchoolId]);
         }
+
+        // Determine the current teacher context
+        $currentTeacherId = null;
+        if ($request->user()->role === 'teacher') {
+            $currentTeacherId = isset($teacher) && $teacher ? $teacher->id : null;
+        } else {
+            $currentTeacherId = $teacherId ?: null;
+        }
+
+        // Selected subject from request (if any)
+        $selectedSubject = $request->input('subject');
+
+        // Preload existing attendances map for quick lookup
+        $existingAttendances = collect();
+        try {
+            $attendancesQuery = Attendance::whereDate('date', $date);
+            if ($classId) {
+                $attendancesQuery->where('classId', $classId);
+            }
+            if ($currentTeacherId) {
+                $attendancesQuery->where('teacher_id', $currentTeacherId);
+            }
+            $existingAttendancesRaw = $attendancesQuery->get();
+            $existingAttendances = $existingAttendancesRaw->groupBy(function ($attendance) {
+                return $attendance->student_id . '|' . $attendance->teacher_id . '|' . ($attendance->subject ?? '');
+            });
+        } catch (\Exception $e) {
+            Log::warning('Failed to preload existing attendances', [
+                'error' => $e->getMessage()
+            ]);
+            $existingAttendances = collect();
+        }
         if ($classId) {
             $studentsQuery->where('classId', $classId);
             Log::debug('Filtering students by class ID', ['classId' => $classId]);
