@@ -91,6 +91,23 @@ class InvoiceController extends Controller
         DB::beginTransaction();
 
         try {
+            // Normalize membership_id and student_id before validation
+            $incomingMembershipId = $request->input('membership_id', $request->input('membershipId'));
+            if ($incomingMembershipId !== null && $incomingMembershipId !== '') {
+                if (is_string($incomingMembershipId) && is_numeric($incomingMembershipId)) {
+                    $incomingMembershipId = (int) $incomingMembershipId;
+                }
+                $request->merge(['membership_id' => $incomingMembershipId]);
+            }
+
+            // If student_id is missing but membership_id is provided, infer student_id from membership
+            if (!$request->filled('student_id') && $request->filled('membership_id')) {
+                $membershipForStudent = Membership::withTrashed()->find($request->input('membership_id'));
+                if ($membershipForStudent) {
+                    $request->merge(['student_id' => $membershipForStudent->student_id]);
+                }
+            }
+
             // Validate the incoming request
 
 
@@ -159,7 +176,8 @@ class InvoiceController extends Controller
             $paymentResult = $paymentService->processInvoicePayment($invoice, $validated);
             
             // Validate that payment records were created successfully
-            if (!$paymentResult || !$paymentResult['success']) {
+            if (!$paymentResult || !$paymentResult['success'] || (($paymentResult['created_records'] ?? 0) + ($paymentResult['updated_records'] ?? 0)) === 0) {
+                \Log::error('No payment records created', ['invoice_id' => $invoice->id, 'result' => $paymentResult]);
                 throw new \Exception('Failed to create teacher payment records: ' . implode(', ', $paymentResult['errors'] ?? ['Unknown error']));
             }
             
@@ -372,6 +390,23 @@ class InvoiceController extends Controller
         DB::beginTransaction();
 
         try {
+            // Normalize membership_id and student_id before validation
+            $incomingMembershipId = $request->input('membership_id', $request->input('membershipId'));
+            if ($incomingMembershipId !== null && $incomingMembershipId !== '') {
+                if (is_string($incomingMembershipId) && is_numeric($incomingMembershipId)) {
+                    $incomingMembershipId = (int) $incomingMembershipId;
+                }
+                $request->merge(['membership_id' => $incomingMembershipId]);
+            }
+
+            // If student_id is missing but membership_id is provided, infer student_id from membership
+            if (!$request->filled('student_id') && $request->filled('membership_id')) {
+                $membershipForStudent = Membership::withTrashed()->find($request->input('membership_id'));
+                if ($membershipForStudent) {
+                    $request->merge(['student_id' => $membershipForStudent->student_id]);
+                }
+            }
+
             // Validate the incoming request
             $validated = $request->validate([
                 'membership_id' => 'integer',
@@ -448,11 +483,12 @@ class InvoiceController extends Controller
             $paymentResult = $paymentService->processInvoicePayment($invoice, $validated);
             
             // Log warning if payment processing has issues but don't fail the update
-            if (!$paymentResult || !$paymentResult['success']) {
-                Log::warning('Payment processing had issues during invoice update', [
+            if (!$paymentResult || !$paymentResult['success'] || (($paymentResult['created_records'] ?? 0) + ($paymentResult['updated_records'] ?? 0)) === 0) {
+                Log::error('Failed to process teacher payment records during invoice update', [
                     'invoice_id' => $invoice->id,
                     'errors' => $paymentResult['errors'] ?? ['Unknown error']
                 ]);
+                throw new \Exception('Failed to process teacher payment records during invoice update');
             }
             
             // If invoice is fully paid, reactivate any inactive payment records
