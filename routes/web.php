@@ -216,6 +216,8 @@ Route::middleware('auth')->group(function () {
             Route::get('/employee-transactions/{employee}', 'employeeTransactions')->name('employee.transactions');
             Route::get('/employees/{employee}/transactions', 'transactions')->name('employees.transactions');
             Route::get('/admin-earnings-dashboard', 'getAdminEarningsDashboard')->name('admin.earnings.dashboard');
+            Route::get('/filtered-monthly-stats', 'getFilteredMonthlyStats')->name('admin.filtered.monthly.stats');
+            Route::get('/filtered-employee-data', 'getFilteredEmployeeData')->name('admin.filtered.employee.data');
         });
 
         // Payments page
@@ -375,6 +377,26 @@ Route::get('/debug-session', function () {
     return response()->json(session()->all());
 });
 
+// Debug route for mobile authentication testing
+Route::get('/debug-mobile-auth', function (Request $request) {
+    $user = auth()->user();
+    return response()->json([
+        'authenticated' => auth()->check(),
+        'user' => $user ? [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'role' => $user->role
+        ] : null,
+        'session_id' => $request->session()->getId(),
+        'user_agent' => $request->header('User-Agent'),
+        'is_mobile' => strpos($request->header('User-Agent'), 'Mobile') !== false,
+        'ip' => $request->ip(),
+        'cookies' => $request->cookies->all(),
+        'session_data' => $request->session()->all()
+    ]);
+});
+
 // Admin impersonation routes (available in all environments, protected)
 Route::middleware(['auth', AdminMiddleware::class])->group(function () {
     Route::post('/admin/view-as/{user}', [AdminController::class, 'viewAs'])->name('admin.view-as');
@@ -424,4 +446,4 @@ Route::middleware('auth')->get('/classesForFilters', [ClassesController::class, 
 // Global fallback route: redirect any not found route to dashboard
 Route::fallback(function () {
     return redirect('/dashboard');
-});
+});a

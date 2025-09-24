@@ -824,6 +824,9 @@ protected function transformStudentData($student)
                 }
             }
 
+            // Delete memberships and invoices before deleting the student
+            $student->memberships()->delete();
+            $student->invoices()->delete();
             // Delete the student
             $student->delete();
 

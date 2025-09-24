@@ -439,7 +439,6 @@ class TeacherController extends Controller
             
             // Calculate total students for this teacher (including deleted memberships)
             $totalStudents = Membership::withTrashed()
-                ->whereIn('payment_status', ['paid', 'pending'])
                 ->whereJsonContains('teachers', [['teacherId' => (string) $teacher->id]])
                 ->distinct('student_id')
                 ->count('student_id');
@@ -454,10 +453,23 @@ class TeacherController extends Controller
                 }, 'student', 'student.school', 'student.class', 'offer'])
                 ->get();
             
+            // Debug: Log membership filtering
+            Log::info('Membership filtering results', [
+                'teacher_id' => $teacher->id,
+                'total_memberships_found' => $memberships->count(),
+                'memberships_with_invoices' => $memberships->filter(function($m) { return $m->invoices->count() > 0; })->count(),
+                'total_invoices_found' => $memberships->sum(function($m) { return $m->invoices->count(); }),
+            ]);
+            
             // Extract invoices from memberships and calculate the teacher's share by month
             $invoices = $memberships->flatMap(function ($membership) use ($teacher, $filters) {
                 // Skip if the student doesn't exist
                 if (!$membership->student) {
+                    // Debug: Log skipped memberships
+                    Log::info('Skipped membership - no student', [
+                        'membership_id' => $membership->id,
+                        'student_id' => $membership->student_id,
+                    ]);
                     return [];
                 }
                 
@@ -467,9 +479,20 @@ class TeacherController extends Controller
                         return isset($item['teacherId']) && $item['teacherId'] == (string)$teacher->id;
                     });
                     
-                    if (!$teacherData || !isset($teacherData['subject'])) {
+                    if (!$teacherData) {
+                        // Debug: Log skipped invoices due to teacher data
+                        Log::info('Skipped invoice - no teacher data', [
+                            'invoice_id' => $invoice->id,
+                            'student_id' => $membership->student_id,
+                            'membership_id' => $membership->id,
+                            'teachers_data' => $membership->teachers,
+                            'teacher_id_looking_for' => $teacher->id,
+                        ]);
                         return [];
                     }
+                    
+                    // Use subject from teacher data or fallback to teacher's first subject
+                    $subject = $teacherData['subject'] ?? ($teacher->subjects->first()->name ?? 'Unknown');
                     
                     // Get selected months for this invoice
                     $selectedMonths = $invoice->selected_months ?? [];
@@ -480,6 +503,19 @@ class TeacherController extends Controller
                         // Fallback: if no selected_months, use the billDate month
                         $selectedMonths = [$invoice->billDate ? $invoice->billDate->format('Y-m') : null];
                     }
+                    
+            // Debug: Log invoice processing (only for first few invoices to avoid spam)
+            if ($invoice->id <= 10) {
+                Log::info('Processing invoice', [
+                    'invoice_id' => $invoice->id,
+                    'student_id' => $membership->student_id,
+                    'selected_months_raw' => $invoice->selected_months,
+                    'selected_months_processed' => $selectedMonths,
+                    'billDate' => $invoice->billDate,
+                    'payment_status' => $membership->payment_status,
+                    'membership_deleted' => !is_null($membership->deleted_at),
+                ]);
+            }
                     
                     // Get school information
                     $schoolName = 'Unknown';
@@ -501,7 +537,7 @@ class TeacherController extends Controller
                     
                     // Calculate teacher earnings per month
                     $offer = $invoice->offer;
-                    $teacherSubject = $teacherData['subject'];
+                    $teacherSubject = $subject;
                     
                     if (!$offer || !$teacherSubject || !is_array($offer->percentage)) {
                         return [];
@@ -513,13 +549,45 @@ class TeacherController extends Controller
                     // Calculate total teacher earnings from amountPaid
                     $totalTeacherAmount = $invoice->amountPaid * ($teacherPercentage / 100);
                     
-                    // Calculate monthly amount
-                    $monthlyAmount = count($selectedMonths) > 0 ? $totalTeacherAmount / count($selectedMonths) : 0;
+                    // Calculate monthly amount using includePartialMonth logic
+                    $monthlyAmount = 0;
+                    if (count($selectedMonths) > 0) {
+                        // Check if this invoice has includePartialMonth
+                        $includePartialMonth = $invoice->includePartialMonth ?? false;
+                        $partialMonthAmount = $invoice->partialMonthAmount ?? 0;
+                        
+                        if ($includePartialMonth && $partialMonthAmount > 0) {
+                            // Use partial month amount for each month
+                            $monthlyAmount = $partialMonthAmount * ($teacherPercentage / 100);
+                        } else {
+                            // Use full amount divided by months
+                            $monthlyAmount = $totalTeacherAmount / count($selectedMonths);
+                        }
+                    }
                     
                     // Create one row per month
                     $monthlyInvoices = [];
                     foreach ($selectedMonths as $month) {
-                        if (!$month) continue;
+                        if (!$month) {
+                            // Debug: Log skipped months
+                            Log::info('Skipped month - empty', [
+                                'invoice_id' => $invoice->id,
+                                'student_id' => $membership->student_id,
+                                'selected_months' => $selectedMonths,
+                            ]);
+                            continue;
+                        }
+                        
+                        // Debug: Log monthly processing (only for first few invoices to avoid spam)
+                        if ($invoice->id <= 10) {
+                            Log::info('Processing month for invoice', [
+                                'invoice_id' => $invoice->id,
+                                'student_id' => $membership->student_id,
+                                'month' => $month,
+                                'date_filter' => $filters['date_filter'] ?? 'none',
+                                'month_matches_filter' => $month === ($filters['date_filter'] ?? 'none'),
+                            ]);
+                        }
                         
                         // Format month for display (MM-YYYY)
                         $monthDisplay = date('m-Y', strtotime($month . '-01'));
@@ -605,8 +673,33 @@ class TeacherController extends Controller
                 
                 // Date filter
                 if (!empty($filters['date_filter'])) {
-                    $billDate = $invoice['billDate'] ?? '';
-                    if (strpos($billDate, $filters['date_filter']) !== 0) {
+                    $invoiceMonths = $invoice['selected_months'] ?? [];
+                    if (empty($invoiceMonths)) {
+                        // Fallback: if no selected_months, use the billDate month
+                        $invoiceMonths = [$invoice['billDate'] ? date('Y-m', strtotime($invoice['billDate'])) : null];
+                    }
+
+                    // Check if any of the invoice months match the filter
+                    $hasMatchingMonth = false;
+                    foreach ($invoiceMonths as $month) {
+                        if ($month && strpos($month, $filters['date_filter']) === 0) {
+                            $hasMatchingMonth = true;
+                            break;
+                        }
+                    }
+
+                    if (!$hasMatchingMonth) {
+                        // Debug: Log filtered out invoices (only for first few to avoid spam)
+                        if (($invoice['invoice_id'] ?? 0) <= 10) {
+                            Log::info('Invoice filtered out by date', [
+                                'invoice_id' => $invoice['id'] ?? 'unknown',
+                                'student_id' => $invoice['student_id'] ?? 'unknown',
+                                'selected_months' => $invoice['selected_months'] ?? 'empty',
+                                'processed_months' => $invoiceMonths,
+                                'date_filter' => $filters['date_filter'],
+                                'billDate' => $invoice['billDate'] ?? 'unknown',
+                            ]);
+                        }
                         return false;
                     }
                 }
@@ -651,6 +744,20 @@ class TeacherController extends Controller
                 'active_memberships' => $invoices->pluck('membership_id')->unique()->count(),
             ];
             
+            // Debug: Log the stats for troubleshooting
+            Log::info('Teacher stats calculated', [
+                'teacher_id' => $teacher->id,
+                'date_filter' => $filters['date_filter'] ?? 'none',
+                'total_invoices' => $stats['total_invoices'],
+                'unique_students' => $stats['unique_students'],
+                'invoices_count_before_filter' => $invoices->count(),
+                'sample_student_ids' => $invoices->pluck('student_id')->unique()->take(5)->toArray(),
+                'sample_invoice_ids' => $invoices->pluck('id')->take(5)->toArray(),
+                'all_student_ids_count' => $invoices->pluck('student_id')->count(),
+                'unique_student_ids_count' => $invoices->pluck('student_id')->unique()->count(),
+                'duplicate_students' => $invoices->pluck('student_id')->count() - $invoices->pluck('student_id')->unique()->count(),
+            ]);
+            
             
             // Paginate the invoices
             $perPage = 10; // Number of invoices per page
@@ -679,7 +786,10 @@ class TeacherController extends Controller
                         return isset($item['teacherId']) && $item['teacherId'] == (string)$teacher->id;
                     });
                     
-                    if (!$teacherData || !isset($teacherData['subject'])) return [];
+                    if (!$teacherData) return [];
+                    
+                    // Use subject from teacher data or fallback to teacher's first subject
+                    $subject = $teacherData['subject'] ?? ($teacher->subjects->first()->name ?? 'Unknown');
                     
                     $selectedMonths = $invoice->selected_months ?? [];
                     if (is_string($selectedMonths)) {

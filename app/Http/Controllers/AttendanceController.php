@@ -77,16 +77,13 @@ class AttendanceController extends Controller
 
         // Get students for selected class (with search filter)
         $studentsQuery = Student::with('class')->where('status', 'active');
-        
         if ($selectedSchoolId) {
             $studentsQuery->where('schoolId', $selectedSchoolId);
             Log::debug('Filtering students by school ID', ['schoolId' => $selectedSchoolId]);
         }
-        
         if ($classId) {
             $studentsQuery->where('classId', $classId);
             Log::debug('Filtering students by class ID', ['classId' => $classId]);
-            
             if ($search) {
                 $studentsQuery->where(function ($query) use ($search) {
                     $query->where('firstName', 'like', "%{$search}%")
@@ -94,71 +91,12 @@ class AttendanceController extends Controller
                 });
                 Log::debug('Filtering students by search', ['search' => $search]);
             }
-            
             $students = $studentsQuery->get();
             Log::debug('Students found', ['count' => $students->count()]);
         } else {
             $students = collect();
             Log::debug('No class ID provided, returning empty student collection');
         }
-
-        // Merge students with attendance status and class info
-        $currentTeacherId = null;
-        if ($request->user()->role === 'teacher') {
-            // For teachers, get their ID from the teacher record
-            $teacher = Teacher::where('email', $request->user()->email)->first();
-            $currentTeacherId = $teacher ? $teacher->id : null;
-            
-            // Verify that the teacher_id from request matches the logged-in teacher
-            $requestedTeacherId = $request->input('teacher_id');
-            if ($requestedTeacherId && $requestedTeacherId != $currentTeacherId) {
-                Log::warning('Teacher ID mismatch', [
-                    'logged_in_teacher_id' => $currentTeacherId,
-                    'requested_teacher_id' => $requestedTeacherId,
-                    'user_email' => $request->user()->email
-                ]);
-                // Use the logged-in teacher's ID for security
-                $currentTeacherId = $teacher ? $teacher->id : null;
-            }
-            
-            Log::info('Teacher login attendance access', [
-                'user_email' => $request->user()->email,
-                'teacher_found' => (bool)$teacher,
-                'teacher_id' => $currentTeacherId,
-                'requested_teacher_id' => $requestedTeacherId,
-                'class_id' => $classId
-            ]);
-        } else {
-            // For admins/assistants, use the teacher_id from request
-            $currentTeacherId = $request->input('teacher_id');
-        }
-
-        // Get existing attendance for selected date and class
-        $existingAttendances = $classId
-            ? Attendance::with('class')
-                ->where('classId', $classId)
-                ->whereDate('date', $date)
-                ->when($currentTeacherId, function($query) use ($currentTeacherId) {
-                    return $query->where('teacher_id', $currentTeacherId);
-                })
-                ->get()
-                ->groupBy(function($att) {
-                    return $att->student_id . '|' . $att->teacher_id . '|' . $att->subject;
-                })
-            : collect();
-
-        $selectedSubject = $request->input('subject');
-
-        // Debug: Log all attendance keys available for this request (after $existingAttendances is defined)
-        if (config('app.debug')) {
-            $attendanceKeys = $existingAttendances->keys();
-            Log::info('Attendance lookup debug', [
-                'teacher_id' => $currentTeacherId,
-                'subject' => $selectedSubject,
-                'attendance_keys' => $attendanceKeys,
-            ]);
-        }
-
         // Filter students to only include those taught by the current teacher
         $filteredStudents = $students->filter(function ($student) use ($currentTeacherId) {
             if (!$currentTeacherId) {
@@ -168,7 +106,6 @@ class AttendanceController extends Controller
                 ]);
                 return false;
             }
-            
             // Include all memberships regardless of membership active status; rely on student status instead
             $memberships = $student->memberships()->get();
             Log::debug('Checking student memberships', [
@@ -177,7 +114,6 @@ class AttendanceController extends Controller
                 'memberships_count' => $memberships->count(),
                 'teacher_id' => $currentTeacherId
             ]);
-            
             foreach ($memberships as $membership) {
                 $teacherArr = is_array($membership->teachers)
                     ? $membership->teachers
@@ -210,16 +146,6 @@ class AttendanceController extends Controller
             ]);
             return false; // Student is not taught by this teacher
         });
-
-        Log::info('Student filtering results', [
-            'total_students_in_class' => $students->count(),
-            'filtered_students_by_teacher' => $filteredStudents->count(),
-            'teacher_id' => $currentTeacherId,
-            'class_id' => $classId,
-            'user_role' => $request->user()->role,
-            'user_email' => $request->user()->email
-        ]);
-
         $studentsWithAttendance = $filteredStudents->map(function ($student) use ($existingAttendances, $date, $currentTeacherId, $selectedSubject) {
             // Debug: Log the attendance key being looked up for each student
             $attendanceKey = $student->id . '|' . $currentTeacherId . '|' . $selectedSubject;
