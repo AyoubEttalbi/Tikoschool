@@ -64,3 +64,30 @@ If you discover a security vulnerability within Laravel, please send an e-mail t
 ## License
 
 The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+
+## Database: Definer issue (tikoroot)
+
+If you see an error like:
+
+    SQLSTATE[HY000]: General error: 1449 The user specified as a definer ('tikoroot'@'localhost') does not exist
+
+This means one or more database objects (triggers, views, routines, or events) were created with a DEFINER that no longer exists on your MySQL server. Two triggers were found on the `invoices` table with definer `tikoroot@localhost`.
+
+Two safe ways to fix this locally:
+
+- Recreate the missing user (quick, low-risk for dev):
+
+    # run in PowerShell
+    mysql -u root -p -e "CREATE USER 'tikoroot'@'localhost' IDENTIFIED BY 'some-password'; GRANT ALL PRIVILEGES ON *.* TO 'tikoroot'@'localhost' WITH GRANT OPTION;"
+
+- Or (recommended) drop and recreate the offending objects as your current DB user so the DEFINER becomes the correct user. Example (PowerShell):
+
+    Get-Content "tmp/recreate_invoices_triggers.sql" | mysql -u root -p${env:DB_PASSWORD} -h ${env:DB_HOST} -P ${env:DB_PORT} ${env:DB_DATABASE}
+
+The file `tmp/recreate_invoices_triggers.sql` in this repo drops and recreates the two triggers used to enforce offer consistency on `invoices`.
+
+After running either fix, verify with:
+
+    mysql -u root -p${env:DB_PASSWORD} -h ${env:DB_HOST} -P ${env:DB_PORT} -D information_schema -e "SELECT TRIGGER_NAME, TRIGGER_SCHEMA, DEFINER FROM TRIGGERS WHERE TRIGGER_SCHEMA='${env:DB_DATABASE}' AND TRIGGER_NAME LIKE 'check_offer_consistency_%';"
+
+If you prefer, you can inspect the migration file that added the triggers at `database/migrations/2025_09_23_234107_add_offer_consistency_constraint_to_invoices_table.php` and adjust it.

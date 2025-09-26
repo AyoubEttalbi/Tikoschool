@@ -2158,10 +2158,21 @@ public function processMonthRecurringTransactions(Request $request)
                 // Get teacher percentage from offer
                 $teacherPercentage = $offer->percentage[$teacherSubject] ?? 0;
                 
-                // Calculate teacher earnings from amountPaid
-                $teacherAmountFromPaid = $invoice->amountPaid * ($teacherPercentage / 100);
+                // Calculate teacher earnings per month (respect partial-month logic like TeacherController)
+                $totalTeacherAmount = $invoice->amountPaid * ($teacherPercentage / 100);
                 $monthsCount = count($selectedMonths);
-                $earningsPerMonth = $monthsCount > 0 ? $teacherAmountFromPaid / $monthsCount : 0;
+                $earningsPerMonth = 0;
+                if ($monthsCount > 0) {
+                    $includePartialMonth = $invoice->includePartialMonth ?? false;
+                    $partialMonthAmount = $invoice->partialMonthAmount ?? 0;
+                    if ($includePartialMonth && $partialMonthAmount > 0) {
+                        // Use partial month amount for each month
+                        $earningsPerMonth = $partialMonthAmount * ($teacherPercentage / 100);
+                    } else {
+                        // Split the total across all selected months
+                        $earningsPerMonth = $totalTeacherAmount / $monthsCount;
+                    }
+                }
                 
                 // Distribute earnings across all selected months
                 foreach ($selectedMonths as $selectedMonth) {
@@ -2289,10 +2300,20 @@ public function processMonthRecurringTransactions(Request $request)
                             // Get teacher percentage from offer
                             $teacherPercentage = $offer->percentage[$teacherSubject] ?? 0;
                             
-                            // Calculate teacher earnings from amountPaid
-                            $teacherAmountFromPaid = $invoice->amountPaid * ($teacherPercentage / 100);
+                            // Calculate teacher earnings per month (respect partial-month logic like TeacherController)
+                            $totalTeacherAmount = $invoice->amountPaid * ($teacherPercentage / 100);
                             $monthsCount = count($selectedMonths);
-                            $teacherShare = $monthsCount > 0 ? $teacherAmountFromPaid / $monthsCount : 0;
+                            if ($monthsCount > 0) {
+                                $includePartialMonth = $invoice->includePartialMonth ?? false;
+                                $partialMonthAmount = $invoice->partialMonthAmount ?? 0;
+                                if ($includePartialMonth && $partialMonthAmount > 0) {
+                                    $teacherShare = $partialMonthAmount * ($teacherPercentage / 100);
+                                } else {
+                                    $teacherShare = $totalTeacherAmount / $monthsCount;
+                                }
+                            } else {
+                                $teacherShare = 0;
+                            }
                             break;
                         }
                     }
@@ -2333,5 +2354,134 @@ public function processMonthRecurringTransactions(Request $request)
                 'to' => min($offset + $perPage, $total),
             ]
         ]);
+    }
+
+    /**
+     * API: Filtered monthly stats for given month/year
+     * Expected by route name 'admin.filtered.monthly.stats'.
+     * Keep response shape compatible with frontend; return success=false so UI can fallback.
+     */
+    public function getFilteredMonthlyStats(Request $request)
+    {
+        try {
+            $month = (int) $request->query('month'); // 1-12
+            $year = (int) $request->query('year');
+
+            if ($month < 1 || $month > 12 || $year < 2000) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid month or year'
+                ], 200);
+            }
+
+            $targetMonthKey = sprintf('%04d-%02d', $year, $month);
+
+            // Revenue from invoices distributed across selected_months
+            $invoices = DB::table('invoices')
+                ->select('id', 'billDate', 'amountPaid', 'selected_months')
+                ->whereNull('deleted_at')
+                ->get();
+
+            $totalRevenue = 0.0;
+            $invoiceCountForMonth = 0;
+
+            foreach ($invoices as $invoice) {
+                $selectedMonths = json_decode($invoice->selected_months, true);
+                if (is_string($selectedMonths)) {
+                    $selectedMonths = json_decode($selectedMonths, true);
+                }
+                if (!is_array($selectedMonths) || empty($selectedMonths)) {
+                    // Fallback: use billDate month
+                    if (!empty($invoice->billDate)) {
+                        $date = Carbon::parse($invoice->billDate);
+                        $selectedMonths = [$date->format('Y-m')];
+                    } else {
+                        $selectedMonths = [];
+                    }
+                }
+
+                if (in_array($targetMonthKey, $selectedMonths, true)) {
+                    $monthsCount = max(count($selectedMonths), 1);
+                    $amountPerMonth = (float)$invoice->amountPaid / $monthsCount;
+                    $totalRevenue += $amountPerMonth;
+                    $invoiceCountForMonth += 1;
+                }
+            }
+
+            // Expenses split into salaries, payments, expenses for the month
+            $baseQuery = DB::table('transactions')
+                ->whereYear('payment_date', $year)
+                ->whereMonth('payment_date', $month);
+
+            $totalSalaries = (float) (clone $baseQuery)->where('type', 'salary')->sum(DB::raw('CAST(amount AS DECIMAL(10,2))'));
+            $totalPayments = (float) (clone $baseQuery)->where('type', 'payment')->sum(DB::raw('CAST(amount AS DECIMAL(10,2))'));
+            $totalExpenses = (float) (clone $baseQuery)->where('type', 'expense')->sum(DB::raw('CAST(amount AS DECIMAL(10,2))'));
+
+            // Counts
+            $salaryCount = (clone $baseQuery)->where('type', 'salary')->count();
+            $paymentCount = (clone $baseQuery)->where('type', 'payment')->count();
+            $expenseCount = (clone $baseQuery)->where('type', 'expense')->count();
+
+            $totalOutflow = $totalSalaries + $totalPayments + $totalExpenses;
+            $profit = $totalRevenue - $totalOutflow;
+
+            return response()->json([
+                'success' => true,
+                'month' => $month,
+                'year' => $year,
+                'monthName' => $this->formatMonthInFrench($month),
+                'stats' => [
+                    'totalRevenue' => round($totalRevenue, 2),
+                    'totalSalaries' => round($totalSalaries, 2),
+                    'totalPayments' => round($totalPayments, 2),
+                    'totalExpenses' => round($totalExpenses, 2),
+                    'profit' => round($profit, 2),
+                ],
+                'details' => [
+                    'revenue' => [ 'invoiceCount' => $invoiceCountForMonth ],
+                    'salaries' => [ 'salaryCount' => $salaryCount ],
+                    'payments' => [ 'paymentCount' => $paymentCount ],
+                    'expenses' => [ 'expenseCount' => $expenseCount ],
+                ],
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error generating filtered monthly stats',
+            ], 200);
+        }
+    }
+
+    /**
+     * API: Filtered employee data for given month/year
+     * Expected by route name 'admin.filtered.employee.data'.
+     * Return success=false to allow frontend to use its fallback filtering.
+     */
+    public function getFilteredEmployeeData(Request $request)
+    {
+        try {
+            $month = (int) $request->query('month'); // 1-12
+            $year = (int) $request->query('year');
+
+            if ($month < 1 || $month > 12 || $year < 2000) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid month or year'
+                ], 200);
+            }
+
+            // Do not send an empty employees array to avoid overriding frontend fallback
+            return response()->json([
+                'success' => false,
+                'message' => 'Filtered employee data not implemented yet',
+                'month' => $month,
+                'year' => $year,
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error generating filtered employee data',
+            ], 200);
+        }
     }
 }
