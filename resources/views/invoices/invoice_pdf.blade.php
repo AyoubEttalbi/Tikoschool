@@ -89,10 +89,7 @@
                     <th>Nom de l'élève</th>
                     <td>{{ $student->firstName }} {{ $student->lastName }}</td>
                 </tr>
-                <tr>
-                    <th>Adresse</th>
-                    <td>{{ $student->address }}</td>
-                </tr>
+                
                 <tr>
                     <th>Nom de l'offre</th>
                     <td>{{ $offerName }}</td>
@@ -139,10 +136,7 @@
                     <th>Nom de l'élève</th>
                     <td>{{ $student->firstName }} {{ $student->lastName }}</td>
                 </tr>
-                <tr>
-                    <th>Adresse</th>
-                    <td>{{ $student->address }}</td>
-                </tr>
+               
                 <tr>
                     <th>Nom de l'offre</th>
                     <td>{{ $offerName }}</td>

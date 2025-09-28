@@ -123,6 +123,46 @@ class StudentsController extends Controller
          // Initialize the query with eager loading for relationships
          $query = Student::with(['class', 'school', 'level', 'memberships']);
          
+         // Get the current user and their role
+         $user = $request->user();
+         $userRole = $user ? $user->role : null;
+         
+         // If user is a teacher, only show students they teach
+         if ($userRole === 'teacher') {
+             $teacher = \App\Models\Teacher::where('email', $user->email)->first();
+             if ($teacher) {
+                 // Debug: Check what memberships exist for this teacher
+                 $debugMemberships = \App\Models\Membership::where(function($q) use ($teacher) {
+                     $q->whereRaw("JSON_CONTAINS(teachers, JSON_OBJECT('teacherId', ?))", [$teacher->id])
+                       ->orWhereRaw("JSON_CONTAINS(teachers, JSON_OBJECT('teacherId', ?))", [(string)$teacher->id]);
+                 })->get();
+                 Log::info('Debug: Memberships found for teacher', [
+                     'teacher_id' => $teacher->id,
+                     'teacher_email' => $user->email,
+                     'memberships_count' => $debugMemberships->count(),
+                     'memberships_data' => $debugMemberships->map(function($m) {
+                         return [
+                             'id' => $m->id,
+                             'student_id' => $m->student_id,
+                             'teachers' => $m->teachers
+                         ];
+                     })
+                 ]);
+                 
+                 $query->whereHas('memberships', function($membershipQuery) use ($teacher) {
+                     // Try both string and integer versions of teacher ID
+                     $membershipQuery->where(function($q) use ($teacher) {
+                         $q->whereRaw("JSON_CONTAINS(teachers, JSON_OBJECT('teacherId', ?))", [$teacher->id])
+                           ->orWhereRaw("JSON_CONTAINS(teachers, JSON_OBJECT('teacherId', ?))", [(string)$teacher->id]);
+                     });
+                 });
+                 Log::info('Filtering students for teacher', [
+                     'teacher_id' => $teacher->id,
+                     'teacher_email' => $user->email
+                 ]);
+             }
+         }
+         
          // Get the selected school from session and apply filter
          $selectedSchoolId = session('school_id');
          if ($selectedSchoolId) {
@@ -144,6 +184,15 @@ class StudentsController extends Controller
          // Membership status filter
          $membershipStatus = $request->input('membership_status');
          $studentsCollection = $query->orderBy('created_at', 'desc')->get();
+         
+         // Debug: Log how many students were found
+         Log::info('Debug: Students found after query', [
+             'user_role' => $userRole,
+             'teacher_id' => $userRole === 'teacher' ? ($teacher ? $teacher->id : null) : null,
+             'students_count' => $studentsCollection->count(),
+             'query_sql' => $query->toSql(),
+             'query_bindings' => $query->getBindings()
+         ]);
          if ($membershipStatus && $membershipStatus !== 'all') {
              $studentsCollection = $studentsCollection->filter(function ($student) use ($membershipStatus) {
                  $allMemberships = $student->memberships;
@@ -284,6 +333,7 @@ protected function transformStudentData($student)
         'levelId' => $student->levelId,
         'status' => $student->status,
         'assurance' => $student->assurance,
+        'assuranceAmount' => $student->assuranceAmount,
         'guardianNumber' => $student->guardianNumber,
         'guardianName' => $student->guardianName,
         'profile_image' => $student->profile_image ?? null,
@@ -435,9 +485,44 @@ protected function transformStudentData($student)
         // Fetch memberships for the student (including soft-deleted ones)
         $memberships = Membership::withTrashed()
             ->where('student_id', $student->id)
-            ->with(['offer'])
+            ->with(['offer', 'invoices'])
             ->get()
             ->map(function ($membership) {
+                // Process invoices for this membership
+                $membershipInvoices = $membership->invoices->map(function ($invoice) {
+                    // Always send selectedMonths as array if present
+                    $selectedMonths = [];
+                    if (isset($invoice->selected_months)) {
+                        if (is_string($invoice->selected_months)) {
+                            $decoded = json_decode($invoice->selected_months, true);
+                            if (is_array($decoded)) {
+                                $selectedMonths = $decoded;
+                            }
+                        } elseif (is_array($invoice->selected_months)) {
+                            $selectedMonths = $invoice->selected_months;
+                        }
+                    }
+                    
+                    return [
+                        'id' => $invoice->id,
+                        'membership_id' => $invoice->membership_id,
+                        'months' => $invoice->months,
+                        'billDate' => $invoice->billDate,
+                        'creationDate' => $invoice->creationDate,
+                        'totalAmount' => (float) $invoice->totalAmount,
+                        'amountPaid' => (float) $invoice->amountPaid,
+                        'rest' => (float) $invoice->rest,
+                        'endDate' => $invoice->endDate,
+                        'includePartialMonth' => $invoice->includePartialMonth,
+                        'partialMonthAmount' => (float) $invoice->partialMonthAmount,
+                        'last_payment' => $invoice->updated_at,
+                        'created_at' => $invoice->created_at,
+                        'selectedMonths' => $selectedMonths,
+                        'type' => $invoice->type,
+                        'assurance_amount' => (float) $invoice->assurance_amount,
+                    ];
+                });
+
                 return [
                     'id' => $membership->id,
                     'offer_name' => optional($membership->offer)->offer_name,
@@ -450,6 +535,7 @@ protected function transformStudentData($student)
                     'start_date' => $membership->start_date,
                     'end_date' => $membership->end_date,
                     'deleted_at' => $membership->deleted_at, // Include deletion status
+                    'invoices' => $membershipInvoices, // Include invoices for this membership
                 ];
             });
 
@@ -564,6 +650,7 @@ protected function transformStudentData($student)
             'levelId' => $student->levelId,
             'status' => $student->status,
             'assurance' => $student->assurance,
+            'assuranceAmount' => $student->assuranceAmount,
             'guardianNumber' => $student->guardianNumber,
             'guardianName' => $student->guardianName,
             'profile_image' => $student->profile_image ?? null,
@@ -824,9 +911,6 @@ protected function transformStudentData($student)
                 }
             }
 
-            // Delete memberships and invoices before deleting the student
-            $student->memberships()->delete();
-            $student->invoices()->delete();
             // Delete the student
             $student->delete();
 

@@ -58,9 +58,14 @@ const OfferForm = ({ type, data, setOpen, subjects, levels }) => {
         }
     };
     const handlePercentageChange = (subject, value) => {
+        // Allow unlimited decimals, clamp to [0,100]
+        let next = value === "" ? "" : Number.parseFloat(value);
+        if (Number.isFinite(next)) {
+            next = Math.max(0, Math.min(100, next));
+        }
         setPercentages((prev) => ({
             ...prev,
-            [subject]: value ? parseInt(value, 10) : "",
+            [subject]: value === "" ? "" : next,
         }));
     };
     return (
@@ -176,7 +181,10 @@ const OfferForm = ({ type, data, setOpen, subjects, levels }) => {
                                             )
                                         }
                                         placeholder="%"
-                                        className="w-16 p-1 border border-gray-300 rounded-md text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        min={0}
+                                        max={100}
+                                        step="any"
+                                        className="w-20 p-1 border border-gray-300 rounded-md text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
                                     />
                                 )}
                             </div>

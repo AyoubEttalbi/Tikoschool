@@ -83,7 +83,7 @@ export default function OffersPage({
     const incrementPercentage = (offerId, subject) => {
         setEditData((prev) => {
             const currentValue =
-                Number.parseInt(prev[offerId].percentage[subject]) || 0;
+                Number.parseFloat(prev[offerId].percentage[subject]) || 0;
             return {
                 ...prev,
                 [offerId]: {
@@ -100,7 +100,7 @@ export default function OffersPage({
     const decrementPercentage = (offerId, subject) => {
         setEditData((prev) => {
             const currentValue =
-                Number.parseInt(prev[offerId].percentage[subject]) || 0;
+                Number.parseFloat(prev[offerId].percentage[subject]) || 0;
             return {
                 ...prev,
                 [offerId]: {
