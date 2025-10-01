@@ -24,12 +24,20 @@ const TeacherInvoicesTable = ({
     const safeInvoices = Array.isArray(invoices) ? invoices : [];
 
     // Get initial filter values from props or use defaults
+    // Use server-provided filters when available; otherwise, compute month in local time (not UTC)
+    const computeLocalYearMonth = () => {
+        const d = new Date();
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        return `${y}-${m}`;
+    };
+
     const initialFilters = {
         search: filters.search || "",
         classFilter: filters.class_filter || "all",
         offerFilter: filters.offer_filter || "all",
         schoolFilter: filters.school_filter || "all",
-        dateFilter: filters.date_filter || new Date().toISOString().slice(0, 7),
+        dateFilter: (filters.date_filter && String(filters.date_filter).slice(0,7)) || computeLocalYearMonth(),
         membershipStatusFilter: filters.membership_status_filter || "all",
         paymentStatusFilter: filters.payment_status_filter || "all",
     };
