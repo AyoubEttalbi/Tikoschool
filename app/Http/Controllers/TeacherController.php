@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Mail;
-class TransactionController extends Controller
+class TeacherController extends Controller
 {
 /**
  * Helper method to format month names in French
