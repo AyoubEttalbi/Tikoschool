@@ -70,12 +70,27 @@
             font-size: 10px;
             color: #4b5563; /* Subtle gray text */
         }
+        .print-date {
+            text-align: right;
+            margin-bottom: 12px;
+            font-size: 10px;
+            color: #6b7280; /* Slightly lighter gray */
+            font-style: italic;
+        }
+        .print-date-label {
+            color: #3730a3; /* Purple accent */
+            font-weight: bold;
+            font-style: normal;
+        }
         
     </style>
 </head>
 <body>
     <!-- Copie École -->
     <div class="copy">
+        <div class="print-date">
+            <span class="print-date-label">Imprimé le:</span> {{ now()->format('d/m/Y à H:i') }}
+        </div>
         <div class="logo">
             <img src="{{ public_path('logo.png') }}" alt="Logo de l'école">
         </div>
@@ -123,6 +138,9 @@
 
     <!-- Copie Élève -->
     <div class="copy">
+        <div class="print-date">
+            <span class="print-date-label">Imprimé le:</span> {{ now()->format('d/m/Y à H:i') }}
+        </div>
         <div class="logo">
             <img src="{{ public_path('logo.png') }}" alt="Logo de l'école">
         </div>

@@ -510,18 +510,69 @@ class TeacherMembershipPaymentService
             $newMonthlyAmount = round(($remainingAmountForFutureMonths / $futureMonthsCount), 2);
         }
 
-        // Add new months to unpaid list, filtering out current month if it's handled immediately
-        $unpaidMonths = array_unique(array_merge($record->months_rest_not_paid_yet ?? [], $selectedMonths));
-        if ($isCurrentMonthIncluded) {
-            $unpaidMonths = array_filter($unpaidMonths, function($month) use ($currentMonth) {
-                return $month !== $currentMonth;
-            });
+        // Rebuild unpaid months safely:
+        // - Start with existing unpaid months
+        // - Add only NEW future months from selectedMonths
+        // - Never re-add past or current months as unpaid
+        $existingUnpaid = is_array($record->months_rest_not_paid_yet) ? $record->months_rest_not_paid_yet : [];
+        $existingUnpaid = array_values(array_unique($existingUnpaid));
+        $existingSelected = is_array($record->selected_months) ? $record->selected_months : [];
+
+        // Only consider months newly added in this update
+        $newlyAddedMonths = array_values(array_diff($selectedMonths, $existingSelected));
+        
+        // Only future newly-added months can be marked unpaid
+        $newUnpaid = array_values(array_filter($newlyAddedMonths, function($month) use ($currentMonth) {
+            return $month > $currentMonth;
+        }));
+
+        // Preserve existing unpaid months and append new future months
+        $unpaidMonths = array_values(array_unique(array_merge($existingUnpaid, $newUnpaid)));
+
+        // Back-pay handling for past-month invoices paid today:
+        // If bill month is in the past and present in unpaid, and the student has paid (>0),
+        // immediately pay that month's share to the teacher and remove it from unpaid.
+        $billMonth = $record->invoice && $record->invoice->billDate ? $record->invoice->billDate->format('Y-m') : null;
+        if ($billMonth && $billMonth < $currentMonth && in_array($billMonth, $unpaidMonths, true) && $studentTotalPaid > 0) {
+            $monthsCountForShare = count($allSelectedMonths) > 0 ? count($allSelectedMonths) : 1;
+            $perMonthShare = round(($newTotalAmount / $monthsCountForShare), 2);
+
+            $teacher = Teacher::find($record->teacher_id);
+            if ($teacher && $perMonthShare > 0) {
+                $teacher->increment('wallet', $perMonthShare);
+                Log::info('Applied back-pay for past bill month on update', [
+                    'record_id' => $record->id,
+                    'teacher_id' => $teacher->id,
+                    'bill_month' => $billMonth,
+                    'per_month_share' => $perMonthShare,
+                ]);
+            }
+
+            // Remove past bill month from unpaid list
+            $unpaidMonths = array_values(array_filter($unpaidMonths, function($m) use ($billMonth){ return $m !== $billMonth; }));
+
+            // Increase total paid to teacher accordingly
+            $oldTotalPaidToTeacher = round((float)($record->total_paid_to_teacher ?? 0), 2);
+            $oldImmediateWalletAmount = round((float)($record->immediate_wallet_amount ?? 0), 2);
+            $newTotalPaidToTeacher = round($oldTotalPaidToTeacher + $perMonthShare, 2);
+
+            // Clamp to avoid exceeding the new total amount
+            $newTotalPaidToTeacher = min($newTotalPaidToTeacher, $newTotalAmount);
+
+            $record->total_paid_to_teacher = $newTotalPaidToTeacher; // temp set; will also set in update()
         }
-        $unpaidMonths = array_values($unpaidMonths); // Re-index array
 
         // Calculate new total paid to teacher (cumulative: immediate + already processed scheduled payments)
         // We subtract the old immediate amount and add the new one, keeping previous scheduled payments.
         $newTotalPaidToTeacher = round((($oldTotalPaidToTeacher - $oldImmediateWalletAmount) + $newImmediateWalletAmount), 2);
+
+        // Final clamp to [0, newTotalAmount]
+        if ($newTotalPaidToTeacher < 0) {
+            $newTotalPaidToTeacher = 0.0;
+        }
+        if ($newTotalPaidToTeacher > $newTotalAmount) {
+            $newTotalPaidToTeacher = $newTotalAmount;
+        }
 
         $record->update([
             'selected_months' => $allSelectedMonths,
@@ -530,7 +581,7 @@ class TeacherMembershipPaymentService
             'monthly_teacher_amount' => $newMonthlyAmount,
             'payment_percentage' => $paymentPercentage,
             'immediate_wallet_amount' => $newImmediateWalletAmount, // Recalculated, not added
-            'total_paid_to_teacher' => $newTotalPaidToTeacher, // Recalculated, cumulative
+            'total_paid_to_teacher' => $newTotalPaidToTeacher, // Recalculated, cumulative and clamped
             'is_active' => true, // Ensure record stays active for potential updates
         ]);
 
@@ -698,6 +749,112 @@ class TeacherMembershipPaymentService
             'total_amount' => $totalAmount,
             'month' => $currentMonth
         ];
+    }
+
+    /**
+     * Reconcile teacher payouts for months already processed after an invoice change
+     * Ensures teacher wallets reflect updated invoice totals by paying the delta
+     */
+    public function reconcilePaidMonthsForInvoice(Invoice $invoice): array
+    {
+        $result = [
+            'success' => true,
+            'adjusted_records' => 0,
+            'total_delta' => 0.0,
+            'errors' => []
+        ];
+
+        try {
+            $records = TeacherMembershipPayment::where('invoice_id', $invoice->id)->get();
+
+            foreach ($records as $record) {
+                try {
+                    DB::beginTransaction();
+
+                    $selectedMonths = $record->selected_months ?? [];
+                    $unpaidMonths = $record->months_rest_not_paid_yet ?? [];
+
+                    $totalMonths = count($selectedMonths);
+                    if ($totalMonths === 0) {
+                        DB::commit();
+                        continue;
+                    }
+
+                    // Months already processed (paid): total - remaining unpaid
+                    $paidMonthsCount = max(0, $totalMonths - count($unpaidMonths));
+
+                    // Desired paid to date = total_teacher_amount * (paidMonthsCount / totalMonths)
+                    $totalTeacherAmount = round((float)($record->total_teacher_amount ?? 0), 2);
+                    $desiredPaidToDate = round($totalTeacherAmount * ($paidMonthsCount / $totalMonths), 2);
+
+                    // Already paid to teacher (cumulative)
+                    $currentPaidToTeacher = round((float)($record->total_paid_to_teacher ?? 0), 2);
+
+                    $delta = round($desiredPaidToDate - $currentPaidToTeacher, 2);
+
+                    if ($delta !== 0.0) {
+                        $teacher = Teacher::find($record->teacher_id);
+                        if ($teacher) {
+                            if ($delta > 0) {
+                                $teacher->increment('wallet', $delta);
+                            } else {
+                                $teacher->decrement('wallet', abs($delta));
+                            }
+
+                            // Update cumulative paid to teacher
+                            $record->update([
+                                'total_paid_to_teacher' => round($currentPaidToTeacher + $delta, 2)
+                            ]);
+
+                            Log::info('Reconciled teacher payout for updated invoice', [
+                                'invoice_id' => $invoice->id,
+                                'record_id' => $record->id,
+                                'teacher_id' => $record->teacher_id,
+                                'selected_months' => $selectedMonths,
+                                'unpaid_months' => $unpaidMonths,
+                                'paid_months_count' => $paidMonthsCount,
+                                'total_months' => $totalMonths,
+                                'total_teacher_amount' => $totalTeacherAmount,
+                                'desired_paid_to_date' => $desiredPaidToDate,
+                                'current_paid_to_teacher' => $currentPaidToTeacher,
+                                'delta_applied' => $delta,
+                            ]);
+
+                            $result['adjusted_records']++;
+                            $result['total_delta'] = round($result['total_delta'] + $delta, 2);
+                        }
+                    } else {
+                        Log::info('No reconciliation needed (no delta)', [
+                            'invoice_id' => $invoice->id,
+                            'record_id' => $record->id,
+                            'teacher_id' => $record->teacher_id,
+                            'desired_paid_to_date' => $desiredPaidToDate,
+                            'current_paid_to_teacher' => $currentPaidToTeacher,
+                        ]);
+                    }
+
+                    DB::commit();
+                } catch (\Exception $e) {
+                    DB::rollBack();
+                    $result['errors'][] = $e->getMessage();
+                    Log::error('Error reconciling teacher payout for invoice', [
+                        'invoice_id' => $invoice->id,
+                        'record_id' => $record->id,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
+        } catch (\Exception $e) {
+            $result['success'] = false;
+            $result['errors'][] = $e->getMessage();
+            Log::error('Error in reconcilePaidMonthsForInvoice', [
+                'invoice_id' => $invoice->id,
+                'error' => $e->getMessage()
+            ]);
+        }
+
+        return $result;
     }
 
     /**

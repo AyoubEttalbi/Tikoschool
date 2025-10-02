@@ -545,6 +545,23 @@ class InvoiceController extends Controller
                 throw new \Exception('Failed to process teacher payment records during invoice update');
             }
             
+            // NEW: Reconcile deltas whenever amountPaid changes (not only when fully paid)
+            if (round((float)($validated['amountPaid']), 2) != round((float)($previousAmountPaid), 2)) {
+                $reconcileResultAny = $paymentService->reconcilePaidMonthsForInvoice($invoice);
+                if (!$reconcileResultAny['success']) {
+                    Log::warning('Reconciliation (any change) reported issues', [
+                        'invoice_id' => $invoice->id,
+                        'errors' => $reconcileResultAny['errors']
+                    ]);
+                } else {
+                    Log::info('Reconciled teacher payouts after amount change', [
+                        'invoice_id' => $invoice->id,
+                        'adjusted_records' => $reconcileResultAny['adjusted_records'],
+                        'total_delta' => $reconcileResultAny['total_delta']
+                    ]);
+                }
+            }
+
             // If invoice is fully paid, reactivate any inactive payment records
             if ($invoice->amountPaid >= $invoice->totalAmount) {
                 $reactivationResult = $paymentService->reactivatePaymentRecords($invoice);
@@ -554,6 +571,8 @@ class InvoiceController extends Controller
                         'reactivated_count' => $reactivationResult['reactivated_records']
                     ]);
                 }
+
+                // Keep reconciliation for fully paid case as well (already handled above if amount changed)
             }
             // --- END TEACHER MEMBERSHIP PAYMENT LOGIC ---
 
