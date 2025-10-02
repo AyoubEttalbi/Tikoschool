@@ -127,6 +127,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/{id}/pdf', 'generateInvoicePdf')->name('invoices.pdf');
         Route::get('/{id}/download', 'download')->name('invoices.download');
         Route::post('/bulk-download', 'bulkDownload')->name('invoices.bulk.download');
+        Route::get('/{id}/validate', 'validateInvoice')->name('invoices.validate'); // NEW: Invoice validation route
     });
     
     // Teacher invoices bulk download route
