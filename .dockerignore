@@ -1,0 +1,60 @@
+# Git
+.git/
+.gitattributes
+.gitignore
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+vendor/
+
+# Build artifacts
+public/build/
+public/hot
+
+# Storage (will be volume-mounted)
+storage/framework/cache/data/*
+storage/framework/sessions/*
+storage/framework/views/*
+storage/framework/testing/*
+storage/logs/*
+storage/debugbar/*
+storage/app/public/*
+!storage/app/public/.gitignore
+storage/app/private/*
+storage/fonts/*
+
+# Docker config (copied explicitly in Dockerfile)
+docker/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+tmp/
+*.bat
+*.log
+
+# Documentation
+README.md
+INVOICE_ANALYSIS.md
+TikoSchool_Project_Analysis.md
+TEACHER_MEMBERSHIP_PAYMENTS_README.md
+
+# Dev scripts
+example_invoice_form_integration.jsx
+fix_invoice_154_specific.php
+fix_missing_memberships_simple.php
+payments_resync_fix.php
+run-scheduler.bat
