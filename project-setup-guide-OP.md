@@ -60,6 +60,7 @@ cd /var/www
 # Clone the repo (FORK IT FIRST if needed)
 git clone https://github.com/AyoubEttalbi/Tikoschool.git
 cd Tikoschool
+git checkout local
 ```
 
 ---
