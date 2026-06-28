@@ -685,11 +685,25 @@ const SingleAssistantPage = ({
 // Helper to format dates
 const formatDate = (dateString) => {
     if (!dateString) return "N/A";
-    return new Date(dateString).toLocaleDateString("fr-FR", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-    });
+    try {
+        let date;
+        // Handle date-only strings (YYYY-MM-DD) without timezone conversion
+        if (typeof dateString === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+            // Parse as local date to avoid timezone shifts
+            const [year, month, day] = dateString.split('-').map(Number);
+            date = new Date(year, month - 1, day);
+        } else {
+            // DateTime string: parse normally
+            date = new Date(dateString);
+        }
+        return date.toLocaleDateString("fr-FR", {
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+        });
+    } catch (error) {
+        return "N/A";
+    }
 };
 
 // Tab Button Component

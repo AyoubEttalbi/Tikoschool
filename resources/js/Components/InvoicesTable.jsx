@@ -56,7 +56,17 @@ const InvoicesTable = ({
     const formatDate = (dateString, formatType) => {
         if (!dateString) return "N/A";
         try {
-            const date = parseISO(dateString);
+            // Handle date-only strings (YYYY-MM-DD) without timezone conversion
+            // parseISO can cause timezone issues where dates shift by one day
+            let date;
+            if (typeof dateString === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+                // Date-only string: parse as local date to avoid timezone shifts
+                const [year, month, day] = dateString.split('-').map(Number);
+                date = new Date(year, month - 1, day);
+            } else {
+                // DateTime string: use parseISO but handle timezone carefully
+                date = parseISO(dateString);
+            }
             return format(date, formatType);
         } catch (error) {
             return dateString;

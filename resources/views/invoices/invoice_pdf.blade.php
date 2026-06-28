@@ -9,7 +9,7 @@
             font-family: Arial, sans-serif;
             margin: 0;
             padding: 0;
-            font-size: 12px; /* Reduce base font size */
+            font-size: 16px; /* Increased base font size for better readability */
             background-color: #f9fafb; /* Light background */
         }
         .logo {
@@ -25,13 +25,13 @@
             margin-bottom: 16px;
         }
         h1 {
-            font-size: 16px;
+            font-size: 22px;
             margin: 0;
             color: #3730a3; /* Purple heading */
         }
         p {
             margin: 4px 0;
-            font-size: 11px;
+            font-size: 14px; /* Increased font size for better readability */
             color: #4b5563; /* Subtle gray text */
         }
         .invoice-details {
@@ -49,13 +49,14 @@
             border: 1px solid #e5e7eb; /* Light border */
         }
         th, td {
-            padding: 8px;
+            padding: 10px; /* Increased padding for better spacing */
             text-align: left;
-            font-size: 11px;
+            font-size: 14px; /* Increased font size for better readability */
         }
         th {
             background-color: #f3f4f6; /* Light gray header */
             color: #3730a3; /* Purple text */
+            font-weight: bold;
         }
         td {
             color: #4b5563; /* Subtle gray text */
@@ -67,13 +68,13 @@
         .footer {
             text-align: center;
             margin-top: 6px;
-            font-size: 10px;
+            font-size: 13px; /* Increased font size for better readability */
             color: #4b5563; /* Subtle gray text */
         }
         .print-date {
             text-align: right;
             margin-bottom: 12px;
-            font-size: 10px;
+            font-size: 13px; /* Increased font size for better readability */
             color: #6b7280; /* Slightly lighter gray */
             font-style: italic;
         }
@@ -81,6 +82,10 @@
             color: #3730a3; /* Purple accent */
             font-weight: bold;
             font-style: normal;
+        }
+        .currency {
+            font-weight: bold;
+            font-size: 14px; /* Ensure currency values are readable */
         }
         
     </style>
