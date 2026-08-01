@@ -28,8 +28,8 @@ storage/app/public/*
 storage/app/private/*
 storage/fonts/*
 
-# Docker config (copied explicitly in Dockerfile)
-docker/
+# Docker certs (will be volume-mounted)
+docker/nginx/certs/
 
 # IDE
 .vscode/

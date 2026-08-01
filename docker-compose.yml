@@ -3,22 +3,36 @@ services:
     build:
       context: .
       target: nginx
+      args:
+        VITE_REVERB_APP_KEY: ${VITE_REVERB_APP_KEY}
+        VITE_REVERB_HOST: ${VITE_REVERB_HOST}
+        VITE_REVERB_PORT: ${VITE_REVERB_PORT}
+        VITE_REVERB_SCHEME: ${VITE_REVERB_SCHEME}
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./docker/nginx/certs:/etc/letsencrypt:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
       - app_storage:/app/storage:ro
     depends_on:
       - php
     networks:
       - tikoschool
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128M
 
   php:
     build:
       context: .
       target: php
+      args:
+        VITE_REVERB_APP_KEY: ${VITE_REVERB_APP_KEY}
+        VITE_REVERB_HOST: ${VITE_REVERB_HOST}
+        VITE_REVERB_PORT: ${VITE_REVERB_PORT}
+        VITE_REVERB_SCHEME: ${VITE_REVERB_SCHEME}
     volumes:
       - app_storage:/app/storage
     environment:
@@ -38,11 +52,16 @@ services:
     networks:
       - tikoschool
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   mysql:
     image: mysql:8.0
     volumes:
       - mysql_data:/var/lib/mysql
+      - ./docker/mysql/my.cnf:/etc/mysql/conf.d/my.cnf:ro
     environment:
       MYSQL_DATABASE: ${DB_DATABASE:-tikoschool}
       MYSQL_USER: ${DB_USERNAME:-tikoschool}
@@ -57,9 +76,14 @@ services:
     networks:
       - tikoschool
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1200M
 
   redis:
     image: redis:7-alpine
+    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
     ports:
@@ -67,6 +91,10 @@ services:
     networks:
       - tikoschool
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128M
 
 volumes:
   app_storage:

@@ -23,3 +23,7 @@ yarn-error.log
 /.zed
 
 docker/nginx/certs/
+
+# Database dumps (sensitive data - never commit)
+*.sql
+!database/**

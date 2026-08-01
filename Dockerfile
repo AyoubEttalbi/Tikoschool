@@ -1,6 +1,16 @@
 # Stage 1: Build frontend assets
 FROM node:20-alpine AS build
 
+ARG VITE_REVERB_APP_KEY
+ARG VITE_REVERB_HOST
+ARG VITE_REVERB_PORT
+ARG VITE_REVERB_SCHEME
+
+ENV VITE_REVERB_APP_KEY=$VITE_REVERB_APP_KEY \
+    VITE_REVERB_HOST=$VITE_REVERB_HOST \
+    VITE_REVERB_PORT=$VITE_REVERB_PORT \
+    VITE_REVERB_SCHEME=$VITE_REVERB_SCHEME
+
 WORKDIR /app
 
 COPY package*.json ./
@@ -49,12 +59,13 @@ COPY . .
 COPY --from=build /app/public/build /app/public/build
 
 # Install PHP dependencies
-RUN composer install --no-dev --optimize-autoloader \
+RUN composer install --no-dev --optimize-autoloader --prefer-source || composer install --no-dev --optimize-autoloader --prefer-dist \
     && php artisan storage:link \
     && chown -R www-data:www-data /app/storage /app/bootstrap/cache /app/public/storage
 
 # Docker config files
 COPY docker/php/php.ini $PHP_INI_DIR/conf.d/99-app.ini
+COPY docker/php/www.conf /usr/local/etc/php-fpm.d/zz-custom.conf
 COPY docker/php/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY docker/php/entrypoint.sh /entrypoint.sh
 
