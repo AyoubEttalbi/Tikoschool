@@ -1,12 +1,15 @@
 <?php
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Assistant extends Model
 {
-    use SoftDeletes;
+    // AssistantFactory existed but the trait did not, so Assistant::factory() threw
+    // "Call to undefined method".
+    use HasFactory, SoftDeletes;
 
     protected $fillable = [
         'first_name',
@@ -20,7 +23,11 @@ class Assistant extends Model
         'status',
     ];
 
-    protected $dates = ['deleted_at'];
+    // `$dates` was removed in Laravel 10 and is ignored. SoftDeletes already casts
+    // deleted_at, so this line did nothing at all.
+    protected $casts = [
+        'salary' => 'decimal:2',
+    ];
 
     // Relationship with schools (many-to-many)
     public function schools()

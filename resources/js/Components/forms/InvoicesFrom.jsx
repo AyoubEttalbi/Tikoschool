@@ -524,7 +524,10 @@ const InvoicesForm = ({
         { month: "long" },
     );
     const handleAutoFill = () => {
-        setValue("amountPaid", totalAmount);
+        // Use the total currently IN THE FORM (parsedTotal), not the computed list price.
+        // `totalAmount` ignores a discount the cashier typed into the total field, so
+        // "pay in full" overpaid by the discount and left rest negative.
+        setValue("amountPaid", parsedTotal);
         setValue("rest", 0);
         setIsTypingAmountPaid(false); // Reset typing state after auto-fill
     };
@@ -536,10 +539,12 @@ const InvoicesForm = ({
 
     const handleAmountPaidBlur = () => {
         setIsTypingAmountPaid(false);
-        // Update rest amount when user finishes typing
+        // Same reasoning as handleAutoFill: derive `rest` from the form's total so a
+        // discount is respected. Floored at 0 — a negative balance owing is meaningless
+        // and the server rejects it anyway.
         const currentAmountPaid = watch("amountPaid");
-        const newRestAmount = totalAmount - (currentAmountPaid ? Math.round(Number(currentAmountPaid)) : 0);
-        setValue("rest", newRestAmount);
+        const paid = currentAmountPaid ? Math.round(Number(currentAmountPaid)) : 0;
+        setValue("rest", Math.max(0, parsedTotal - paid));
     };
 
     // Handle amountPaid input change with debouncing and validation
@@ -692,12 +697,19 @@ const InvoicesForm = ({
                                 >
                                     {type === "update" ? (
                                         <option value={data.membership_id}>
+                                            {/*
+                                              Optional chaining: .find() returns undefined
+                                              when the invoice's membership has been
+                                              soft-deleted or is not in this list, and the
+                                              unguarded `.offer_name` threw a TypeError that
+                                              white-screened the whole edit form.
+                                            */}
                                             {
                                                 StudentMemberships.find(
                                                     (membership) =>
                                                         membership.id ===
                                                         data.membership_id,
-                                                ).offer_name
+                                                )?.offer_name ?? "Adhésion introuvable"
                                             }{" "}
                                             (Prix :{" "}
                                             {Math.round(
@@ -705,7 +717,7 @@ const InvoicesForm = ({
                                                     (membership) =>
                                                         membership.id ===
                                                         data.membership_id,
-                                                ).price,
+                                                )?.price ?? 0,
                                             )}{" "}
                                             DH)
                                         </option>

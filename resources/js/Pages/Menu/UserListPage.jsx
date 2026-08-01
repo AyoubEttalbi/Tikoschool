@@ -5,8 +5,10 @@ import Pagination from "../../Components/Pagination";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import FormModal from "../../Components/FormModal";
 import Register from "../Auth/Register";
-import { useState, useEffect } from "react";
-import { useParams } from "react-router-dom";
+import { useState } from "react";
+import useFilterNavigation from "@/Hooks/useFilterNavigation";
+// NOTE: `import { useParams } from "react-router-dom"` used to be here. It was never
+// called, and this is an Inertia app with no <BrowserRouter> — calling it would throw.
 import { Edit, Eye, Plus, PlusIcon, RotateCcw } from "lucide-react";
 import UpdateUser from "../Auth/UpdateUser";
 import UserFilterForm from "../../Components/UserFilterForm";
@@ -51,24 +53,26 @@ const UserListPage = ({ users, filters: initialFilters = {}, roles = [] }) => {
     });
     const [showFilters, setShowFilters] = useState(false);
 
-    // Debounced filter/search
-    useEffect(() => {
-        const timeoutId = setTimeout(() => {
-            router.get(route("users.index"), { ...filters }, { preserveState: true, replace: true, preserveScroll: true });
-        }, 300);
-        return () => clearTimeout(timeoutId);
-    }, [filters]);
+    // The only place this page navigates for a filter change. The handlers below must not
+    // call router.get themselves — see the hook.
+    useFilterNavigation({
+        routeName: "users.index",
+        filters,
+        serverFilters: {
+            search: initialFilters.search || "",
+            // UserController::index treats a missing `role` and 'all' identically, so the
+            // hook drops it from the URL rather than sending ?role=all.
+            role: initialFilters.role || "all",
+        },
+    });
 
     const handleFilterChange = (e) => {
         const { name, value } = e.target;
-        const newFilters = { ...filters, [name]: value };
-        setFilters(newFilters);
-        router.get(route("users.index"), { ...newFilters, page: 1 }, { preserveState: true, replace: true });
+        setFilters({ ...filters, [name]: value });
     };
 
     const clearFilters = () => {
         setFilters({ search: "", role: "all" });
-        router.get(route("users.index"), {}, { preserveState: false, replace: true, preserveScroll: true });
     };
 
     const toggleFilters = () => {

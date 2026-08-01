@@ -18,18 +18,21 @@ class MembershipFactory extends Factory
      */
     public function definition(): array
     {
-        // Get available IDs dynamically
-        $studentIds = Student::pluck('id')->toArray();
-        $studentId = !empty($studentIds) ? $this->faker->randomElement($studentIds) : 1;
-        
-        $offerIds = Offer::pluck('id')->toArray();
-        $offerId = !empty($offerIds) ? $this->faker->randomElement($offerIds) : 1;
-        
+        // Create the parents when none exist rather than falling back to a hardcoded id,
+        // which violates the foreign keys on a fresh database.
+        $studentId = Student::inRandomOrder()->value('id') ?? Student::factory()->create()->id;
+        $offerId = Offer::inRandomOrder()->value('id') ?? Offer::factory()->create()->id;
+
         return [
             'student_id' => $studentId,
             'offer_id' => $offerId,
-            'teachers' => $this->faker->randomElements([1, 2, 3, 4, 5], $this->faker->numberBetween(1, 3)),
-            'payment_status' => $this->faker->randomElement(['paid', 'pending', 'overdue']),
+            // `teachers` is a JSON array of {teacherId, subject} objects — that is the shape
+            // TeacherMembershipPaymentService::processTeacherPayment() reads. It used to be a
+            // flat array of integers, which the payout engine cannot process at all.
+            'teachers' => [],
+            // Must be one of the column's enum values ('pending','paid','expired').
+            // 'overdue' was in this list and is NOT valid — MySQL rejected/truncated it.
+            'payment_status' => $this->faker->randomElement(['paid', 'pending', 'expired']),
             'is_active' => $this->faker->boolean(80), // 80% chance of being active
             'start_date' => $this->faker->dateTimeBetween('-1 year', 'now'),
             'end_date' => $this->faker->dateTimeBetween('now', '+1 year'),

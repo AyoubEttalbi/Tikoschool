@@ -22,8 +22,21 @@
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="CACHE_STORE" value="array"/>
-        <!-- <env name="DB_CONNECTION" value="sqlite"/> -->
-        <!-- <env name="DB_DATABASE" value=":memory:"/> -->
+        <!--
+          These MUST stay set. While they were commented out the suite inherited
+          DB_CONNECTION/DB_DATABASE from .env and ran against the real working database —
+          so any test using RefreshDatabase would have dropped every table in it.
+
+          MySQL rather than sqlite on purpose: this app depends on MySQL-specific behaviour
+          (JSON_LENGTH / JSON_CONTAINS / DATE_FORMAT, invoice triggers, and the fact that
+          double quotes are string literals without ANSI_QUOTES). Sqlite would silently
+          diverge on exactly the queries most worth testing.
+
+          Create the database once:
+              CREATE DATABASE tikoschool_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+        -->
+        <env name="DB_CONNECTION" value="mysql"/>
+        <env name="DB_DATABASE" value="tikoschool_test"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="QUEUE_CONNECTION" value="sync"/>

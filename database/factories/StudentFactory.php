@@ -12,15 +12,12 @@ class StudentFactory extends Factory
 {
     public function definition(): array
     {
-        // Get available IDs dynamically
-        $levelIds = Level::pluck('id')->toArray();
-        $levelId = !empty($levelIds) ? $this->faker->randomElement($levelIds) : 1;
-        
-        $classIds = Classes::pluck('id')->toArray();
-        $classId = !empty($classIds) ? $this->faker->randomElement($classIds) : null;
-        
-        $schoolIds = School::pluck('id')->toArray();
-        $schoolId = !empty($schoolIds) ? $this->faker->randomElement($schoolIds) : 1;
+        // Reuse an existing row when there is one, otherwise create it. Falling back to a
+        // hardcoded id of 1 (as this previously did) violates the foreign keys on a fresh
+        // database, which made the factory unusable in tests.
+        $levelId = Level::inRandomOrder()->value('id') ?? Level::factory()->create()->id;
+        $schoolId = School::inRandomOrder()->value('id') ?? School::factory()->create()->id;
+        $classId = Classes::inRandomOrder()->value('id');
         
         // Generate guardian name
         $guardianName = $this->faker->name();

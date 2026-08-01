@@ -75,8 +75,11 @@ class AttendanceController extends Controller
         
         $classes = $classesQuery->get();
 
-        // Get students for selected class (with search filter)
-        $studentsQuery = Student::with('class')->where('status', 'active');
+        // Get students for selected class (with search filter).
+        // `memberships` is eager-loaded here because this roster is walked three separate
+        // times below; each pass used the relation METHOD ($student->memberships()->get()),
+        // which bypasses eager loading entirely and issued one query per student per pass.
+        $studentsQuery = Student::with(['class', 'memberships'])->where('status', 'active');
         
         if ($selectedSchoolId) {
             $studentsQuery->where('schoolId', $selectedSchoolId);
@@ -170,7 +173,7 @@ class AttendanceController extends Controller
             }
             
             // Include all memberships regardless of membership active status; rely on student status instead
-            $memberships = $student->memberships()->get();
+            $memberships = $student->memberships; // property form: uses the eager-loaded relation
             Log::debug('Checking student memberships', [
                 'student_id' => $student->id,
                 'student_name' => $student->firstName . ' ' . $student->lastName,
@@ -250,7 +253,7 @@ class AttendanceController extends Controller
                 $recordedByName = $user ? $user->name : null;
             }
             // Get all subjects for this student/teacher
-            $memberships = $student->memberships()->get();
+            $memberships = $student->memberships; // property form: uses the eager-loaded relation
             $subjects = collect();
             foreach ($memberships as $membership) {
                 $teacherArr = is_array($membership->teachers)
@@ -304,7 +307,7 @@ class AttendanceController extends Controller
         if ($classId && $teacherId) {
             $classStudents = Student::where('classId', $classId)->where('status', 'active')->get();
             foreach ($classStudents as $student) {
-                $memberships = $student->memberships()->get();
+                $memberships = $student->memberships; // property form: uses the eager-loaded relation
                 foreach ($memberships as $membership) {
                     $teacherArr = is_array($membership->teachers)
                         ? $membership->teachers
@@ -912,7 +915,7 @@ Ig: https://www.instagram.com/centreredcity?igsh=MXg1NjJwam80eTNoMw%3D%3D&utm_so
         ]);
     }
 
-    public function notifyParent($studentId, Request $request = null)
+    public function notifyParent($studentId, ?Request $request = null)
     {
         $student = Student::findOrFail($studentId);
         // Use guardianNumber as the parent's phone number
@@ -1048,7 +1051,7 @@ Ig: https://www.instagram.com/centreredcity?igsh=MXg1NjJwam80eTNoMw%3D%3D&utm_so
         
         // Filter students to only include those taught by the selected teacher through memberships
         $students = $allStudents->filter(function ($student) use ($teacher) {
-            $memberships = $student->memberships()->get();
+            $memberships = $student->memberships; // property form: uses the eager-loaded relation
             foreach ($memberships as $membership) {
                 $teacherArr = is_array($membership->teachers)
                     ? $membership->teachers

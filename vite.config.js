@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import laravel from 'laravel-vite-plugin';
 import react from '@vitejs/plugin-react';
+import path from 'node:path';
 
 export default defineConfig({
     plugins: [
@@ -10,4 +11,25 @@ export default defineConfig({
         }),
         react(),
     ],
+    resolve: {
+        alias: {
+            // laravel-vite-plugin injects this implicitly, but 100+ files depend on it —
+            // declaring it here means the build does not rely on that side effect.
+            '@': path.resolve(__dirname, 'resources/js'),
+        },
+    },
+    build: {
+        // Never ship source maps: they expose the unminified frontend, including business
+        // logic and commented-out endpoints. CI also fails the build if any .map appears.
+        sourcemap: false,
+        // NOTE: deliberately NO `manualChunks`.
+        //
+        // Grouping node_modules into named vendor chunks was tried and made things worse:
+        // forcing modules into a named chunk means Rollup must load that whole chunk if any
+        // single module in it is reachable from the entry, which fused otherwise-lazy
+        // libraries (react-big-calendar/moment) into the eager path. Rollup's default
+        // per-import-graph splitting already produces one chunk per page here, which is what
+        // we want. Keep the wins in the source instead: no eager layout import in app.jsx,
+        // and a lazily-constructed Echo client.
+    },
 });

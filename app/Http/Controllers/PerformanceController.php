@@ -10,6 +10,7 @@ use App\Models\Invoice;
 use App\Models\Subject;
 use App\Models\Classes;
 use App\Models\School;
+use App\Support\SchoolScope;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
@@ -22,9 +23,17 @@ class PerformanceController extends Controller
      */
     public function show($studentId)
     {
+        // Object-level authorization. Without this, any authenticated staff member could
+        // read ANY student's grades, attendance and billing by changing the id — which
+        // also bypassed the explicit 403 that StudentsController::show() gives teachers.
+        //
+        // Deliberately placed OUTSIDE the try below: abort(403) throws an HttpException,
+        // which extends \Exception, so the generic catch would swallow it and turn a denial
+        // into a harmless redirect.
+        $student = Student::with(['class', 'school'])->findOrFail($studentId);
+        SchoolScope::authorizeStudent($student);
+
         try {
-            $student = Student::with(['class', 'school'])->findOrFail($studentId);
-            
             // Get academic performance
             $academicScore = $this->calculateAcademicScore($studentId);
             

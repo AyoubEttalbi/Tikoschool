@@ -8,6 +8,7 @@ use Illuminate\Validation\ValidationException;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rules\Password;
 use App\Models\Teacher;
 use App\Models\Assistant;
 use Illuminate\Support\Facades\Log;
@@ -33,7 +34,8 @@ class UserController extends Controller
             $validationRules = [
                 'name' => 'sometimes|string|max:255',
                 'role' => 'sometimes|in:admin,assistant,teacher',
-                'password' => 'nullable|string|min:8',
+                // Use the app-wide policy rather than a raw min:8 string.
+                'password' => ['nullable', 'string', Password::defaults()],
             ];
             if ($validateEmail) {
                 $validationRules['email'] = [
@@ -51,9 +53,8 @@ class UserController extends Controller
                 $validatedData['email'] = $user->email;
             }
 
-            // Minimal manual password update for debug
-            $user->password = Hash::make('testpassword');
-            $user->save();
+            // NOTE: a debug line here used to unconditionally reset every edited user's
+            // password to a hardcoded literal. The real, conditional update is below.
 
             // If email is being updated, check uniqueness in related table
             if (isset($validatedData['email']) && $validatedData['email'] !== $oldEmail) {

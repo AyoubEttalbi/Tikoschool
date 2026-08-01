@@ -1,4 +1,4 @@
-import React, { Suspense, useEffect } from "react";
+import React, { Suspense } from "react";
 const Announcements = React.lazy(() => import("@/Pages/Menu/Announcements/Announcements"));
 const BigCalendar = React.lazy(() => import("@/Components/BigCalender"));
 const FormModal = React.lazy(() => import("@/Components/FormModal"));
@@ -30,18 +30,17 @@ const SingleTeacherPage = ({
         router.visit("/select-profile");
     };
 
-    // Clean up browser history for proper back button behavior
-    useEffect(() => {
-        const referrer = document.referrer;
-        const isFromTeachersList = referrer.includes('/teachers') && !referrer.includes('/teachers/');
-        
-        if (isFromTeachersList) {
-            // Replace the current history entry with a clean teachers list URL
-            // This ensures the back button goes directly to the clean teachers list
-            const cleanTeachersUrl = route('teachers.index');
-            window.history.replaceState(null, '', cleanTeachersUrl);
-        }
-    }, []);
+    // A `history.replaceState(null, '', route('teachers.index'))` used to run here on mount,
+    // to "clean up history for the back button". It rewrote THIS page's address bar to the
+    // teachers LIST url while still showing the teacher's profile — so the URL no longer
+    // identified the page you were on, and reloading a profile served the list instead.
+    //
+    // It was invisible for a long time because the invoice table's mount-fire immediately
+    // re-navigated to /teachers/{id}?…filters and put a correct URL back. Removing that
+    // duplicate request left the corrupted URL with nothing to repair it.
+    //
+    // Nothing is needed in its place: Inertia pushes a history entry on the list -> profile
+    // visit, so Back already returns to the list.
 
     return (
         <div className="flex-1 p-4 flex flex-col gap-4 xl:flex-row">

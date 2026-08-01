@@ -131,24 +131,10 @@ class StudentsController extends Controller
          if ($userRole === 'teacher') {
              $teacher = \App\Models\Teacher::where('email', $user->email)->first();
              if ($teacher) {
-                 // Debug: Check what memberships exist for this teacher
-                 $debugMemberships = \App\Models\Membership::where(function($q) use ($teacher) {
-                     $q->whereRaw("JSON_CONTAINS(teachers, JSON_OBJECT('teacherId', ?))", [$teacher->id])
-                       ->orWhereRaw("JSON_CONTAINS(teachers, JSON_OBJECT('teacherId', ?))", [(string)$teacher->id]);
-                 })->get();
-                 Log::info('Debug: Memberships found for teacher', [
-                     'teacher_id' => $teacher->id,
-                     'teacher_email' => $user->email,
-                     'memberships_count' => $debugMemberships->count(),
-                     'memberships_data' => $debugMemberships->map(function($m) {
-                         return [
-                             'id' => $m->id,
-                             'student_id' => $m->student_id,
-                             'teachers' => $m->teachers
-                         ];
-                     })
-                 ]);
-                 
+                 // NOTE: a "debug" block used to sit here that ran the SAME unindexable
+                 // JSON_CONTAINS scan over the whole memberships table and ->get() every
+                 // matching row, purely to feed a Log::info — then threw the result away and
+                 // ran the real filter below. It executed on every student-list page load.
                  $query->whereHas('memberships', function($membershipQuery) use ($teacher) {
                      // Try both string and integer versions of teacher ID
                      $membershipQuery->where(function($q) use ($teacher) {
@@ -156,10 +142,6 @@ class StudentsController extends Controller
                            ->orWhereRaw("JSON_CONTAINS(teachers, JSON_OBJECT('teacherId', ?))", [(string)$teacher->id]);
                      });
                  });
-                 Log::info('Filtering students for teacher', [
-                     'teacher_id' => $teacher->id,
-                     'teacher_email' => $user->email
-                 ]);
              }
          }
          
@@ -184,15 +166,9 @@ class StudentsController extends Controller
          // Membership status filter
          $membershipStatus = $request->input('membership_status');
          $studentsCollection = $query->orderBy('created_at', 'desc')->get();
-         
-         // Debug: Log how many students were found
-         Log::info('Debug: Students found after query', [
-             'user_role' => $userRole,
-             'teacher_id' => $userRole === 'teacher' ? ($teacher ? $teacher->id : null) : null,
-             'students_count' => $studentsCollection->count(),
-             'query_sql' => $query->toSql(),
-             'query_bindings' => $query->getBindings()
-         ]);
+
+         // NOTE: a Log::info here dumped the student count, the raw SQL and every bound
+         // parameter (school ids, search terms) on each page load. Removed.
          if ($membershipStatus && $membershipStatus !== 'all') {
              $studentsCollection = $studentsCollection->filter(function ($student) use ($membershipStatus) {
                  $allMemberships = $student->memberships;
@@ -243,7 +219,11 @@ class StudentsController extends Controller
              'Allschools' => School::all(),
              'search' => $request->search,
              'filters' => $request->only(['school', 'class', 'level', 'membership_status']),
-             'Allmemberships' => Membership::whereNull('deleted_at')->get(),
+             // NOTE: an 'Allmemberships' prop used to be shared here — EVERY membership row
+             // in the database, serialized into the page on every load. StudentListPage
+             // destructured it and never used it. It was also a scoping bypass: the query
+             // above restricts a teacher to their own students, then this handed them the
+             // whole memberships table anyway.
              'selectedSchool' => $selectedSchoolId ? [
                  'id' => $selectedSchoolId,
                  'name' => session('school_name')

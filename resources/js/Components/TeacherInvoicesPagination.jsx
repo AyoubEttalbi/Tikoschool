@@ -1,5 +1,6 @@
 import { Link } from "@inertiajs/react";
 import React from "react";
+import { decodePaginationLabel } from "@/lib/utils";
 
 const TeacherInvoicesPagination = ({ links = [] }) => {
     if (!links || links.length <= 1) return null; // Don't render if no links or only one link
@@ -33,10 +34,11 @@ const TeacherInvoicesPagination = ({ links = [] }) => {
                         } ${
                             !link.url ? "text-gray-400 cursor-not-allowed" : ""
                         }`}
-                        dangerouslySetInnerHTML={{ __html: link.label }}
                         preserveScroll
                         preserveState // Keep component state (like filters) when paginating
-                    />
+                    >
+                        {decodePaginationLabel(link.label)}
+                    </Link>
                 );
             })}
         </div>

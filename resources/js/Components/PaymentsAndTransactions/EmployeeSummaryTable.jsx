@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
     formatDate,
     getInitials,
@@ -75,7 +75,8 @@ const EmployeeSummaryTable = ({
     const [selectedMonth, setSelectedMonth] = useState(null);
     const [selectedYear, setSelectedYear] = useState(null);
     const [viewingEmployeeId, setViewingEmployeeId] = useState(null);
-    const [filteredData, setFilteredData] = useState([]);
+    // `filteredData` is no longer state — it is derived (see the useMemo below). Two effects
+    // used to race to setFilteredData(), and the loser's work was silently discarded.
     const [earningsData, setEarningsData] = useState(null);
     const [filteredStats, setFilteredStats] = useState(null);
     const [loadingStats, setLoadingStats] = useState(false);
@@ -259,16 +260,22 @@ const EmployeeSummaryTable = ({
         }
     }, [employeePayments]);
 
-    // Update the filtering useEffect to use backend data when available
-    useEffect(() => {
+    // Month-scoped enrichment (monthlyPaid / monthlyExpenses / lastPayment / balance).
+    //
+    // This was a useEffect that called setFilteredData(). A SECOND effect further down also
+    // called setFilteredData() — but from the RAW employeePayments array — so every sort or
+    // filter change overwrote this enrichment and every row rendered "Jamais payé".
+    // Both are now derived values, so there is exactly one source of truth and no ordering
+    // race between two effects writing the same state.
+    const enrichedData = useMemo(() => {
         if (selectedMonth === null || selectedYear === null) {
-            return;
+            return [];
         }
 
         // Use backend filtered data if available, otherwise fall back to frontend filtering
         if (filteredEmployeeData?.employees) {
             // Use backend data directly
-            const backendEmployees = filteredEmployeeData.employees.map((employee) => ({
+            return filteredEmployeeData.employees.map((employee) => ({
                 ...employee,
                 // Ensure all required fields are present
                 baseSalary: employee.monthlyOwed,
@@ -280,9 +287,6 @@ const EmployeeSummaryTable = ({
                 paymentStatus: employee.paymentStatus,
                 transactions: employee.transactions || []
             }));
-            
-            setFilteredData(backendEmployees);
-            return;
         }
 
         // Fallback to frontend filtering (original logic)
@@ -348,7 +352,7 @@ const EmployeeSummaryTable = ({
             };
         });
 
-        setFilteredData(filtered);
+        return filtered;
     }, [selectedMonth, selectedYear, safeEmployeePayments, filteredEmployeeData]);
 
     const handleViewHistory = (employeeId) => {
@@ -459,9 +463,11 @@ const EmployeeSummaryTable = ({
         }));
     };
 
-    // Filter and sort data
-    useEffect(() => {
-        let result = [...employeePayments];
+    // Filter and sort — derived from the ENRICHED rows above, not from the raw
+    // employeePayments array. Reading the raw array here is what discarded monthlyPaid /
+    // monthlyExpenses / lastPayment on every filter or sort change.
+    const filteredData = useMemo(() => {
+        let result = [...enrichedData];
 
         // Apply filters
         if (filters.role !== "all") {
@@ -486,10 +492,8 @@ const EmployeeSummaryTable = ({
         }
 
         // Apply sorting
-        result = sortData(result, sortConfig.key, sortConfig.direction);
-
-        setFilteredData(result);
-    }, [employeePayments, filters, sortConfig]);
+        return sortData(result, sortConfig.key, sortConfig.direction);
+    }, [enrichedData, filters, sortConfig]);
 
     // Get current page items
     const indexOfLastItem = currentPage * itemsPerPage;

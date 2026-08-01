@@ -156,7 +156,9 @@ return [
     |
     */
 
-    'domain' => null,
+    // Was hardcoded to null, which silently ignored the SESSION_DOMAIN key that
+    // .env and .env.example both define. Restored to the Laravel default.
+    'domain' => env('SESSION_DOMAIN'),
 
     /*
     |--------------------------------------------------------------------------
@@ -169,7 +171,12 @@ return [
     |
     */
 
-    'secure' => env('SESSION_SECURE_COOKIE'),
+    // Defaults to true in production so the session cookie is never sent over plain HTTP.
+    // SESSION_SECURE_COOKIE was previously unset in every .env, which resolved to null
+    // (i.e. NOT secure) even though the site is HTTPS-only.
+    // If you ever serve production over plain HTTP this will log everyone out — set
+    // SESSION_SECURE_COOKIE=false explicitly in that case rather than changing this line.
+    'secure' => env('SESSION_SECURE_COOKIE', env('APP_ENV') === 'production'),
 
     /*
     |--------------------------------------------------------------------------

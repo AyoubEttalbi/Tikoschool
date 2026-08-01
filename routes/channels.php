@@ -13,10 +13,11 @@ Broadcast::channel('presence-online-users', function ($user) {
     ];
 });
 
-// New channel for user-specific notifications
+// User-specific notifications. This callback only runs because the channel is
+// PRIVATE (see UnreadMessageCountUpdated::broadcastOn and DashboardLayout.jsx) —
+// Laravel never authorizes public channels.
+// A second, identical registration under `{userId}` was removed: it silently
+// overwrote this one and served no purpose.
 Broadcast::channel('user.{id}.notifications', function ($user, $id) {
     return (int) $user->id === (int) $id;
-});
-Broadcast::channel('user.{userId}.notifications', function ($user, $userId) {
-    return (int) $user->id === (int) $userId;
 });

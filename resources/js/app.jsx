@@ -4,29 +4,37 @@ import "./bootstrap";
 import { createInertiaApp } from "@inertiajs/react";
 import { resolvePageComponent } from "laravel-vite-plugin/inertia-helpers";
 import { createRoot } from "react-dom/client";
-import DashboardLayout from "@/Layouts/DashboardLayout"; // Import your DashboardLayout
+import ErrorBoundary from "@/Components/ErrorBoundary";
 
-const appName = import.meta.env.VITE_APP_NAME || "Tikoshcool";
+const appName = import.meta.env.VITE_APP_NAME || "Tikoschool";
 
 createInertiaApp({
     title: (title) => `${title} - ${appName}`,
-    resolve: (name) => {
-        const page = resolvePageComponent(
+    resolve: (name) =>
+        // NOTE: a "default layout" block used to live here:
+        //
+        //     const page = resolvePageComponent(...);
+        //     if (!page.layout) { page.layout = ... }
+        //
+        // resolvePageComponent is async, so `page` was a PROMISE and `.layout` was assigned
+        // onto the promise object, which Inertia never reads — the branch was a no-op. Every
+        // page already sets its own `Page.layout`, which is why nothing appeared broken.
+        //
+        // Removing it also drops the static `import DashboardLayout` that used to sit at the
+        // top of this file. That single import pulled Menu, Navbar, InboxPopup and the emoji
+        // picker into the eager entry chunk for every visitor, including the login page.
+        resolvePageComponent(
             `./Pages/${name}.jsx`,
             import.meta.glob("./Pages/**/*.jsx"),
-        );
-
-        // Apply the DashboardLayout to all pages by default
-        if (!page.layout) {
-            page.layout = (page) => <DashboardLayout>{page}</DashboardLayout>;
-        }
-
-        return page;
-    },
+        ),
     setup({ el, App, props }) {
         const root = createRoot(el);
 
-        root.render(<App {...props} />);
+        root.render(
+            <ErrorBoundary>
+                <App {...props} />
+            </ErrorBoundary>,
+        );
     },
     progress: {
         color: "#4B5563",

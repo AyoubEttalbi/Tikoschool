@@ -85,10 +85,10 @@ class OfferController extends Controller
             'levelId' => 'required|exists:levels,id', // Use 'levelId' instead of 'level_id'
             'subjects' => 'required|array|min:1',
             'subjects.*' => 'string',
-            'percentage' => 'required|array',
+            'percentage' => ['required', 'array', $this->percentagesMustNotExceed100()],
             'percentage.*' => 'numeric|min:0|max:100',
         ]);
-    
+
         // Store the offer with subjects & percentages as JSON
         Offer::create([
             'offer_name' => $validatedData['offer_name'],
@@ -142,7 +142,7 @@ class OfferController extends Controller
         'price' => 'required|numeric|min:0',
         'subjects' => 'required|array|min:1',
         'subjects.*' => 'string',
-        'percentage' => 'required|array',
+        'percentage' => ['required', 'array', $this->percentagesMustNotExceed100()],
         'percentage.*' => 'numeric|min:0|max:100',
     ]);
 
@@ -157,6 +157,26 @@ class OfferController extends Controller
     // Redirect with a success message
     return redirect()->route('offers.index')->with('success', 'Offer updated successfully.');
 }
+
+    /**
+     * Teacher percentages are shares of the STUDENT'S payment, so together they can never
+     * exceed 100%. Without this, an offer such as {"Math": 80, "Physique": 70} paid out 150%
+     * of every invoice — silently, on every payment, with nothing downstream checking.
+     */
+    private function percentagesMustNotExceed100(): \Closure
+    {
+        return function (string $attribute, mixed $value, \Closure $fail) {
+            if (! is_array($value)) {
+                return;
+            }
+
+            $total = round(array_sum(array_map('floatval', $value)), 2);
+
+            if ($total > 100.0) {
+                $fail("La somme des pourcentages des enseignants est de {$total}% — elle ne peut pas dépasser 100%.");
+            }
+        };
+    }
 
     /**
      * Remove the specified resource from storage.

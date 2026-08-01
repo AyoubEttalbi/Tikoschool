@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Support\Impersonation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
@@ -25,8 +26,23 @@ class AdminController extends Controller
         $originalSchoolId = session('school_id');
         $originalSchoolName = session('school_name');
 
-        // Login as the impersonated user (this regenerates the session)
+        // Refuse to impersonate another admin — that is a lateral privilege move with no
+        // legitimate support use, and it makes the audit trail ambiguous.
+        if ($user->role === 'admin') {
+            return redirect()->back()->with('error', 'Impossible de consulter en tant qu\'un autre administrateur.');
+        }
+
+        activity()
+            ->causedBy(Auth::user())
+            ->performedOn($user)
+            ->withProperties(['impersonated_role' => $user->role])
+            ->log('impersonation.start');
+
         Auth::login($user);
+
+        // Auth::login() does NOT rotate the session id on its own. Rotate it explicitly so
+        // a session fixed before the privilege change cannot be replayed after it.
+        $request->session()->regenerate();
 
         // Restore session values AFTER login
         Session::put('admin_user_id', $adminUserId);
@@ -62,18 +78,36 @@ class AdminController extends Controller
      */
     public function switchBack(Request $request)
     {
-        $adminUserId = Session::get('admin_user_id');
-        if (!$adminUserId) abort(403, 'No admin session found.');
-        $adminUser = User::find($adminUserId);
-        if (!$adminUser) abort(404, 'Admin user not found.');
+        // Resolve AND verify. This previously did User::find($id) then Auth::login() with no
+        // role check, so any path that put an arbitrary id in the session was a full
+        // account-takeover primitive.
+        $adminUser = Impersonation::impersonator();
+
+        if (! $adminUser) {
+            Impersonation::forget();
+            abort(403, 'No valid admin session found.');
+        }
+
+        $impersonatedId = Auth::id();
+
         Auth::login($adminUser);
+        // Rotate the session id across the privilege change (Auth::login does not).
+        $request->session()->regenerate();
+
         if (Session::has('original_school_id')) {
             Session::put('school_id', Session::pull('original_school_id'));
             Session::put('school_name', Session::pull('original_school_name'));
         } else {
             Session::forget(['school_id', 'school_name']);
         }
-        Session::forget(['admin_user_id', 'original_role']);
+
+        Impersonation::forget();
+
+        activity()
+            ->causedBy($adminUser)
+            ->withProperties(['impersonated_user_id' => $impersonatedId])
+            ->log('impersonation.stop');
+
         return redirect()->route('dashboard')->with('success', 'Switched back.');
     }
     /**

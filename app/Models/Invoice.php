@@ -38,10 +38,16 @@ class Invoice extends Model
         'selected_months' => 'array',
     ];
 
-    // Relationship with Membership (assuming it exists)
+    // Relationship with Membership.
+    //
+    // withTrashed() is REQUIRED: Membership uses SoftDeletes, and without this the relation
+    // resolves to null once a membership is trashed. InvoiceController::destroy() guards its
+    // entire teacher-payment reversal behind `if ($membership)`, so deleting such an invoice
+    // silently skipped the reversal and still reported success.
+    // TeacherMembershipPayment::membership() already does this — this relation was the outlier.
     public function membership()
     {
-        return $this->belongsTo(Membership::class , 'membership_id');
+        return $this->belongsTo(Membership::class, 'membership_id')->withTrashed();
     }
 
     public function creator()

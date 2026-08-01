@@ -80,6 +80,17 @@ class LoginRequest extends FormRequest
      */
     public function throttleKey(): string
     {
-        return Str::transliterate(Str::lower($this->string('email')).'|'.$this->ip());
+        // Keyed on the email ALONE, deliberately.
+        //
+        // The client IP is derived from X-Forwarded-For (nginx `set_real_ip_from` plus
+        // Laravel's trustProxies), so it is caller-controlled. Including it let an attacker
+        // rotate the header and get a fresh throttle bucket on every request, which made the
+        // 5-attempt cap in ensureIsNotRateLimited() unreachable — this was the app's only
+        // brute-force control.
+        //
+        // Trade-off: an attacker can now lock out a known account by burning its attempts.
+        // That is the safer failure mode here, and the window is short (60s decay).
+        // Revisit once trusted proxies are pinned to the real CIDR.
+        return Str::transliterate(Str::lower($this->string('email')));
     }
 }

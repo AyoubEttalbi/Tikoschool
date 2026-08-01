@@ -2,7 +2,7 @@
 
 namespace App\Events;
 
-use Illuminate\Broadcasting\Channel;
+use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
@@ -24,7 +24,11 @@ class UnreadMessageCountUpdated implements ShouldBroadcastNow
 
     public function broadcastOn()
     {
-        return new Channel("user.{$this->userId}.notifications");
+        // PRIVATE, not public. Laravel only runs the Broadcast::channel() authorization
+        // callback for private/presence channels — on a public channel the guard in
+        // routes/channels.php was never invoked, so any connected client could subscribe to
+        // `user.{anyId}.notifications` and observe who was messaging whom.
+        return new PrivateChannel("user.{$this->userId}.notifications");
     }
 
     public function broadcastWith()

@@ -5,7 +5,8 @@ import Table from "../../Components/Table";
 import Pagination from "../../Components/Pagination";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Eye, RotateCcw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import useFilterNavigation from "@/Hooks/useFilterNavigation";
 
 const columns = [
     { header: "Nom", accessor: "name" },
@@ -37,36 +38,22 @@ const ClassesPage = ({ classes, schools, levels, filters: initialFilters }) => {
 
     const [showFilters, setShowFilters] = useState(false);
 
-    // Debounced function to apply filters
-    useEffect(() => {
-        const timeoutId = setTimeout(() => {
-            router.get(
-                route("classes.index"),
-                { ...filters },
-                { preserveState: true, replace: true, preserveScroll: true },
-            );
-        }, 300);
-
-        return () => clearTimeout(timeoutId);
-    }, [filters]);
+    // The only place this page navigates for a filter change. See the hook for why the
+    // handlers below must not call router.get themselves.
+    useFilterNavigation({
+        routeName: "classes.index",
+        filters,
+        serverFilters: {
+            level: initialFilters?.level || "",
+            school: initialFilters?.school || "",
+            search: initialFilters?.search || "",
+        },
+    });
 
     // Handle filter changes
     const handleFilterChange = (e) => {
         const { name, value } = e.target;
-        const newFilters = { ...filters, [name]: value };
-        setFilters(newFilters);
-
-        router.get(
-            route("classes.index"),
-            {
-                ...newFilters,
-                page: 1,
-            },
-            {
-                preserveState: true,
-                replace: true,
-            },
-        );
+        setFilters({ ...filters, [name]: value });
     };
 
     // Clear filters and reset the page
@@ -76,12 +63,6 @@ const ClassesPage = ({ classes, schools, levels, filters: initialFilters }) => {
             school: "",
             search: "",
         });
-
-        router.get(
-            route("classes.index"),
-            {},
-            { preserveState: false, replace: true, preserveScroll: true },
-        );
     };
 
     // Toggle visibility of filters

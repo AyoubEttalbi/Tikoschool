@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
+import { getEcho, currentEcho } from "@/echo";
 import {
     FiSend,
     FiSearch,
@@ -35,6 +36,8 @@ export default function InboxPopup({ auth, users = [], onClose }) {
     const selectedUserRef = useRef(selectedUser);
     const typingTimeoutRef = useRef(null);
     const inputRef = useRef(null);
+    // The live Echo subscription, so handleTyping does not re-subscribe per keystroke.
+    const channelRef = useRef(null);
     const [unreadMessages, setUnreadMessages] = useState(() => {
         const saved = localStorage.getItem("unreadMessages");
         return saved ? JSON.parse(saved) : {};
@@ -42,31 +45,14 @@ export default function InboxPopup({ auth, users = [], onClose }) {
 
     // Add new effect for initial data fetch and periodic sync
     useEffect(() => {
-        // Initial fetch
+        // Initial fetch only.
+        //
+        // A second 10-second setInterval polling /unread-count used to live here, duplicating
+        // the one in DashboardLayout — so an open inbox meant 12 requests/minute/user to an
+        // endpoint that re-runs the entire Inertia share(). Per-conversation counts arrive
+        // over Echo (.MessageSent / .MessagesRead below), and DashboardLayout keeps a single
+        // 60s reconciliation poll as the websocket fallback.
         fetchInitialData();
-
-        // Set up periodic sync
-        const interval = setInterval(() => {
-            axios
-                .get("/unread-count")
-                .then((response) => {
-                    const newUnreadCounts = response.data.unread_count;
-                    setUnreadMessages((prev) => {
-                        const updated = { ...prev, ...newUnreadCounts };
-                        // Save to localStorage whenever counts are updated
-                        localStorage.setItem(
-                            "unreadMessages",
-                            JSON.stringify(updated),
-                        );
-                        return updated;
-                    });
-                })
-                .catch((error) => {
-                    console.error("Failed to fetch unread counts:", error);
-                });
-        }, 10000); // Sync every 10 seconds
-
-        return () => clearInterval(interval);
     }, []);
 
     // Handle window resize
@@ -176,9 +162,13 @@ export default function InboxPopup({ auth, users = [], onClose }) {
         };
     }, []);
 
-    // WebSocket connection
-    const connectWebSocket = () => {
-        const channel = window.Echo.private(webSocketChannel);
+    // WebSocket connection.
+    // `echo` is passed in because Echo is now loaded on demand (resources/js/echo.js).
+    const connectWebSocket = (echo) => {
+        const channel = echo.private(webSocketChannel);
+        // Held in a ref so handleTyping can reuse this exact subscription instead of
+        // calling Echo.private() again on every keystroke.
+        channelRef.current = channel;
 
         channel
             .listen(".MessageSent", async (e) => {
@@ -343,7 +333,9 @@ export default function InboxPopup({ auth, users = [], onClose }) {
                 },
                 {
                     headers: {
-                        "X-Socket-ID": window.Echo.socketId(),
+                        // Suppresses the echo-back of our own message. Optional chaining
+                        // because Echo is loaded lazily and may not be connected yet.
+                        "X-Socket-ID": currentEcho()?.socketId(),
                     },
                 },
             );
@@ -425,24 +417,40 @@ export default function InboxPopup({ auth, users = [], onClose }) {
         }, 100);
     };
 
-    const sortedUsers = [...users].sort((a, b) => {
-        const aUnread = unreadMessages[a.id] || 0;
-        const bUnread = unreadMessages[b.id] || 0;
+    // Memoised: this copy + sort ran in the render body, so it re-executed on every
+    // keystroke in the search box and on every websocket message.
+    const sortedUsers = useMemo(
+        () =>
+            [...users].sort((a, b) => {
+                const aUnread = unreadMessages[a.id] || 0;
+                const bUnread = unreadMessages[b.id] || 0;
 
-        if (aUnread !== bUnread) return bUnread - aUnread;
+                if (aUnread !== bUnread) return bUnread - aUnread;
 
-        const aTime = lastMessages[a.id]?.created_at || 0;
-        const bTime = lastMessages[b.id]?.created_at || 0;
-        return new Date(bTime) - new Date(aTime);
-    });
-
-    const filteredUsers = sortedUsers.filter((user) =>
-        user.name.toLowerCase().includes(searchQuery.toLowerCase()),
+                const aTime = lastMessages[a.id]?.created_at || 0;
+                const bTime = lastMessages[b.id]?.created_at || 0;
+                return new Date(bTime) - new Date(aTime);
+            }),
+        [users, unreadMessages, lastMessages],
     );
+
+    const filteredUsers = useMemo(() => {
+        const q = searchQuery.trim().toLowerCase();
+        if (!q) return sortedUsers;
+        return sortedUsers.filter((user) =>
+            (user.name ?? "").toLowerCase().includes(q),
+        );
+    }, [sortedUsers, searchQuery]);
 
     const handleTyping = () => {
         if (!selectedUserRef.current?.id) return;
-        const channel = window.Echo.private(webSocketChannel);
+
+        // Reuse the existing subscription. This used to call Echo.private() on EVERY
+        // keystroke, re-subscribing to a channel it never left and re-registering the
+        // whisper listener each time — subscriptions accumulated for the whole session.
+        const channel = channelRef.current;
+        if (!channel) return;
+
         channel.whisper("typing", {
             userId: auth.user.id,
             isTyping: true,
@@ -466,14 +474,25 @@ export default function InboxPopup({ auth, users = [], onClose }) {
 
     // Initialize
     useEffect(() => {
-        if (userId) {
-            fetchInitialData();
-            const cleanup = connectWebSocket();
-            return () => {
-                cleanup();
-                window.Echo.leave(webSocketChannel);
-            };
-        }
+        if (!userId) return;
+
+        let cancelled = false;
+        let cleanup = null;
+
+        fetchInitialData();
+
+        getEcho().then((echo) => {
+            if (cancelled) return;
+            cleanup = connectWebSocket(echo);
+        });
+
+        return () => {
+            cancelled = true;
+            cleanup?.();
+            clearTimeout(typingTimeoutRef.current);
+            channelRef.current = null;
+            currentEcho()?.leave(webSocketChannel);
+        };
     }, [userId]);
 
     // Handle user selection

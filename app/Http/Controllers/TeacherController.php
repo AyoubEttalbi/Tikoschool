@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Events\CheckEmailUnique;
 use App\Models\Teacher;
+use App\Support\SchoolScope;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\URL;
@@ -89,6 +90,16 @@ class TeacherController extends Controller
         // Initialize the query with eager loading for relationships
         $query = Teacher::with(['subjects', 'classes', 'schools']);
 
+        // Hard scope first. `session('school_id')` below is a UI preference the caller picks
+        // on /select-profile — it narrows the view, it does not authorize it. Assistants and
+        // teachers see only the schools they are actually assigned to; admins are unrestricted.
+        $allowedSchoolIds = SchoolScope::schoolIdsFor();
+        if ($allowedSchoolIds !== null) {
+            $query->whereHas('schools', function ($schoolQuery) use ($allowedSchoolIds) {
+                $schoolQuery->whereIn('schools.id', $allowedSchoolIds);
+            });
+        }
+
         // Filter by selected school if one is in session
         if ($selectedSchoolId) {
             $query->whereHas('schools', function ($schoolQuery) use ($selectedSchoolId) {
@@ -111,11 +122,15 @@ class TeacherController extends Controller
             return $this->transformTeacherData($teacher);
         });
 
-        // Fetch schools for the filter dropdown - consider fetching only relevant ones if needed
-        $schoolsForFilter = School::all(); 
-        // Fetch subjects and classes for filters
+        // Filter dropdowns, scoped the same way as the rows. Offering an assistant the names
+        // of schools they cannot see is both a leak and a dead option in the UI.
+        $schoolsForFilter = $allowedSchoolIds === null
+            ? School::all()
+            : School::whereIn('id', $allowedSchoolIds)->get();
         $subjects = Subject::all();
-        $classes = Classes::all();
+        $classes = $allowedSchoolIds === null
+            ? Classes::all()
+            : Classes::whereIn('school_id', $allowedSchoolIds)->get();
 
         return Inertia::render('Menu/TeacherListPage', [
             'teachers' => $teachers,
@@ -244,7 +259,6 @@ class TeacherController extends Controller
                 'phone_number' => 'nullable|string|max:20',
                 'email' => 'required|string|email|max:255|unique:teachers,email',
                 'status' => 'required|in:active,inactive',
-                'wallet' => 'required|numeric|min:0',
                 'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120',
                 'schools' => 'array',
                 'schools.*' => 'exists:schools,id',
@@ -253,6 +267,12 @@ class TeacherController extends Controller
                 'classes' => 'array',
                 'classes.*' => 'exists:classes,id',
             ]);
+
+            // A new teacher always starts at zero. The wallet is ledger-derived
+            // (see TeacherWalletService); an opening balance typed into a create form would
+            // be money with no corresponding entry, which is exactly the drift the ledger
+            // exists to prevent.
+            $validatedData['wallet'] = 0;
 
             // Handle profile image upload
             if ($request->hasFile('profile_image')) {
@@ -284,9 +304,8 @@ class TeacherController extends Controller
      */
     public function show(Request $request, Teacher $teacher)
     {
-        Log::info('TeacherController@show', [
-            "invoices_all" => Invoice::all()
-        ]);
+        // NOTE: a debug Log::info here serialized Invoice::all() on every profile view,
+        // writing every student's financial data to storage/logs. Do not reintroduce.
         try {
             // Eager load teacher relationships
             $teacher->load(['subjects', 'classes', 'schools']);
@@ -297,7 +316,12 @@ class TeacherController extends Controller
                 'class_filter' => $request->get('class_filter', 'all'),
                 'offer_filter' => $request->get('offer_filter', 'all'),
                 'school_filter' => $request->get('school_filter', 'all'),
-                'date_filter' => $request->get('date_filter', ''),
+                // Default to the current month, matching what the invoice table shows in its
+                // month picker on first paint. It used to default to '' (= every month), so
+                // the page rendered every invoice, the table then noticed its own default
+                // disagreed and issued a SECOND request for the same page with
+                // ?date_filter=YYYY-MM. Two round trips and a visible flash of the wrong rows.
+                'date_filter' => $request->get('date_filter', now()->format('Y-m')),
                 'membership_status_filter' => $request->get('membership_status_filter', 'all'),
                 'payment_status_filter' => $request->get('payment_status_filter', 'all'),
                 'page' => $request->get('page', 1),
@@ -1007,7 +1031,6 @@ class TeacherController extends Controller
                     'unique:teachers,email,' . $teacher->id,
                 ],
                 'status' => 'required|in:active,inactive',
-                'wallet' => 'required|numeric|min:0',
                 'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120',
                 'subjects' => 'array',
                 'subjects.*' => 'exists:subjects,id',
@@ -1016,6 +1039,16 @@ class TeacherController extends Controller
                 'schools' => 'array',
                 'schools.*' => 'exists:schools,id',
             ]);
+
+            // `wallet` is deliberately NOT accepted here.
+            //
+            // It is a ledger-derived balance (see TeacherWalletService). The edit form
+            // round-tripped whatever value it loaded, so if a student paid an invoice
+            // between the form being opened and submitted, saving an unrelated field
+            // (a phone number, a school assignment) silently reverted the teacher's
+            // earnings — a classic lost update. Adjustments must go through a payout
+            // transaction so they are recorded.
+            unset($validatedData['wallet']);
 
             // Check for duplicate email in users table (except for the user with the old email)
             $userWithEmail = User::where('email', $validatedData['email'])
@@ -1135,7 +1168,6 @@ class TeacherController extends Controller
                 'teacher.phone_number' => 'nullable|string|max:20',
                 'teacher.email' => 'required|string|email|max:255|unique:teachers,email',
                 'teacher.status' => 'required|in:active,inactive',
-                'teacher.wallet' => 'required|numeric|min:0',
                 'teacher.profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120',
                 'teacher.schools' => 'array',
                 'teacher.schools.*' => 'exists:schools,id',
@@ -1161,7 +1193,8 @@ class TeacherController extends Controller
                 'phone_number' => $request->input('teacher.phone_number'),
                 'email' => $request->input('teacher.email'),
                 'status' => $request->input('teacher.status'),
-                'wallet' => $request->input('teacher.wallet'),
+                // Always zero on creation — see the note in store().
+                'wallet' => 0,
             ];
 
             if ($request->hasFile('teacher.profile_image')) {

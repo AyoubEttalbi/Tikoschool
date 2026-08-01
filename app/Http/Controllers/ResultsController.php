@@ -9,6 +9,7 @@ use App\Models\School;
 use App\Models\Student;
 use App\Models\Subject;
 use App\Models\Teacher;
+use App\Support\SchoolScope;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
@@ -302,47 +303,28 @@ class ResultsController extends Controller
      */
     public function getStudentsByClass($class_id)
     {
-        Log::info('Fetching students for class_id: ' . $class_id);
-        
         if (!$class_id) {
-            Log::error('No class_id provided');
             return response()->json([]);
         }
-        
-        // Enable query logging
-        DB::enableQueryLog();
-        
+
         $class = Classes::with('students')->find($class_id);
-        
-        // Log the executed queries
-        $queries = DB::getQueryLog();
-        Log::info('SQL Queries:', $queries);
-        
+
         if (!$class) {
-            Log::error('Class not found for id: ' . $class_id);
             return response()->json([]);
         }
-        
-        Log::info('Found class: ' . $class->name . ' with ' . $class->students->count() . ' students');
-        
-        // Debugging: Fetch students directly and log
-        $directStudents = DB::table('students')
-            ->where('classId', $class_id)
-            ->get();
-        Log::info('Direct query found ' . count($directStudents) . ' students');
-        
+
+        // This endpoint supplies the student ids used by updateGrade — scope it too,
+        // otherwise it hands an attacker exactly the ids needed to target another school.
+        SchoolScope::authorizeClass($class);
+
         // Note: Student model uses firstName and lastName (camelCase) instead of first_name and last_name
-        $students = $class->students->map(function($student) {
+        return response()->json($class->students->map(function ($student) {
             return [
                 'id' => $student->id,
                 'first_name' => $student->firstName, // Map from camelCase to snake_case for frontend
-                'last_name' => $student->lastName     // Map from camelCase to snake_case for frontend
+                'last_name' => $student->lastName,   // Map from camelCase to snake_case for frontend
             ];
-        });
-        
-        Log::info('Returning ' . count($students) . ' students');
-            
-        return response()->json($students);
+        }));
     }
     
     /**
@@ -350,24 +332,31 @@ class ResultsController extends Controller
      */
     public function getResultsByClass($class_id)
     {
-        Log::info('Fetching results for class_id: ' . $class_id);
-        
         if (!$class_id) {
-            Log::error('No class_id provided');
             return response()->json([]);
         }
-        
+
+        $class = Classes::find($class_id);
+        if (!$class) {
+            return response()->json([]);
+        }
+        SchoolScope::authorizeClass($class);
+
         // Get students in this class
         $students = Student::where('classId', $class_id)->get();
-        
+
         // Get all student IDs to check their memberships
         $studentIds = $students->pluck('id')->toArray();
-        
+
         // Get all active memberships for these students (including deleted ones)
         $memberships = \App\Models\Membership::withTrashed()->whereIn('student_id', $studentIds)
             ->where('is_active', true)
             ->get();
-            
+
+        // Subject name -> id, resolved ONCE. This used to run a Subject::where('name', ...)
+        // query for every teacher entry of every membership (a query inside a nested loop).
+        $subjectIdsByName = \App\Models\Subject::pluck('id', 'name');
+
         // Create a lookup for student subjects based on their memberships
         $studentSubjects = [];
         foreach ($memberships as $membership) {
@@ -375,50 +364,35 @@ class ResultsController extends Controller
             if (!isset($studentSubjects[$studentId])) {
                 $studentSubjects[$studentId] = [];
             }
-            
+
             // Extract subjects from the teachers array in membership
             if (is_array($membership->teachers)) {
                 foreach ($membership->teachers as $teacher) {
-                    if (isset($teacher['subject'])) {
-                        // Find the subject ID by name
-                        $subject = \App\Models\Subject::where('name', $teacher['subject'])->first();
-                        if ($subject) {
-                            $studentSubjects[$studentId][] = $subject->id;
-                        }
+                    if (isset($teacher['subject']) && isset($subjectIdsByName[$teacher['subject']])) {
+                        $studentSubjects[$studentId][] = $subjectIdsByName[$teacher['subject']];
                     }
                 }
             }
         }
-        
-        Log::info('Student subjects from memberships:', $studentSubjects);
-        
-        // Enable query logging
-        DB::enableQueryLog();
-        
+
         // Get all results for this class
         $allResults = Result::with(['student', 'subject'])
             ->where('class_id', $class_id)
             ->get();
-        
+
         // Filter results based on student memberships
         $filteredResults = $allResults->filter(function ($result) use ($studentSubjects) {
             $studentId = $result->student_id;
-            
+
             // If we don't have membership data for this student, include all results
             if (!isset($studentSubjects[$studentId]) || empty($studentSubjects[$studentId])) {
                 return true;
             }
-            
+
             // Only include results for subjects the student is enrolled in
             return in_array($result->subject_id, $studentSubjects[$studentId]);
         });
-        
-        // Log the executed queries
-        $queries = DB::getQueryLog();
-        Log::info('Results SQL Queries:', $queries);
-        
-        Log::info('Found ' . $filteredResults->count() . ' results after membership filtering for class ' . $class_id);
-        
+
         // Group filtered results by student ID
         $groupedResults = $filteredResults->groupBy('student_id');
         
@@ -482,9 +456,6 @@ class ResultsController extends Controller
      */
     public function updateGrade(Request $request)
     {
-        // Log the incoming request data
-        Log::info('Update grade request received:', $request->all());
-
         try {
             // Validate the request
             $validatedData = $request->validate([
@@ -495,7 +466,11 @@ class ResultsController extends Controller
                 'value' => 'required|string|max:20',
             ]);
 
-            Log::info('Validated data:', $validatedData);
+            // `exists:` proves the ids are real, NOT that the caller may touch them.
+            // Without these checks any authenticated staff user could rewrite any grade
+            // for any student in any school by posting arbitrary ids.
+            SchoolScope::authorizeStudent(Student::findOrFail($validatedData['student_id']));
+            SchoolScope::authorizeClass(Classes::findOrFail($validatedData['class_id']));
 
             // Find existing result or create a new one
             $result = Result::firstOrNew([
@@ -578,11 +553,12 @@ class ResultsController extends Controller
                     'message' => 'Failed to save grade: ' . $e->getMessage()
                 ], 500);
             }
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpExceptionInterface $e) {
+            // MUST come before the generic \Exception handler. abort(403)/abort(404) throw
+            // HttpException, which extends \Exception — without this clause an authorization
+            // denial is swallowed and returned to the caller as a generic 500.
+            throw $e;
         } catch (\Illuminate\Validation\ValidationException $e) {
-            Log::error('Validation failed:', [
-                'errors' => $e->errors()
-            ]);
-            
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed',
@@ -593,7 +569,7 @@ class ResultsController extends Controller
                 'message' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
-            
+
             return response()->json([
                 'success' => false,
                 'message' => 'An unexpected error occurred: ' . $e->getMessage()

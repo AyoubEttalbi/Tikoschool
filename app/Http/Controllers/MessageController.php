@@ -181,18 +181,23 @@ class MessageController extends Controller
     public function unreadCount()
 {
     $userId = auth()->id();
-    $contacts = User::where('id', '!=', $userId)->get();
-    
-    $unreadCounts = [];
-    foreach ($contacts as $contact) {
-        $unreadCounts[$contact->id] = Message::where('sender_id', $contact->id)
-            ->where('recipient_id', $userId)
-            ->where('is_read', false)
-            ->count();
-    }
-    
+
+    // ONE grouped aggregate.
+    //
+    // This used to load every user in the installation and run a separate COUNT query per
+    // user — so N+1 queries where N is the entire staff directory. Every connected client
+    // polls this endpoint, which made it the single hottest query path in the app.
+    // Backed by the messages(recipient_id, is_read, sender_id) index.
+    $counts = Message::query()
+        ->where('recipient_id', $userId)
+        ->where('is_read', false)
+        ->selectRaw('sender_id, COUNT(*) as total')
+        ->groupBy('sender_id')
+        ->pluck('total', 'sender_id');
+
+    // The frontend reduces over the values, so senders with nothing unread can be omitted.
     return response()->json([
-        'unread_count' => $unreadCounts
+        'unread_count' => $counts->map(fn ($n) => (int) $n),
     ]);
 }
     public function getLastMessages(Request $request)

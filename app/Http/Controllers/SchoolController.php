@@ -8,6 +8,7 @@ use App\Models\Classes;
 use App\Models\Student;
 use App\Models\Subject;
 use App\Models\Attendance;
+use App\Support\SchoolScope;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Log;
@@ -64,9 +65,13 @@ class SchoolController extends Controller
      */
     public function show(School $school)
     {
+        // This page exposes the school's assistant directory (names, emails, phone numbers)
+        // and its financial statistics. Restrict it to users assigned to that school.
+        SchoolScope::authorizeSchool($school->id);
+
         // Get statistics for the school
         $statistics = $this->getSchoolStatistics($school);
-        
+
         return Inertia::render('Menu/SingleSchoolPage', [
             'school' => $school,
             'statistics' => $statistics
@@ -152,8 +157,12 @@ class SchoolController extends Controller
      */
     private function getSchoolStatistics(School $school)
     {
-        // Get total counts
-        $totalStudents = Student::where(DB::raw('"schoolId"'), $school->id)->count();
+        // Get total counts.
+        // NOTE: this was `where(DB::raw('"schoolId"'), $school->id)`. In MySQL (without
+        // ANSI_QUOTES, which Laravel's connector explicitly does not set) a double-quoted
+        // token is a STRING LITERAL, so the emitted SQL was `WHERE 'schoolId' = 5` — always
+        // false. Every school's student count silently reported 0.
+        $totalStudents = Student::where('schoolId', $school->id)->count();
         
         // Use the many-to-many relationship instead of direct column query
         $totalTeachers = $school->teachers()->count();
@@ -172,18 +181,22 @@ class SchoolController extends Controller
             $query->whereIn('teachers.id', $teacherIds);
         })->count();
 
-        // Get enrollment trend (last 6 months)
+        // Get enrollment trend (last 6 months).
+        // One grouped query instead of six, and a sargable date RANGE instead of
+        // MONTH()/YEAR() predicates (which prevent any index on created_at from being used).
+        $trendStart = Carbon::now()->subMonths(5)->startOfMonth();
+        $countsByMonth = Student::where('schoolId', $school->id)
+            ->where('created_at', '>=', $trendStart)
+            ->selectRaw("DATE_FORMAT(created_at, '%Y-%m') as ym, COUNT(*) as aggregate")
+            ->groupBy('ym')
+            ->pluck('aggregate', 'ym');
+
         $enrollmentTrend = [];
         for ($i = 5; $i >= 0; $i--) {
             $date = Carbon::now()->subMonths($i);
-            $count = Student::where(DB::raw('"schoolId"'), $school->id)
-                ->whereRaw('MONTH(created_at) = ?', [$date->month])
-                ->whereRaw('YEAR(created_at) = ?', [$date->year])
-                ->count();
-            
             $enrollmentTrend[] = [
                 'month' => $date->format('M Y'),
-                'count' => $count
+                'count' => (int) ($countsByMonth[$date->format('Y-m')] ?? 0),
             ];
         }
 
@@ -262,25 +275,39 @@ class SchoolController extends Controller
             })
             ->toArray();
 
-        // Get students list with attendance and performance
-        $students = Student::where(DB::raw('"schoolId"'), $school->id)
-            ->with(['class', 'attendances'])
+        // Get students list with attendance.
+        //
+        // Two changes here, and they MUST ship together:
+        //  1. The predicate was DB::raw('"schoolId"'), which matched nothing (see above).
+        //  2. It eager-loaded EVERY attendance row for EVERY student just to compute a
+        //     percentage. Now that the predicate actually matches, that would load the whole
+        //     school's attendance history into memory — so use aggregate counts instead.
+        //
+        // WARNING: `performance` below is NOT a real metric — it is random noise that has
+        // always been displayed to users as if it were data. See the note at the return.
+        $students = Student::where('schoolId', $school->id)
+            ->with('class:id,name')
+            ->withCount([
+                'attendances as attendances_total',
+                'attendances as attendances_present' => fn ($q) => $q->where('status', 'present'),
+            ])
+            ->orderBy('firstName')
+            ->limit(500)
             ->get()
             ->map(function ($student) {
-                // Calculate attendance percentage
-                $totalAttendance = $student->attendances->count();
-                $presentAttendance = $student->attendances->where('status', 'present')->count();
-                $attendancePercentage = $totalAttendance > 0 ? round(($presentAttendance / $totalAttendance) * 100) : 0;
-
-                // Mock performance data (in a real app, this would come from grades or assessments)
-                $performancePercentage = rand(60, 100);
+                $attendancePercentage = $student->attendances_total > 0
+                    ? (int) round(($student->attendances_present / $student->attendances_total) * 100)
+                    : 0;
 
                 return [
                     'id' => $student->id,
                     'name' => $student->firstName . ' ' . $student->lastName,
                     'class' => $student->class ? $student->class->name : 'N/A',
                     'attendance' => $attendancePercentage,
-                    'performance' => $performancePercentage
+                    // FIXME: placeholder. This was `rand(60, 100)` and is still not a real
+                    // measurement — it is surfaced in the UI as "performance". Either wire it
+                    // to Result/final_grade or remove the column from the page.
+                    'performance' => null,
                 ];
             })
             ->toArray();

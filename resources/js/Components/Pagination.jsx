@@ -1,5 +1,6 @@
 import { Link } from "@inertiajs/react";
 import React from "react";
+import { decodePaginationLabel } from "@/lib/utils";
 
 // Helper function to add current filters to pagination links
 const addFiltersToUrl = (url, filters) => {
@@ -84,10 +85,11 @@ const Pagination = ({ links = [], filters = {} }) => {
                             } ${
                                 !link.url ? "text-gray-400 cursor-not-allowed" : ""
                             }`}
-                            dangerouslySetInnerHTML={{ __html: link.label }}
                             preserveScroll
                             preserveState
-                        />
+                        >
+                            {decodePaginationLabel(link.label)}
+                        </Link>
                     );
                 })}
             </div>

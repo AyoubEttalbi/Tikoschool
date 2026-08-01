@@ -13,7 +13,7 @@ This saves ~682 MB RAM (Docker daemon overhead) and allows better resource tunin
 
 - VPS: Ubuntu 24.04, 1 vCPU, 3.8 GB RAM
 - Current app path: `/var/www/Tikoschool`
-- MySQL user: `tikoschool`, password: `***REDACTED***`
+- MySQL user: `tikoschool` (password: read from the server's .env — never write credentials into this repo)
 - Domain: `tiko.school` (SSL via Certbot)
 
 ---
@@ -25,7 +25,7 @@ This saves ~682 MB RAM (Docker daemon overhead) and allows better resource tunin
 mysqldump -u root -p tikoschool > /tmp/tikoschool_full_backup.sql
 
 # Backup Docker volumes
-docker compose -f /var/www/Tikoschool/docker-compose.yml exec -T mysql mysqldump -u root -p'***REDACTED***' --all-databases > /tmp/mysql_all_backup.sql
+docker compose -f /var/www/Tikoschool/docker-compose.yml exec -T mysql mysqldump -u root -p"$DB_ROOT_PASSWORD" --all-databases > /tmp/mysql_all_backup.sql
 
 # Backup app files
 tar czf /tmp/tikoschool_app_backup.tar.gz -C /var/www Tikoschool --exclude='.git'
@@ -81,9 +81,9 @@ mysql -u root
 
 # In MySQL shell:
 CREATE DATABASE tikoschool CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'tikoschool'@'localhost' IDENTIFIED BY '***REDACTED***';
+CREATE USER 'tikoschool'@'localhost' IDENTIFIED BY '<set-from-your-password-manager>';
 GRANT ALL PRIVILEGES ON tikoschool.* TO 'tikoschool'@'localhost';
-ALTER USER 'root'@'localhost' IDENTIFIED BY '***REDACTED***';
+ALTER USER 'root'@'localhost' IDENTIFIED BY '<set-from-your-password-manager>';
 FLUSH PRIVILEGES;
 EXIT;
 

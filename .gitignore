@@ -27,3 +27,17 @@ docker/nginx/certs/
 # Database dumps (sensitive data - never commit)
 *.sql
 !database/**
+
+# Scratch / agent state
+/tmp
+/.opencode
+/.cursorignore
+
+# One-off data-repair scripts. These bootstrap the Laravel kernel and mutate teacher
+# wallets and financial records with no authentication. Anything that needs to run
+# repeatedly belongs in app/Console/Commands/ as an artisan command.
+/fix_*.php
+/payments_resync_fix.php
+/example_invoice_form_integration.jsx
+/routes.txt
+/run-scheduler.bat

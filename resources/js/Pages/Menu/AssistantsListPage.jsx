@@ -1,4 +1,5 @@
 import { Link, router, usePage } from "@inertiajs/react";
+import useFilterNavigation from "@/Hooks/useFilterNavigation";
 import { useState, useEffect } from "react";
 import { RotateCcw } from "lucide-react";
 
@@ -44,210 +45,110 @@ const AssistantsListPage = ({
     assistants = [],
     schools,
     filters: initialFilters,
+    search: initialSearch = "",
 }) => {
     const pageProps = usePage().props;
     const role = pageProps.auth.user.role;
 
-    // State for filters and search
+    // State for filters and search.
+    //
+    // `search` comes from its own prop: AssistantController passes it separately, not inside
+    // `filters`. It was hardcoded to "" here, so reloading /assistants?search=x showed an
+    // empty search box over filtered rows.
     const [filters, setFilters] = useState({
         school: initialFilters?.school || "",
         status: initialFilters?.status || "",
-        search: "",
+        search: initialSearch || "",
     });
 
     const [showFilters, setShowFilters] = useState(false);
     const [isRestoring, setIsRestoring] = useState(false);
-    const [hasRestored, setHasRestored] = useState(false);
-    const [isPreservingPage, setIsPreservingPage] = useState(false);
     
     // Get current page from Inertia page props
     const getCurrentPage = () => {
         return pageProps.assistants?.current_page || 1;
     };
     
-    // Check for stored state or URL page parameter on component mount
+    // Restore the page you were on when coming back from an assistant profile.
     useEffect(() => {
-        // First check for stored state from navigation
         const storedState = sessionStorage.getItem('assistantListState');
-        if (storedState) {
-            try {
-                const parsedState = JSON.parse(storedState);
-                const maxPage = Math.ceil((assistants?.total || 0) / 10);
-                const validPage = Math.min(parsedState.page, maxPage);
-                
-                if (validPage > 0 && Date.now() - parsedState.timestamp < 300000) {
-                    setIsRestoring(true);
-                    setFilters(parsedState.filters);
-                    
-                    router.get(
-                        route("assistants.index"),
-                        { ...parsedState.filters, page: validPage },
-                        {
-                            preserveState: true,
-                            replace: true,
-                            preserveScroll: true,
-                            onSuccess: () => {
-                                setHasRestored(true);
-                                setTimeout(() => {
-                                    setIsRestoring(false);
-                                }, 1000);
-                            },
-                            onError: () => {
-                                setIsRestoring(false);
-                            }
-                        }
-                    );
-                    
-                    sessionStorage.removeItem('assistantListState');
-                }
-            } catch (error) {
-                sessionStorage.removeItem('assistantListState');
-            }
-        } else {
-            // No stored state, check if we need to preserve page from URL
-            const urlParams = new URLSearchParams(window.location.search);
-            const urlPage = urlParams.get('page');
-            const currentPage = assistants?.current_page || 1;
-            
-            // If URL has a page parameter, ensure it's preserved
-            if (urlPage) {
-                setIsPreservingPage(true);
-                
-                // Get current filters from URL
-                const urlFilters = {
-                    school: urlParams.get('school') || '',
-                    status: urlParams.get('status') || '',
-                    search: (urlParams.get('search') || '').trim()
-                };
-                
-                // Update filters state to match URL
-                setFilters(urlFilters);
-                
-                // Build the full URL with all parameters
-                const params = new URLSearchParams();
-                Object.keys(urlFilters).forEach(key => {
-                    if (urlFilters[key] && urlFilters[key] !== 'all') {
-                        // Trim search value when building URL
-                        const value = key === 'search' ? urlFilters[key].trim() : urlFilters[key];
-                        if (value) {
-                            params.set(key, value);
-                        }
+        if (!storedState) {
+            // An `else` branch used to live here: when the URL carried ?page=N it read the
+            // query string and router.visit()ed the URL it was ALREADY on, purely to tidy up
+            // empty parameters. A whole extra request per paginated view, for nothing.
+            return;
+        }
+
+        // Consume the entry whether or not we act on it. It used to be removed only inside
+        // the restore branch, so an entry that failed the checks stayed in sessionStorage and
+        // fired later on an unrelated visit.
+        sessionStorage.removeItem('assistantListState');
+
+        try {
+            const parsedState = JSON.parse(storedState);
+            const maxPage = Math.ceil((assistants?.total || 0) / 10);
+            const validPage = Math.min(parsedState.page, maxPage);
+
+            // Only navigate if it would actually change what is on screen. Restoring "page 1,
+            // no filters" onto a page that is already page 1 with no filters was a second full
+            // page load whose only visible effect was rewriting the URL to
+            // ?school=&search=&status=&page=1.
+            const alreadyOnPage = validPage === (assistants?.current_page || 1);
+            const sameFilters =
+                JSON.stringify(parsedState.filters || {}) === JSON.stringify(filters);
+
+            if (validPage > 0
+                && Date.now() - parsedState.timestamp < 300000
+                && !(alreadyOnPage && sameFilters)) {
+                setIsRestoring(true);
+                setFilters(parsedState.filters);
+
+                router.get(
+                    route("assistants.index"),
+                    { ...parsedState.filters, page: validPage },
+                    {
+                        preserveState: true,
+                        replace: true,
+                        preserveScroll: true,
+                        onFinish: () => setIsRestoring(false),
                     }
-                });
-                params.set('page', urlPage);
-                
-                const queryString = params.toString();
-                const fullUrl = `/assistants${queryString ? `?${queryString}` : ''}`;
-                
-                // Navigate to ensure page state is preserved
-                router.visit(fullUrl, {
-                    preserveState: true,
-                    replace: true,
-                    preserveScroll: true,
-                    onSuccess: () => {
-                        // Reset the flag after a delay to prevent filter effect from overriding
-                        setTimeout(() => {
-                            setIsPreservingPage(false);
-                        }, 3000);
-                    },
-                    onError: () => {
-                        setIsPreservingPage(false);
-                    }
-                });
+                );
             }
+        } catch (error) {
+            // Malformed entry — already removed above, nothing to restore.
         }
     }, []);
 
-    // Debounced function to apply filters
-    useEffect(() => {
-        if (isRestoring || isPreservingPage) {
-            return; // Skip during restoration or page preservation
-        }
-        
-        // Skip if we just completed page preservation and we're on the correct page
-        // BUT only if we're in the initial state (no search, no active filters)
-        const urlParams = new URLSearchParams(window.location.search);
-        const urlPage = urlParams.get('page');
-        const currentPage = assistants?.current_page || 1;
-        
-        // Check if we're in initial state (no search, no active filters)
-        const isInitialState = Object.values(filters).every(value => 
-            value === '' || value === 'all'
-        );
-        
-        if (urlPage && parseInt(urlPage) === currentPage && isInitialState) {
-            return; // Skip if page matches URL and in initial state
-        }
-        
-        // Skip if we just restored and filters haven't changed from initial state
-        if (hasRestored && isInitialState) {
-            return;
-        }
-        
-        const timeoutId = setTimeout(() => {
-            // Trim search value before sending
-            const cleanFilters = {
-                ...filters,
-                search: filters.search ? filters.search.trim() : ''
-            };
-            
-            router.get(
-                route("assistants.index"),
-                cleanFilters,
-                { preserveState: true, replace: true, preserveScroll: true },
-            );
-        }, 300);
-
-        return () => clearTimeout(timeoutId);
-    }, [filters, isRestoring, hasRestored, isPreservingPage]);
+    // The only place this page navigates for a filter change. AssistantController echoes
+    // `search` as its own prop rather than inside `filters`, so it is read from there.
+    useFilterNavigation({
+        routeName: "assistants.index",
+        filters,
+        paused: isRestoring,
+        serverFilters: {
+            school: initialFilters?.school || "",
+            status: initialFilters?.status || "",
+            search: (initialSearch || "").trim(),
+        },
+    });
 
     // Handle filter changes
     const handleFilterChange = (e) => {
         const { name, value } = e.target;
 
-        // Reset restoration and preservation flags when user manually changes filters
-        setHasRestored(false);
-        setIsPreservingPage(false);
-
         // Trim search value if it's the search field
         const cleanValue = name === 'search' ? value.trim() : value;
 
-        // Update the filters state
-        const newFilters = { ...filters, [name]: cleanValue };
-        setFilters(newFilters);
-
-        // Use Inertia to navigate with the new filters while resetting to page 1
-        router.get(
-            route("assistants.index"),
-            {
-                ...newFilters,
-                page: 1,
-            },
-            {
-                preserveState: true,
-                replace: true,
-            },
-        );
+        setFilters({ ...filters, [name]: cleanValue });
     };
 
     // Clear filters and reset the page
     const clearFilters = () => {
-        // Reset restoration and preservation flags when user manually clears filters
-        setHasRestored(false);
-        setIsPreservingPage(false);
-        
         setFilters({
             school: "",
             status: "",
             search: "",
         });
-
-        // Navigate to the index route without any query parameters
-        router.get(
-            route("assistants.index"),
-            {}, // No query parameters
-            { preserveState: false, replace: true, preserveScroll: true },
-        );
     };
 
     // Toggle visibility of filters

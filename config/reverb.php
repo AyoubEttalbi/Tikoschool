@@ -81,7 +81,13 @@ return [
                     'scheme' => env('REVERB_SCHEME', 'https'),
                     'useTLS' => env('REVERB_SCHEME', 'https') === 'https',
                 ],
-                'allowed_origins' => ['*'],
+                // Was hardcoded to ['*'], letting any origin open a websocket to this app.
+                // Pin REVERB_ALLOWED_ORIGINS to your domain(s) in production, e.g.
+                //   REVERB_ALLOWED_ORIGINS="tiko.school,www.tiko.school"
+                'allowed_origins' => array_filter(array_map(
+                    'trim',
+                    explode(',', (string) env('REVERB_ALLOWED_ORIGINS', '*'))
+                )),
                 'ping_interval' => env('REVERB_APP_PING_INTERVAL', 60),
                 'activity_timeout' => env('REVERB_APP_ACTIVITY_TIMEOUT', 30),
                 'max_message_size' => env('REVERB_APP_MAX_MESSAGE_SIZE', 10_000),

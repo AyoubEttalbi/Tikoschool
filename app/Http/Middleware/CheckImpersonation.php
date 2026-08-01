@@ -2,19 +2,18 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\Impersonation;
 use Closure;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Session;
-use Illuminate\Support\Facades\Log;
 
 class CheckImpersonation
 {
     public function handle(Request $request, Closure $next)
     {
-        Log::info('CheckImpersonation called', ['session' => session()->all()]);
-        // Check if admin_user_id exists in the session
-        if (!Session::has('admin_user_id')) {
-            Log::warning('CheckImpersonation blocked: admin_user_id missing', ['session' => session()->all()]);
+        // Resolve the stored admin id and verify the role — do NOT trust the mere presence
+        // of the session key. This previously also dumped session()->all() (including the
+        // CSRF token and auth identifiers) to the log on every single request.
+        if (! Impersonation::hasVerifiedAdmin()) {
             abort(403, 'Unauthorized action.');
         }
 

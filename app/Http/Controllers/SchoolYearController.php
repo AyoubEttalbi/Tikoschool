@@ -105,43 +105,34 @@ class SchoolYearController extends Controller
      */
     private function resetTeacherAssignments()
     {
-        // Get all teachers
-        $teachers = Teacher::all();
-        $totalResetCount = 0;
-        
-        // First clear the pivot table directly for efficiency
-        $pivotCount = DB::table('classes_teacher')->count();
-        DB::table('classes_teacher')->truncate();
-        Log::info("Truncated classes_teacher pivot table, removed {$pivotCount} relationships");
-        
-        foreach ($teachers as $teacher) {
-            // For logging purposes, count previous assignments if possible
-            $classCount = 0;
-            
-            if (method_exists($teacher, 'classes')) {
-                // The relationships have already been detached by truncating the pivot table
-                // This is just to note in the log how many classes each teacher had
-                $classCount = $teacher->classes()->count();
-                Log::info("Teacher {$teacher->id} ({$teacher->first_name} {$teacher->last_name}): {$classCount} class assignments reset");
-            }
-            
-            // Reset subjects relationship if applicable
-            if (method_exists($teacher, 'subjects')) {
-                $subjectCount = $teacher->subjects()->count();
-                // We don't detach subjects as teachers still teach the same subjects
-                // But we log for information
-                Log::info("Teacher {$teacher->id} maintains {$subjectCount} subject assignments");
-            }
-            
-            // Update the teacher's record to reflect the change
-            $teacher->updated_at = now();
-            $teacher->save();
-            
-            $totalResetCount += $classCount;
-        }
-        
-        Log::info("School year transition: {$totalResetCount} teacher-class assignments reset");
-        
+        // Count assignments BEFORE deleting them.
+        //
+        // Two bugs fixed here:
+        //  1. TRUNCATE is DDL. On MySQL it forces an IMPLICIT COMMIT, which ended the
+        //     transaction opened in transition() — so the DB::rollBack() in its catch block
+        //     was inert and every later write auto-committed while the operator was shown
+        //     "School year transition failed". DELETE is DML and is rollback-safe.
+        //  2. The per-teacher count ran AFTER the pivot was emptied, so it was structurally
+        //     always 0 — which is why the success message always reported
+        //     "0 teacher assignments reset".
+        $totalResetCount = DB::table('classes_teacher')->count();
+
+        $assignmentsPerTeacher = DB::table('classes_teacher')
+            ->select('teacher_id', DB::raw('COUNT(*) as total'))
+            ->groupBy('teacher_id')
+            ->pluck('total', 'teacher_id');
+
+        DB::table('classes_teacher')->delete();
+        Log::info("Cleared classes_teacher pivot table, removed {$totalResetCount} relationships");
+
+        // Touch every teacher so the change is reflected in updated_at.
+        Teacher::query()->update(['updated_at' => now()]);
+
+        Log::info('School year transition: teacher-class assignments reset', [
+            'total' => $totalResetCount,
+            'teachers_affected' => $assignmentsPerTeacher->count(),
+        ]);
+
         return $totalResetCount;
     }
 

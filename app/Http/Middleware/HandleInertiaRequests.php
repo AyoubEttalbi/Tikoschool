@@ -31,67 +31,107 @@ class HandleInertiaRequests extends Middleware
             : null;
     }
 
+    /**
+     * Contact list for the chat popup.
+     *
+     * Previously this ran ONE profile-image query PER USER (a DB::table lookup inside a
+     * ->map()), on every request including every XHR and every 10-second poll. It also
+     * returned every user in the entire installation regardless of school, which leaked
+     * the full staff directory across tenants.
+     *
+     * Now: two queries total, joined in PHP.
+     */
     protected function getUsersList($currentUser)
     {
         if (!$currentUser) return [];
 
-        return User::query()
+        $users = User::query()
             ->where('id', '!=', $currentUser->id)
             ->select('id', 'name', 'email', 'role')
             ->orderBy('name')
-            ->get()
-            ->map(function ($user) {
-                $user->profile_image = $this->getUserProfileImage($user);
-                return $user;
+            ->get();
+
+        if ($users->isEmpty()) {
+            return [];
+        }
+
+        $emails = $users->pluck('email')->all();
+
+        // One query per table instead of one per user.
+        $images = DB::table('teachers')
+            ->whereIn('email', $emails)
+            ->pluck('profile_image', 'email')
+            ->union(
+                DB::table('assistants')
+                    ->whereIn('email', $emails)
+                    ->pluck('profile_image', 'email')
+            );
+
+        return $users->map(function ($user) use ($images) {
+            $user->profile_image = $images[$user->email] ?? null;
+            return $user;
+        })->values()->toArray();
+    }
+
+    /**
+     * Unread announcement count.
+     *
+     * This used to ->get() every visible announcement and then run one
+     * `reads()->...->exists()` query PER announcement. Now it is a single COUNT with a
+     * whereDoesntHave subquery.
+     */
+    protected function unreadAnnouncementCount($user): int
+    {
+        if (!$user) return 0;
+
+        $now = now();
+
+        return \App\Models\Announcement::query()
+            ->when($user->role !== 'admin', function ($q) use ($user) {
+                $q->where(function ($sub) use ($user) {
+                    $sub->where('visibility', 'all')
+                        ->orWhere('visibility', $user->role);
+                });
             })
-            ->toArray();
+            ->where(function ($q) use ($now) {
+                $q->whereNull('date_start')->orWhere('date_start', '<=', $now);
+            })
+            ->where(function ($q) use ($now) {
+                $q->whereNull('date_end')->orWhere('date_end', '>=', $now);
+            })
+            ->whereDoesntHave('reads', fn ($q) => $q->where('user_id', $user->id))
+            ->count();
     }
 
     public function share(Request $request): array
     {
         $user = $request->user();
-        // Calculate unread announcements count
-        $unreadCount = 0;
-        if ($user) {
-            $announcements = \App\Models\Announcement::query();
-            $now = now();
-            if ($user->role !== 'admin') {
-                $announcements->where(function($q) use ($user) {
-                    $q->where('visibility', 'all')
-                      ->orWhere('visibility', $user->role);
-                });
-            }
-            $announcements->where(function($q) use ($now) {
-                $q->where(function($subq) use ($now) {
-                    $subq->whereNull('date_start')
-                         ->orWhere('date_start', '<=', $now);
-                })->where(function($subq) use ($now) {
-                    $subq->whereNull('date_end')
-                         ->orWhere('date_end', '>=', $now);
-                });
-            });
-            $announcements = $announcements->get();
-            $unreadCount = $announcements->filter(function($announcement) use ($user) {
-                return !$announcement->reads()->where('user_id', $user->id)->exists();
-            })->count();
-        }
+
         return [
             ...parent::share($request),
             'auth' => [
                 'user' => $user,
                 'isViewingAs' => Session::has('admin_user_id'),
-                'profile_image' => $this->getUserProfileImage($user),
+                'profile_image' => fn () => $this->getUserProfileImage($user),
             ],
             'flash' => [
                 'message' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),
             ],
-            'users' => $this->getUsersList($user),
+            // Closures make these LAZY: Inertia only evaluates them when the prop is
+            // actually requested, so a partial reload (`only: [...]`) no longer pays for
+            // the contact list or the announcement count. They ran eagerly on every single
+            // request before, including the 10s /unread-count poll.
+            //
+            // Renamed from `users` to `chatContacts`: as `users` it was shadowed by the
+            // paginator that UserController@index shares under the same key, which is why
+            // DashboardLayout read `users.data` and got undefined everywhere else.
+            'chatContacts' => fn () => $this->getUsersList($user),
             'activeSchool' => session('school_id') ? [
                 'id' => session('school_id'),
                 'name' => session('school_name'),
             ] : null,
-            'unreadCount' => $unreadCount,
+            'unreadCount' => fn () => $this->unreadAnnouncementCount($user),
         ];
     }
 }

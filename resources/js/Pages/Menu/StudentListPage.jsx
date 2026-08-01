@@ -1,5 +1,6 @@
 import { router, usePage, Link } from "@inertiajs/react";
 import { useState, useEffect, useRef } from "react";
+import useFilterNavigation from "@/Hooks/useFilterNavigation";
 import TableSearch from "../../Components/TableSearch";
 import Table from "../../Components/Table";
 import Pagination from "../../Components/Pagination";
@@ -52,14 +53,19 @@ const StudentListPage = ({
     Alllevels,
     Allschools,
     filters: initialFilters,
-    Allmemberships,
+    search: initialSearch = "",
 }) => {
-    // State for filters and search
+    // State for filters and search.
+    //
+    // `search` comes from its own prop: StudentsController passes it separately, not inside
+    // `filters`. Seeding it from `initialFilters.search` (always undefined) meant reloading
+    // /students?search=ali showed an empty search box over filtered rows — and the filter
+    // effect then "corrected" the server by re-requesting with no search at all.
     const [filters, setFilters] = useState({
         school: initialFilters.school || "",
         class: initialFilters.class || "",
         level: initialFilters.level || "",
-        search: initialFilters.search || "",
+        search: initialSearch || "",
         membership_status: initialFilters.membership_status || "all",
     });
     // Ensure students is always an array
@@ -102,195 +108,89 @@ const StudentListPage = ({
 
     const [showFilters, setShowFilters] = useState(false);
     const [isRestoring, setIsRestoring] = useState(false);
-    const [hasRestored, setHasRestored] = useState(false);
-    const [isPreservingPage, setIsPreservingPage] = useState(false);
     
     // Get current page from Inertia page props
     const getCurrentPage = () => {
         return pageProps.students?.current_page || 1;
     };
     
-    // Check for stored state or URL page parameter on component mount
+    // Restore the page you were on when coming back from a student profile.
     useEffect(() => {
-        // First check for stored state from navigation
         const storedState = sessionStorage.getItem('studentListState');
-        if (storedState) {
-            try {
-                const parsedState = JSON.parse(storedState);
-                // Check if the stored state is recent (within 5 minutes)
-                if (Date.now() - parsedState.timestamp < 5 * 60 * 1000) {
-                    // Validate page number
-                    const maxPage = pageProps.students?.last_page || 1;
-                    const validPage = Math.min(parsedState.page, maxPage);
-                    
-                    setIsRestoring(true);
-                    
-                    // Restore filters
-                    setFilters(prevFilters => ({
-                        ...prevFilters,
-                        ...parsedState.filters
-                    }));
-                    
-                    // Navigate to the stored page
-                    router.get(route("students.index"), {
-                        ...parsedState.filters,
-                        page: validPage
-                    }, {
-                        preserveState: true,
-                        replace: true,
-                        preserveScroll: true
-                    });
-                    
-                    // Clear the stored state after use
-                    sessionStorage.removeItem('studentListState');
-                    
-                    // Mark that restoration has happened
-                    setHasRestored(true);
-                    
-                    // Reset the restoring flag after a delay to ensure navigation completes
-                    setTimeout(() => {
-                        setIsRestoring(false);
-                    }, 2000);
-                }
-            } catch (error) {
-                console.error('Error parsing stored state:', error);
-                sessionStorage.removeItem('studentListState');
+        if (!storedState) {
+            // An `else` branch used to live here: when the URL carried ?page=N it read the
+            // query string and router.visit()ed the URL it was ALREADY on, purely to tidy up
+            // empty parameters. A whole extra request per paginated view, for nothing.
+            return;
+        }
+
+        // Consume the entry whether or not we act on it. It used to be removed only inside
+        // the restore branch, so an entry that failed the checks stayed in sessionStorage and
+        // fired later on an unrelated visit.
+        sessionStorage.removeItem('studentListState');
+
+        try {
+            const parsedState = JSON.parse(storedState);
+            const maxPage = pageProps.students?.last_page || 1;
+            const validPage = Math.min(parsedState.page, maxPage);
+
+            // Only navigate if it would actually change what is on screen. Restoring "page 1,
+            // no filters" onto a page that is already page 1 with no filters was a second full
+            // page load whose only visible effect was rewriting the URL to
+            // ?class=&level=&page=1&school=&search= — the redirect you see after a reload.
+            const alreadyOnPage = validPage === (pageProps.students?.current_page || 1);
+            const sameFilters =
+                JSON.stringify({ ...filters, ...parsedState.filters }) === JSON.stringify(filters);
+
+            if (Date.now() - parsedState.timestamp >= 5 * 60 * 1000
+                || (alreadyOnPage && sameFilters)) {
+                return;
             }
-        } else {
-            // No stored state, check if we need to preserve page from URL
-            const urlParams = new URLSearchParams(window.location.search);
-            const urlPage = urlParams.get('page');
-            const currentPage = pageProps.students?.current_page || 1;
-            
-            // If URL has a page parameter, ensure it's preserved
-            if (urlPage) {
-                setIsPreservingPage(true);
-                
-                // Get current filters from URL
-                const urlFilters = {
-                    school: urlParams.get('school') || '',
-                    class: urlParams.get('class') || '',
-                    level: urlParams.get('level') || '',
-                    search: (urlParams.get('search') || '').trim(), // Trim search value
-                    membership_status: urlParams.get('membership_status') || 'all'
-                };
-                
-                // Update filters state to match URL
-                setFilters(urlFilters);
-                
-                // Build the full URL with all parameters
-                const params = new URLSearchParams();
-                Object.keys(urlFilters).forEach(key => {
-                    if (urlFilters[key] && urlFilters[key] !== 'all') {
-                        // Trim search value when building URL
-                        const value = key === 'search' ? urlFilters[key].trim() : urlFilters[key];
-                        if (value) {
-                            params.set(key, value);
-                        }
-                    }
-                });
-                params.set('page', urlPage);
-                
-                const queryString = params.toString();
-                const fullUrl = `/students${queryString ? `?${queryString}` : ''}`;
-                
-                // Navigate to ensure page state is preserved
-                router.visit(fullUrl, {
-                    preserveState: true,
-                    replace: true,
-                    preserveScroll: true,
-                    onSuccess: () => {
-                        // Reset the flag after a delay to prevent filter effect from overriding
-                        setTimeout(() => {
-                            setIsPreservingPage(false);
-                        }, 3000);
-                    },
-                    onError: () => {
-                        setIsPreservingPage(false);
-                    }
-                });
-            }
+
+            setIsRestoring(true);
+            setFilters((prevFilters) => ({ ...prevFilters, ...parsedState.filters }));
+
+            router.get(route("students.index"), {
+                ...parsedState.filters,
+                page: validPage
+            }, {
+                preserveState: true,
+                replace: true,
+                preserveScroll: true,
+                onFinish: () => setIsRestoring(false),
+            });
+        } catch (error) {
+            // Malformed entry — already removed above, nothing to restore.
         }
     }, []);
     
-    // Debounced function to apply filters
-    useEffect(() => {
-        if (isRestoring || isPreservingPage) {
-            return; // Skip during restoration or page preservation
-        }
-        
-        // Skip if we just completed page preservation and we're on the correct page
-        // BUT only if we're in the initial state (no search, no active filters)
-        const urlParams = new URLSearchParams(window.location.search);
-        const urlPage = urlParams.get('page');
-        const currentPage = pageProps.students?.current_page || 1;
-        
-        // Check if we're in initial state (no search, no active filters)
-        const isInitialState = Object.values(filters).every(value => 
-            value === '' || value === 'all'
-        );
-        
-        if (urlPage && parseInt(urlPage) === currentPage && isInitialState) {
-            return; // Skip if page matches URL and in initial state
-        }
-        
-        // Skip if we just restored and filters haven't changed from initial state
-        if (hasRestored && isInitialState) {
-            return;
-        }
-        
-        const timeoutId = setTimeout(() => {
-            // Trim search value before sending
-            const cleanFilters = {
-                ...filters,
-                search: filters.search ? filters.search.trim() : ''
-            };
-            
-            router.get(
-                route("students.index"),
-                cleanFilters,
-                { preserveState: true, replace: true, preserveScroll: true },
-            );
-        }, 300);
-
-        return () => clearTimeout(timeoutId);
-    }, [filters, isRestoring, hasRestored, isPreservingPage]);
+    // The only place this page navigates for a filter change. StudentsController echoes
+    // `search` as its own prop rather than inside `filters`, so it is read from there.
+    useFilterNavigation({
+        routeName: "students.index",
+        filters,
+        paused: isRestoring,
+        serverFilters: {
+            school: initialFilters.school || "",
+            class: initialFilters.class || "",
+            level: initialFilters.level || "",
+            search: (initialSearch || "").trim(),
+            membership_status: initialFilters.membership_status || "all",
+        },
+    });
 
     // Handle filter changes
     const handleFilterChange = (e) => {
         const { name, value } = e.target;
 
-        // Reset restoration and preservation flags when user manually changes filters
-        setHasRestored(false);
-        setIsPreservingPage(false);
-
         // Trim search value if it's the search field
         const cleanValue = name === 'search' ? value.trim() : value;
 
-        // Update the filters state
-        const newFilters = { ...filters, [name]: cleanValue };
-        setFilters(newFilters);
-
-        // Use Inertia to navigate with the new filters while resetting to page 1
-        router.get(
-            route("students.index"),
-            {
-                ...newFilters,
-                page: 1,
-            },
-            {
-                preserveState: true,
-                replace: true,
-            },
-        );
+        setFilters({ ...filters, [name]: cleanValue });
     };
 
     // Clear filters and reset the page
     const clearFilters = () => {
-        // Reset restoration and preservation flags when user manually clears filters
-        setHasRestored(false);
-        setIsPreservingPage(false);
-        
         setFilters({
             school: "",
             class: "",
@@ -298,13 +198,6 @@ const StudentListPage = ({
             search: "",
             membership_status: "all",
         });
-
-        // Navigate to the index route without any query parameters
-        router.get(
-            route("students.index"),
-            {}, // No query parameters
-            { preserveState: false, replace: true, preserveScroll: true },
-        );
     };
 
     // Toggle visibility of filters

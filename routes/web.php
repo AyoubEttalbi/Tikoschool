@@ -1,5 +1,3 @@
-
-
 <?php
 
 use Illuminate\Support\Facades\Route;
@@ -71,16 +69,24 @@ Route::middleware('auth')->group(function () {
     });
 
     // Main resource routes - accessible by all authenticated users based on Menu.jsx
+    //
+    // NOTE the ->where('...', '[0-9]+') constraints. These wildcard `show` routes are
+    // registered BEFORE the literal /create and /fix-counts routes further down, and an
+    // unconstrained {param} matches the word "create" too. The literal routes were therefore
+    // unreachable: model binding failed, the 404 was swallowed by Route::fallback, and the
+    // user was silently redirected to /dashboard. Constraining to digits makes the literal
+    // routes reachable regardless of registration order.
     Route::get('/classes', [ClassesController::class, 'index'])->name('classes.index');
-    Route::get('/classes/{class}', [ClassesController::class, 'show'])->name('classes.show');
+    Route::get('/classes/{class}', [ClassesController::class, 'show'])->name('classes.show')->where('class', '[0-9]+');
     Route::get('/students', [StudentsController::class, 'index'])->name('students.index');
-    Route::get('/students/{student}', [StudentsController::class, 'show'])->name('students.show');
-    Route::get('/students/{student}/download-pdf', [StudentsController::class, 'downloadPdf'])->name('students.downloadPdf');
+    Route::get('/students/{student}', [StudentsController::class, 'show'])->name('students.show')->where('student', '[0-9]+');
+    Route::get('/students/{student}/download-pdf', [StudentsController::class, 'downloadPdf'])->name('students.downloadPdf')->where('student', '[0-9]+');
     Route::get('/teachers', [TeacherController::class, 'index'])->middleware(CanViewTeacherProfile::class)->name('teachers.index');
     Route::get('/teachers/{teacher}', [TeacherController::class, 'show'])
         ->middleware(CanViewTeacherProfile::class)
+        ->where('teacher', '[0-9]+')
         ->name('teachers.show');
-    Route::get('/schools/{school}', [SchoolController::class, 'show'])->name('schools.show');
+    Route::get('/schools/{school}', [SchoolController::class, 'show'])->name('schools.show')->where('school', '[0-9]+');
     Route::get('/results', [ResultsController::class, 'index'])->name('results.index');
     Route::get('/attendances', [AttendanceController::class, 'index'])->name('attendances.index');
     
@@ -91,8 +97,12 @@ Route::middleware('auth')->group(function () {
         'memberships' => MembershipController::class,
         'results' => ResultsController::class,
         'attendances' => AttendanceController::class,
-        'schools' => SchoolController::class,
     ], ['except' => ['show', 'index']]);
+
+    // Schools are admin-only: destroy() cascades school_teacher, assistant_school
+    // and membership_monthly_stats. Route names are unchanged (schools.store/update/destroy).
+    Route::resource('schools', SchoolController::class, ['except' => ['show', 'index']])
+        ->middleware(AdminMiddleware::class);
     
     // Attendance stats route
     Route::get('/attendance/stats', [AttendanceController::class, 'getStats'])->name('attendance.stats');
@@ -127,7 +137,9 @@ Route::middleware('auth')->group(function () {
         Route::get('/{id}/pdf', 'generateInvoicePdf')->name('invoices.pdf');
         Route::get('/{id}/download', 'download')->name('invoices.download');
         Route::post('/bulk-download', 'bulkDownload')->name('invoices.bulk.download');
-        Route::get('/{id}/validate', 'validateInvoice')->name('invoices.validate'); // NEW: Invoice validation route
+        Route::get('/{id}/validate', 'validateInvoice')->name('invoices.validate')->where('id', '[0-9]+');
+        // Server-side price quote for the invoice form (see InvoicePricingService).
+        Route::post('/price', 'priceQuote')->name('invoices.price');
     });
     
     // Teacher invoices bulk download route
@@ -151,8 +163,12 @@ Route::middleware('auth')->group(function () {
 
     // Class specific routes
     Route::controller(ClassesController::class)->prefix('classes')->group(function () {
-        Route::delete('/students/{student}', 'removeStudent')->name('classes.removeStudent');
-        Route::get('/fix-counts', 'fixAllClassCounts')->name('classes.fix-counts');
+        // NOTE: `DELETE classes/students/{student}` was removed — ClassesController::removeStudent
+        // hard-deletes the Student with no ownership or role check, and had zero frontend callers.
+        // fix-counts mutates state, so it is POST and admin-only.
+        Route::post('/fix-counts', 'fixAllClassCounts')
+            ->middleware(AdminMiddleware::class)
+            ->name('classes.fix-counts');
     });
     
     // Message routes
@@ -219,8 +235,8 @@ Route::middleware('auth')->group(function () {
             Route::get('/admin-earnings-dashboard', 'getAdminEarningsDashboard')->name('admin.earnings.dashboard');
             Route::get('/filtered-monthly-stats', 'getFilteredMonthlyStats')->name('admin.filtered.monthly.stats');
             Route::get('/filtered-employee-data', 'getFilteredEmployeeData')->name('admin.filtered.employee.data');
-            // Debug monthly revenue breakdown
-            Route::get('/debug-monthly-revenue', 'debugMonthlyRevenue')->name('admin.debug.monthly.revenue');
+            // NOTE: GET /debug-monthly-revenue removed — a diagnostic endpoint that dumped
+            // revenue internals. Reachable only by admins, but it had no place in production.
         });
 
         // Payments page
@@ -275,11 +291,14 @@ Route::middleware('auth')->group(function () {
         // Teacher Membership Payments (API routes for testing)
         Route::prefix('api/teacher-payments')->group(function () {
             Route::get('/', [TeacherMembershipPaymentController::class, 'index'])->name('teacher-payments.index');
-            Route::get('/{id}', [TeacherMembershipPaymentController::class, 'show'])->name('teacher-payments.show');
+            // Digits only: an unconstrained {id} shadowed /earnings-summary and
+            // /pending-payments registered below it.
+            Route::get('/{id}', [TeacherMembershipPaymentController::class, 'show'])->name('teacher-payments.show')->where('id', '[0-9]+');
             Route::post('/process-monthly', [TeacherMembershipPaymentController::class, 'processMonthlyPayments'])->name('teacher-payments.process-monthly');
             Route::get('/earnings-summary', [TeacherMembershipPaymentController::class, 'earningsSummary'])->name('teacher-payments.earnings-summary');
             Route::get('/pending-payments', [TeacherMembershipPaymentController::class, 'pendingPayments'])->name('teacher-payments.pending');
-            Route::post('/test-deletion', [TeacherMembershipPaymentController::class, 'testInvoiceDeletion'])->name('teacher-payments.test-deletion');
+            // NOTE: POST /test-deletion removed. Despite the name it was NOT a test — it called
+            // reverseInvoicePayments() against a real invoice, decrementing real teacher wallets.
         });
     });
 
@@ -300,30 +319,27 @@ Route::middleware('auth')->group(function () {
     Route::get('/absence-list', [AttendanceController::class, 'absenceListPage'])->name('absence-list')->middleware('auth');
     // Absence List PDF download (GET, not POST)
     Route::get('/absence-list/download', [AttendanceController::class, 'downloadAbsenceList'])->name('absence-list.download')->middleware('auth');
-});
-// Route::get('/cashier/daily', [CashierController::class, 'daily'])->name('cashier.daily');
-// Route::post('/cashier/daily', [CashierController::class, 'daily']); // For filtering
-// Data route
-Route::get('/cashier/daily', function (\Illuminate\Http\Request $request) {
-    $user = Auth::user();
-    if ($user && $user->role === 'teacher') {
-        return redirect('/dashboard')->with('error', 'Accès refusé.');
-    }
-    return app(CashierController::class)->daily($request);
-})->name('cashier.daily');
 
-// Redirect /cashier to today's view
-Route::get('/cashier', function () {
-    $user = Auth::user();
-    if ($user && $user->role === 'teacher') {
-        return redirect('/dashboard')->with('error', 'Accès refusé.');
-    }
-    $today = Carbon::today()->toDateString();
-    return redirect()->route('cashier.daily', ['date' => $today]);
-})->name('cashier');
-    
-// Custom route for deleting invoices from the student context (must be outside local-only block)
-Route::delete('/students/invoices/{id}', [InvoiceController::class, 'destroy']);
+    // Cashier — daily cash register. MUST stay inside the auth group: the role check
+    // below is null-safe, so an unauthenticated caller would otherwise skip it entirely.
+    Route::get('/cashier/daily', function (\Illuminate\Http\Request $request) {
+        if (Auth::user()->role === 'teacher') {
+            return redirect('/dashboard')->with('error', 'Accès refusé.');
+        }
+        return app(CashierController::class)->daily($request);
+    })->name('cashier.daily');
+
+    // Redirect /cashier to today's view
+    Route::get('/cashier', function () {
+        if (Auth::user()->role === 'teacher') {
+            return redirect('/dashboard')->with('error', 'Accès refusé.');
+        }
+        return redirect()->route('cashier.daily', ['date' => Carbon::today()->toDateString()]);
+    })->name('cashier');
+});
+
+// NOTE: a duplicate, UNAUTHENTICATED `DELETE students/invoices/{id}` used to live here.
+// The guarded copy inside the auth group above (name: students.invoices.destroy) is the only one now.
 
 // Authentication routes
 require __DIR__ . '/auth.php';
@@ -375,43 +391,28 @@ Route::get('/debug-assistant/{id}', function($id) {
 });
 }
 
-// TEMPORARY: Debug route to inspect session contents
-Route::get('/debug-session', function () {
-    return response()->json(session()->all());
-});
+// REMOVED (unauthenticated information disclosure):
+//   GET /debug-session      — returned session()->all(), including the caller's CSRF token
+//   GET /debug-mobile-auth  — returned session id, all cookies and all session data
+//   GET /debug-invoice-data — returned financial data with no auth
+// Do not reintroduce these without an app()->environment('local') guard.
 
-// Debug route for mobile authentication testing
-Route::get('/debug-mobile-auth', function (Request $request) {
-    $user = auth()->user();
-    return response()->json([
-        'authenticated' => auth()->check(),
-        'user' => $user ? [
-            'id' => $user->id,
-            'name' => $user->name,
-            'email' => $user->email,
-            'role' => $user->role
-        ] : null,
-        'session_id' => $request->session()->getId(),
-        'user_agent' => $request->header('User-Agent'),
-        'is_mobile' => strpos($request->header('User-Agent'), 'Mobile') !== false,
-        'ip' => $request->ip(),
-        'cookies' => $request->cookies->all(),
-        'session_data' => $request->session()->all()
-    ]);
-});
-
-// Admin impersonation routes (available in all environments, protected)
+// Admin impersonation.
+// Starting an impersonation requires being an admin.
 Route::middleware(['auth', AdminMiddleware::class])->group(function () {
     Route::post('/admin/view-as/{user}', [AdminController::class, 'viewAs'])->name('admin.view-as');
-    Route::post('/admin/switch-back', [AdminController::class, 'switchBack'])->middleware(CheckImpersonation::class)->name('admin.switch-back');
 });
-// Debug invoice data
-Route::get('/debug-invoice-data', [App\Http\Controllers\TransactionController::class, 'debugInvoiceData'])
-    ->name('debug.invoice.data');
 
-// TEMP: Direct GET route for switch back (for debugging only)
-// Restore real switch-back route
-Route::post('/admin/switch-back', [App\Http\Controllers\AdminController::class, 'switchBack'])->middleware(App\Http\Middleware\CheckImpersonation::class)->name('admin.switch-back');
+// Ending one deliberately does NOT use AdminMiddleware: while impersonating, the effective
+// user is the impersonated (non-admin) account, so AdminMiddleware would redirect and make
+// switch-back unreachable. That is exactly why a second, completely UNGUARDED copy of this
+// route used to be registered further down the file.
+//
+// CheckImpersonation is the correct guard: it resolves session('admin_user_id') and requires
+// that user to exist AND still be an admin before AdminController::switchBack logs them in.
+Route::middleware(['auth', CheckImpersonation::class])
+    ->post('/admin/switch-back', [AdminController::class, 'switchBack'])
+    ->name('admin.switch-back');
 
 // API route for fetching invoice details as JSON
 Route::middleware('auth')->get('/api/invoices/{id}', [App\Http\Controllers\InvoiceController::class, 'apiShow']);

@@ -146,8 +146,10 @@ export default function AnnouncementsPage({ announcements }) {
             date_announcement: announcement.date_announcement
                 ? announcement.date_announcement.split("T")[0]
                 : new Date().toISOString().split("T")[0],
-            date_start: announcement.date_start.split("T")[0],
-            date_end: announcement.date_end.split("T")[0],
+            // Guarded: date_start/date_end are nullable, and an unguarded .split() here
+            // threw a TypeError that white-screened the edit modal.
+            date_start: announcement.date_start?.split("T")[0] ?? "",
+            date_end: announcement.date_end?.split("T")[0] ?? "",
             visibility: announcement.visibility,
         });
     };
@@ -715,14 +717,16 @@ export default function AnnouncementsPage({ announcements }) {
                         </div>
 
                         <div className="mt-4 prose max-w-none">
-                            <div
-                                dangerouslySetInnerHTML={{
-                                    __html: viewingAnnouncement.content.replace(
-                                        /\n/g,
-                                        "<br>",
-                                    ),
-                                }}
-                            />
+                            {/*
+                              Rendered as TEXT, not HTML. Announcement bodies are authored in a
+                              plain <textarea> (see the create/edit forms above), so no markup is
+                              intended. This previously used dangerouslySetInnerHTML, which let any
+                              staff author store script that ran in every viewer's session.
+                              `whitespace-pre-wrap` preserves the line breaks the old .replace() was for.
+                            */}
+                            <div className="whitespace-pre-wrap break-words">
+                                {viewingAnnouncement.content ?? ""}
+                            </div>
                         </div>
 
                         <div className="mt-6 flex justify-end">

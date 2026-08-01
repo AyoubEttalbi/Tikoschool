@@ -15,7 +15,11 @@ return [
 
     'defaults' => [
         'guard' => env('AUTH_GUARD', 'web'),
-        'passwords' => env('AUTH_PASSWORD_BROKER', null),
+        // Was `env('AUTH_PASSWORD_BROKER', null)` and AUTH_PASSWORD_BROKER is set nowhere,
+        // so the broker name resolved to null and Password::sendResetLink() threw
+        // "Password resetter [] is not defined." — every password-reset request returned a
+        // 500. The broker defined below is named 'users'.
+        'passwords' => env('AUTH_PASSWORD_BROKER', 'users'),
     ],
 
     /*

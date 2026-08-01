@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { router } from "@inertiajs/react"
 import DashboardLayout from "@/Layouts/DashboardLayout"
 import { Bar } from "react-chartjs-2"
@@ -263,13 +263,27 @@ const CashierPage = ({
   const averagePayment = cashierStats.averagePayment
   const peakHour = cashierStats.peakHour
 
-  // Filter invoices based on search
-  const filteredInvoices = invoices.filter(
-    (invoice) =>
-      invoice.student?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      invoice.membership?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      invoice.creator?.name.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
+  // Search across the CURRENT PAGE only — this list is server-paginated.
+  //
+  // Two fixes here:
+  //  1. Null safety. The optional chaining stopped at the relation (`invoice.student?.name`)
+  //     but not the property, so any invoice whose student/membership/creator existed with a
+  //     null name threw a TypeError and blanked the page.
+  //  2. An empty query now short-circuits instead of running three lowercase comparisons
+  //     per row on every keystroke.
+  const filteredInvoices = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase()
+    if (!q) return invoices
+
+    const matches = (value) => (value ?? "").toLowerCase().includes(q)
+
+    return invoices.filter(
+      (invoice) =>
+        matches(invoice.student?.name) ||
+        matches(invoice.membership?.name) ||
+        matches(invoice.creator?.name),
+    )
+  }, [invoices, searchTerm])
 
   // Prepare chart data
   const maxChartValue = Math.max(...(chartData?.map((c) => c.total) || [0]), 1)
@@ -353,8 +367,20 @@ const CashierPage = ({
       inv.creator ? inv.creator.name : "-",
       new Date(inv.created_at).toLocaleString(),
     ])
-    const csv = [header, ...rows].map((r) => r.map((x) => `"${x}"`).join(",")).join("\n")
-    const blob = new Blob([csv], { type: "text/csv" })
+    // Escape each cell properly:
+    //  - a value containing a double quote used to break out of its own field, so a student
+    //    named `A" ,B` corrupted every column after it. RFC 4180 says doubling the quote.
+    //  - a leading =, +, - or @ makes Excel/Sheets treat the cell as a FORMULA, which is a
+    //    real injection vector when the value came from a user-entered name. Prefix a tab.
+    const escapeCell = (value) => {
+      let s = value === null || value === undefined ? "" : String(value)
+      if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`
+      return `"${s.replace(/"/g, '""')}"`
+    }
+
+    const csv = [header, ...rows].map((r) => r.map(escapeCell).join(",")).join("\r\n")
+    // BOM so Excel reads the accented French column headers as UTF-8.
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
@@ -689,6 +715,14 @@ const CashierPage = ({
                 <p className="text-sm text-slate-600 mt-1">
                   {filteredInvoices.length} facture{filteredInvoices.length !== 1 ? "s" : ""}
                   {searchTerm && ` correspondant à "${searchTerm}"`}
+                  {/* Be explicit that search is page-scoped rather than letting a cashier
+                      conclude a student has no invoice when they are simply on page 2. */}
+                  {searchTerm && pagination && pagination.last_page > 1 && (
+                    <span className="block text-xs text-amber-600 mt-1">
+                      Recherche limitée à cette page ({pagination.current_page}/{pagination.last_page}).
+                      Utilisez les filtres ci-dessus pour chercher dans toute la journée.
+                    </span>
+                  )}
                 </p>
               </div>
               <div className="flex items-center gap-2">

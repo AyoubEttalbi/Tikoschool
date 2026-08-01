@@ -112,11 +112,15 @@ class InvoiceController extends Controller
 
 
             $validated = $request->validate([
-                'membership_id' => 'required|integer',
-                'student_id' => 'required|integer',
+                // `exists:` matters — these ids drive teacher payouts. Without it an invoice
+                // could be pointed at an arbitrary membership/student id.
+                'membership_id' => 'required|integer|exists:memberships,id',
+                'student_id' => 'required|integer|exists:students,id',
                 'months' => [
                     'required',
                     'integer',
+                    'min:0',
+                    'max:24',
                     function ($attribute, $value, $fail) use ($request) {
                         if ($value === 0 && !$request->input('includePartialMonth')) {
                             $fail('Le champ mois doit être supérieur à 0 si le mois partiel n\'est pas sélectionné.');
@@ -126,23 +130,30 @@ class InvoiceController extends Controller
                 'selected_months' => 'nullable', // Accept array or stringified JSON
                 'billDate' => 'required|date',
                 'creationDate' => 'nullable|date',
-                'totalAmount' => 'required|numeric',
-                'amountPaid' => 'required|numeric',
-                'rest' => 'required|numeric',
+                // Money fields are floored at 0. `rest` may legitimately be 0 but never negative.
+                'totalAmount' => 'required|numeric|min:0|max:9999999.99',
+                'amountPaid' => 'required|numeric|min:0|max:9999999.99',
+                'rest' => 'required|numeric|min:0|max:9999999.99',
                 'offer' => 'nullable|string',
-                'offer_id' => 'nullable|integer',
+                'offer_id' => 'nullable|integer|exists:offers,id',
                 'endDate' => 'nullable|date',
                 'includePartialMonth' => 'nullable|boolean',
-                'partialMonthAmount' => 'nullable|numeric',
+                // partialMonthAmount feeds straight into the teacher commission calculation
+                // and then into an increment('wallet'). Unbounded, it was a direct way to
+                // credit an arbitrary amount to a teacher's wallet.
+                'partialMonthAmount' => 'nullable|numeric|min:0|lte:amountPaid',
                 'last_payment_date' => 'nullable|date',
             ], [
                 'membership_id.required' => 'Adhésion manquante: veuillez sélectionner une adhésion valide.',
+                'membership_id.exists' => 'Adhésion introuvable.',
                 'student_id.required' => 'Étudiant manquant: veuillez sélectionner un étudiant.',
+                'student_id.exists' => 'Étudiant introuvable.',
                 'months.required' => 'Le nombre de mois est obligatoire.',
                 'billDate.required' => 'La date de facturation est obligatoire.',
                 'totalAmount.required' => 'Le montant total est obligatoire.',
                 'amountPaid.required' => 'Le montant payé est obligatoire.',
                 'rest.required' => 'Le reste à payer est obligatoire.',
+                'partialMonthAmount.lte' => 'Le montant du mois partiel ne peut pas dépasser le montant payé.',
             ]);
 
 
@@ -184,9 +195,34 @@ class InvoiceController extends Controller
             // Always set offer_id from membership
             $validated['offer_id'] = $membership->offer_id;
 
+            // RECOMPUTE the money server-side. The pro-rata formula previously lived only in
+            // the browser and whatever the client posted was stored verbatim — so a crafted
+            // request could set any price, and (because teacher commission is a percentage of
+            // the invoice) mint arbitrary teacher wallet credit.
+            // A client total BELOW the computed price is still honoured as a discount.
+            $pricing = new \App\Services\InvoicePricingService();
+            $priced = $pricing->reconcile($membership, $validated + [
+                'selected_months' => $selectedMonths,
+                'billDate' => $validated['billDate'] ?? null,
+            ]);
+
+            $validated['totalAmount'] = $priced['totalAmount'];
+            $validated['amountPaid'] = $priced['amountPaid'];
+            $validated['rest'] = $priced['rest'];
+            $validated['partialMonthAmount'] = $priced['partialMonthAmount'];
+
+            if ($priced['discountApplied'] > 0) {
+                Log::info('Invoice created with a discount', [
+                    'membership_id' => $membership->id,
+                    'discount' => $priced['discountApplied'],
+                    'charged' => $priced['totalAmount'],
+                    'by' => auth()->id(),
+                ]);
+            }
+
             // Create the invoice
             $invoice = Invoice::create($validated);
-            Log::info('Invoice created successfully', ['invoice_id' => $invoice->id, 'data' => $validated]);
+            Log::info('Invoice created successfully', ['invoice_id' => $invoice->id]);
             // Log the activity
             $this->logActivity('created', $invoice, null, $invoice->toArray());
 
@@ -469,12 +505,17 @@ class InvoiceController extends Controller
             }
 
             // Validate the incoming request
+            // Bounds mirror store() — see the comments there. Without them a PUT could
+            // credit an arbitrary amount to a teacher's wallet via partialMonthAmount,
+            // and (unlike amountPaid) that path is never reconciled afterwards.
             $validated = $request->validate([
-                'membership_id' => 'nullable|integer',
-                'student_id' => 'required|integer',
+                'membership_id' => 'nullable|integer|exists:memberships,id',
+                'student_id' => 'required|integer|exists:students,id',
                 'months' => [
                     'required',
                     'integer',
+                    'min:0',
+                    'max:24',
                     function ($attribute, $value, $fail) use ($request) {
                         if ($value === 0 && !$request->input('includePartialMonth')) {
                             $fail('Le champ mois doit être supérieur à 0 si le mois partiel n\'est pas sélectionné.');
@@ -484,17 +525,20 @@ class InvoiceController extends Controller
                 'selected_months' => 'nullable', // Accept array or stringified JSON
                 'billDate' => 'required|date',
                 'creationDate' => 'nullable|date',
-                'totalAmount' => 'required|numeric',
-                'amountPaid' => 'required|numeric',
-                'rest' => 'required|numeric',
+                'totalAmount' => 'required|numeric|min:0|max:9999999.99',
+                'amountPaid' => 'required|numeric|min:0|max:9999999.99',
+                'rest' => 'required|numeric|min:0|max:9999999.99',
                 'offer' => 'nullable|string',
-                'offer_id' => 'nullable|integer',
+                'offer_id' => 'nullable|integer|exists:offers,id',
                 'endDate' => 'nullable|date',
                 'includePartialMonth' => 'nullable|boolean',
-                'partialMonthAmount' => 'nullable|numeric',
+                'partialMonthAmount' => 'nullable|numeric|min:0|lte:amountPaid',
                 'last_payment_date' => 'nullable|date',
             ], [
                 'student_id.required' => 'Étudiant manquant: veuillez sélectionner un étudiant.',
+                'student_id.exists' => 'Étudiant introuvable.',
+                'membership_id.exists' => 'Adhésion introuvable.',
+                'partialMonthAmount.lte' => 'Le montant du mois partiel ne peut pas dépasser le montant payé.',
                 'months.required' => 'Le nombre de mois est obligatoire.',
                 'billDate.required' => 'La date de facturation est obligatoire.',
                 'totalAmount.required' => 'Le montant total est obligatoire.',
@@ -554,6 +598,36 @@ class InvoiceController extends Controller
             }
             // Always set offer_id from membership
             $validated['offer_id'] = $membership->offer_id;
+
+            // RECOMPUTE server-side — same reasoning as store(). This closes the update path,
+            // which was the more dangerous of the two: partialMonthAmount flows into the
+            // teacher commission, and when amountPaid is unchanged the reconcile step below
+            // never runs, so an inflated wallet credit was never corrected.
+            $pricing = new \App\Services\InvoicePricingService();
+            $priced = $pricing->reconcile($membership, $validated + [
+                'selected_months' => $selectedMonths,
+                'billDate' => $validated['billDate'] ?? null,
+            ]);
+
+            $validated['totalAmount'] = $priced['totalAmount'];
+            $validated['amountPaid'] = $priced['amountPaid'];
+            $validated['rest'] = $priced['rest'];
+            $validated['partialMonthAmount'] = $priced['partialMonthAmount'];
+
+            // Re-evaluate against the RECONCILED amount, not the client's figure.
+            $validated['last_payment_date'] =
+                round((float) $validated['amountPaid'], 2) != round((float) $previousAmountPaid, 2)
+                    ? now()->toDateTimeString()
+                    : $invoice->last_payment_date;
+
+            if ($priced['discountApplied'] > 0) {
+                Log::info('Invoice updated with a discount', [
+                    'invoice_id' => $invoice->id,
+                    'discount' => $priced['discountApplied'],
+                    'charged' => $priced['totalAmount'],
+                    'by' => auth()->id(),
+                ]);
+            }
 
             // Update the invoice
             $invoice->update($validated);
@@ -642,47 +716,86 @@ class InvoiceController extends Controller
     }
 
     /**
+     * Price preview for the invoice form.
+     *
+     * Lets the UI show the authoritative figure instead of relying on its own copy of the
+     * formula. The client keeps a local calculation for instant feedback, but this is what
+     * store()/update() will actually charge — if the two ever disagree, this one wins.
+     */
+    public function priceQuote(Request $request)
+    {
+        $validated = $request->validate([
+            'membership_id' => 'required|integer|exists:memberships,id',
+            'selected_months' => 'nullable',
+            'includePartialMonth' => 'nullable|boolean',
+            'billDate' => 'nullable|date',
+        ]);
+
+        $membership = Membership::withTrashed()->findOrFail($validated['membership_id']);
+
+        if (! $membership->offer) {
+            return response()->json(['message' => 'Offre introuvable pour cette adhésion.'], 422);
+        }
+
+        $pricing = new \App\Services\InvoicePricingService();
+
+        return response()->json($pricing->price(
+            $membership,
+            $pricing->normaliseMonths($validated['selected_months'] ?? []),
+            (bool) ($validated['includePartialMonth'] ?? false),
+            $validated['billDate'] ?? null
+        ));
+    }
+
+    /**
      * Remove the specified invoice from the database.
      */
     public function destroy($id)
     {
         try {
-            $invoice = Invoice::findOrFail($id);
+            // ALL of this must be atomic. It writes memberships, teachers.wallet,
+            // teacher_membership_payments and invoices. Previously it ran with no
+            // transaction, so a failure partway through left teacher wallets already
+            // debited while the invoice survived — and deleting it again debited them twice.
+            DB::transaction(function () use ($id) {
+                $invoice = Invoice::findOrFail($id);
 
-            // Log the activity before deletion
-            $this->logActivity('deleted', $invoice, $invoice->toArray(), null);
+                // Log the activity before deletion
+                $this->logActivity('deleted', $invoice, $invoice->toArray(), null);
 
-            // --- NEW LOGIC: Update membership and reverse teacher payments ---
-            $membership = $invoice->membership;
-            if ($membership) {
-                // Find the latest active invoice for this membership (excluding the one being deleted)
-                $latestActiveInvoice = Invoice::where('membership_id', $membership->id)
-                    ->where('id', '!=', $invoice->id)
-                    ->orderBy('endDate', 'desc')
-                    ->first();
+                $membership = $invoice->membership;
+                if ($membership) {
+                    // Find the latest active invoice for this membership (excluding the one being deleted)
+                    $latestActiveInvoice = Invoice::where('membership_id', $membership->id)
+                        ->where('id', '!=', $invoice->id)
+                        ->orderBy('endDate', 'desc')
+                        ->first();
 
-                if ($latestActiveInvoice) {
-                    // Update membership based on the latest active invoice
-                    $membership->end_date = $latestActiveInvoice->endDate;
-                    $membership->payment_status = 'paid';
-                    $membership->is_active = true;
-                } else {
-                    // No other active invoices, set to expired
-                    $membership->payment_status = 'expired';
-                    $membership->is_active = false;
+                    if ($latestActiveInvoice) {
+                        // Update membership based on the latest active invoice
+                        $membership->end_date = $latestActiveInvoice->endDate;
+                        $membership->payment_status = 'paid';
+                        $membership->is_active = true;
+                    } else {
+                        // No other active invoices, set to expired
+                        $membership->payment_status = 'expired';
+                        $membership->is_active = false;
+                    }
+                    $membership->save();
                 }
-                $membership->save();
 
-                // Reverse teacher payments using the new service
+                // Reverse teacher payments REGARDLESS of membership state. This used to sit
+                // inside `if ($membership)`, so an invoice whose membership had been deleted
+                // was removed without ever reversing the teacher's wallet credit.
                 $paymentService = new \App\Services\TeacherMembershipPaymentService();
                 $paymentService->reverseInvoicePayments($invoice);
-            }
-            // --- END NEW LOGIC ---
 
-            $invoice->delete();
+                $invoice->delete();
+            });
+
             return redirect()->back()->with('success', 'Invoice deleted successfully.');
-        } catch (\Exception $e) {
-            Log::error('Error deleting invoice:', ['error' => $e->getMessage()]);
+        } catch (\Throwable $e) {
+            Log::error('Error deleting invoice:', ['invoice_id' => $id, 'error' => $e->getMessage()]);
             return redirect()->back()->withErrors(['error' => 'An error occurred while deleting the invoice.']);
         }
     }

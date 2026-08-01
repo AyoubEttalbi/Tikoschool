@@ -67,10 +67,13 @@ private function getCommonData()
     $totalWallet = $usersWithDetails->where('role', 'teacher')->sum('wallet') ?? 0;
     $totalSalary = $usersWithDetails->where('role', 'assistant')->sum('salary') ?? 0;
     
-    // Get transactions with their associated user
-    $transactions = Transaction::with('user')
+    // Get transactions with their associated user.
+    // Was simplePaginate(20000) — a 20,000-row "page" serialized into the Inertia payload
+    // on every visit to the payments screen. Backed by transactions(type, payment_date).
+    $transactions = Transaction::with('user:id,name,email,role')
         ->orderBy('payment_date', 'desc')
-        ->simplePaginate(20000);
+        ->paginate(50)
+        ->withQueryString();
     
     // Calculate admin earnings for the current and previous year
     $adminEarnings = $this->calculateAdminEarningsForComparison();
@@ -152,7 +155,6 @@ private function tableExists($tableName)
 private function calculateAdminEarningsPerMonth()
 {
     // Enable query logging for debugging
-    DB::enableQueryLog();
     
     // Get invoices from last 12 months
     $startDate = now()->subMonths(11)->startOfMonth();
@@ -384,8 +386,7 @@ private function getMonthlyExpenses($year, $month)
                       ->orWhere('type', 'payment')
                       ->orWhere('type', 'expense');
             })
-            ->whereRaw('YEAR(payment_date) = ?', [$year])
-            ->whereRaw('MONTH(payment_date) = ?', [$month])
+            ->inMonth($year, $month)
             ->sum(DB::raw('CAST(amount AS DECIMAL(10,2))'));
     } catch (\Exception $e) {
         $monthlyExpenses = 0;
@@ -722,8 +723,7 @@ private function calculateAdminEarningsForComparison()
                           ->orWhere('type', 'payment')
                           ->orWhere('type', 'expense');
                 })
-                ->whereRaw('YEAR(payment_date) = ?', [$data['year']])
-                ->whereRaw('MONTH(payment_date) = ?', [$data['month']])
+                ->inMonth($data['year'], $data['month'])
                 ->sum(DB::raw('CAST(amount AS DECIMAL(10,2))'));
         } catch (\Exception $e) {
             $monthlyExpenses = 0;
@@ -768,26 +768,10 @@ private function calculateAdminEarningsForComparison()
  */
 public function index(Request $request)
 {
-    // Get filter parameters
-    $year = $request->query('year', now()->year);
-    
-    // Get all transactions, with latest first
-    $transactions = Transaction::with('user')
-        ->whereRaw('YEAR(payment_date) = ?', [$year])
-        ->orderBy('payment_date', 'desc')
-        ->paginate(10);
-
-    // Calculate total amount for the filtered transactions
-    $totalAmount = Transaction::whereRaw('YEAR(payment_date) = ?', [$year])
-        ->sum('amount');
-
-    // Get all available years for the filter
-    $availableYears = DB::table('transactions')
-        ->select(DB::raw('DISTINCT YEAR(payment_date) as year'))
-        ->orderBy('year', 'desc')
-        ->pluck('year')
-        ->toArray();
-
+    // NOTE: this method used to compute $transactions (a paginated query), $totalAmount
+    // (a SUM over the year) and $availableYears (a DISTINCT YEAR scan) — and then throw all
+    // three away, because $data = $this->getCommonData() below overwrites everything that
+    // is actually returned. Three queries per page load for nothing.
     $data = $this->getCommonData();
     $data['formType'] = null;
     $data['transaction'] = null;
@@ -879,8 +863,7 @@ public function index(Request $request)
                     // Calculate how much has already been paid this month
                     $alreadyPaid = Transaction::where('user_id', $user->id)
                         ->where('type', 'salary')
-                        ->whereRaw('MONTH(payment_date) = ?', [$month])
-                        ->whereRaw('YEAR(payment_date) = ?', [$year])
+                        ->inMonth($year, $month)
                         ->sum('amount');
                     $baseSalary = $assistant->salary;
                     $remainingSalary = $baseSalary - $alreadyPaid;
@@ -965,8 +948,7 @@ public function index(Request $request)
                 // Calculate how much has already been paid this month
                 $alreadyPaid = Transaction::where('user_id', $user->id)
                     ->where('type', 'salary')
-                    ->whereRaw('MONTH(payment_date) = ?', [$month])
-                    ->whereRaw('YEAR(payment_date) = ?', [$year])
+                    ->inMonth($year, $month)
                     ->sum('amount');
                 
                 // Calculate remaining salary
@@ -1214,8 +1196,7 @@ public function index(Request $request)
         $year = $paymentDate->year;
         
         // Find employees who have already been paid this month
-        $alreadyPaidUserIds = Transaction::whereRaw('MONTH(payment_date) = ?', [$month])
-            ->whereRaw('YEAR(payment_date) = ?', [$year])
+        $alreadyPaidUserIds = Transaction::inMonth($year, $month)
             ->where(function($query) {
                 $query->where('type', 'salary')
                       ->orWhere('type', 'payment');
@@ -1294,8 +1275,7 @@ public function index(Request $request)
         $year = $selectedDate->year;
         
         // Find employees who have already been paid this month
-        $alreadyPaidUserIds = Transaction::whereRaw('MONTH(payment_date) = ?', [$month])
-            ->whereRaw('YEAR(payment_date) = ?', [$year])
+        $alreadyPaidUserIds = Transaction::inMonth($year, $month)
             ->where(function($query) {
                 $query->where('type', 'salary')
                       ->orWhere('type', 'payment');
@@ -1409,8 +1389,7 @@ public function index(Request $request)
                 // Final check that user hasn't been paid this month/year
                 $existingPayment = Transaction::where('user_id', $user->id)
                     ->whereIn('type', ['salary', 'payment'])
-                    ->whereRaw('MONTH(payment_date) = ?', [$month])
-                    ->whereRaw('YEAR(payment_date) = ?', [$year])
+                    ->inMonth($year, $month)
                     ->exists();
                     
                 if ($existingPayment) {
@@ -1446,8 +1425,7 @@ public function index(Request $request)
                     // Calculate how much has already been paid this month
                     $alreadyPaid = Transaction::where('user_id', $user->id)
                         ->where('type', 'salary')
-                        ->whereRaw('MONTH(payment_date) = ?', [$month])
-                        ->whereRaw('YEAR(payment_date) = ?', [$year])
+                        ->inMonth($year, $month)
                         ->sum('amount');
                     
                     // If they've already received full or partial payment
@@ -1698,16 +1676,38 @@ public function processRecurring()
             return;
         }
     
+        // Wallet movements go through TeacherWalletService so they land in the append-only
+        // ledger and the cached balance is updated under a row lock. invoice_id is null
+        // here, which deliberately exempts payouts from the idempotency constraint — the
+        // same teacher can legitimately be paid out repeatedly.
+        $walletService = new \App\Services\TeacherWalletService();
+
         if ($type === 'wallet' && $user->role === 'teacher') {
             $teacher = $user->teacher;
             if ($teacher) {
-                $teacher->decrement('wallet', $amount);
+                $walletService->debit(
+                    $teacher,
+                    $amount,
+                    \App\Models\TeacherWalletEntry::REASON_PAYOUT,
+                    null,
+                    null,
+                    null,
+                    'wallet payout to teacher'
+                );
             }
         } elseif ($type === 'payment' && $user->role === 'teacher') {
             // For payment reversals, add back to wallet
             $teacher = $user->teacher;
             if ($teacher) {
-                $teacher->increment('wallet', $amount);
+                $walletService->credit(
+                    $teacher,
+                    $amount,
+                    \App\Models\TeacherWalletEntry::REASON_ADJUSTMENT,
+                    null,
+                    null,
+                    null,
+                    'payout reversed'
+                );
             }
         }
     }

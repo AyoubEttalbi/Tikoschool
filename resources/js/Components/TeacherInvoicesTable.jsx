@@ -110,13 +110,30 @@ const TeacherInvoicesTable = ({
                 preserveState: true,
                 preserveScroll: true,
                 replace: true,
+                // Only the invoice table depends on these. Without `only`, changing a filter
+                // re-serialises the teacher, every announcement, every transaction and all
+                // the dropdown sources, and re-renders the whole profile.
+                only: ['invoices', 'invoiceStats', 'filterOptions', 'filters'],
                 onFinish: () => setIsLoading(false),
             });
         }
     };
 
-    // Apply filters when they change
+    // Apply filters when they CHANGE — a mount is not a change.
+    //
+    // This effect used to fire on first render, so opening a teacher profile issued a second
+    // request for the page that had just been delivered: the URL visibly gained
+    // `?class_filter=all&date_filter=…&search=` a moment after the page appeared, and the rows
+    // were replaced under the user. The server now supplies the same defaults the table starts
+    // with (see TeacherController::show), so the initial payload is already correct.
+    const isFirstRender = React.useRef(true);
+
     React.useEffect(() => {
+        if (isFirstRender.current) {
+            isFirstRender.current = false;
+            return;
+        }
+
         const timeoutId = setTimeout(() => {
             applyFilters();
         }, 300); // Debounce search

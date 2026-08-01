@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\Impersonation;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -20,14 +21,27 @@ class CanViewTeacherProfile
     {
         $user = Auth::user();
         $routeName = $request->route()->getName();
-        
-        // Allow if admin OR if admin is impersonating (admin_user_id in session)
-        if ($user && ($user->role === 'admin' || session()->has('admin_user_id'))) {
+
+        // Real admins only.
+        //
+        // This previously also allowed anyone whose session merely CONTAINED an
+        // `admin_user_id` key. That is backwards: while impersonating, the effective user is
+        // deliberately LESS privileged, yet the flag granted access to every teacher's
+        // profile. An impersonated session now gets exactly the impersonated user's rights,
+        // which is the whole point of "view as" — switch back to browse as an admin.
+        if ($user && $user->role === 'admin') {
             return $next($request);
         }
 
-        // For index routes, allow teachers to access their own listing
-        if ($routeName === 'teachers.index' && $user && $user->role === 'teacher') {
+        // The teacher DIRECTORY is open to teachers and assistants. The sidebar has always
+        // offered "Enseignants" to assistants (Menu.jsx), but this middleware only ever
+        // allowed admin and teacher — so that menu entry led straight to a 403 for every
+        // assistant. TeacherController::index scopes the rows to the caller's schools.
+        //
+        // Individual profiles are deliberately NOT included: they carry wallet balances,
+        // invoices and payout history. The list page already hides row links and the actions
+        // column from non-admins, so nothing in the UI leads an assistant there.
+        if ($routeName === 'teachers.index' && $user && in_array($user->role, ['teacher', 'assistant'], true)) {
             return $next($request);
         }
 
@@ -35,13 +49,24 @@ class CanViewTeacherProfile
         if ($routeName === 'teachers.show' && $user && $user->role === 'teacher') {
             // Use the user's email to find the teacher instead of route parameter
             $teacher = Teacher::where('email', $user->email)->first();
-            
+
             if ($teacher) {
-                // Get the teacher ID from the route parameter
-                $teacherId = $request->route('teacher');
-                
-                // Check if the route parameter matches the teacher's ID
-                if ($teacherId && (string)$teacherId === (string)$teacher->id) {
+                // `route('teacher')` is the resolved Teacher MODEL, because SubstituteBindings
+                // is group middleware and runs before this route middleware.
+                //
+                // Casting it with (string) does not throw — Eloquent\Model::__toString()
+                // returns toJson() — so the old comparison quietly measured a ~300 character
+                // JSON blob against "1" and was ALWAYS false. Every teacher was denied their
+                // own profile. It went unnoticed because the admin check above used to pass
+                // anyone whose session merely held an `admin_user_id`, which is exactly the
+                // impersonation case, so the broken branch was never reached.
+                $routeTeacher = $request->route('teacher');
+                $routeTeacherId = $routeTeacher instanceof Teacher
+                    ? $routeTeacher->getKey()
+                    : $routeTeacher;
+
+                if ($routeTeacherId !== null
+                    && (string) $routeTeacherId === (string) $teacher->getKey()) {
                     return $next($request);
                 }
             }
@@ -53,6 +78,8 @@ class CanViewTeacherProfile
         }
 
         // Otherwise, deny access
-        abort(403, 'Unauthorized');
+        abort(403, Impersonation::isActive()
+            ? "Vous consultez l'application en tant qu'un autre utilisateur. Revenez à votre compte administrateur pour accéder à cette page."
+            : 'Unauthorized');
     }
 }
