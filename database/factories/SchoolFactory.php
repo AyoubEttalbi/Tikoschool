@@ -24,7 +24,11 @@ class SchoolFactory extends Factory
         
         return [
             'name' => $this->faker->randomElement($schoolNames) . ' ' . $this->faker->randomElement($schoolTypes),
-            'address' => $this->faker->streetAddress() . ', ' . $this->faker->city() . ', ' . $this->faker->stateAbbr() . ' ' . $this->faker->postcode(),
+            // No stateAbbr(): it exists only in Faker's en_US locale, so this factory threw
+            // "Unknown format" under the APP_FAKER_LOCALE=fr_FR that .env.example ships —
+            // green locally, 34 failures in CI. Keep factories to locale-independent
+            // formatters; Morocco has no state abbreviations anyway.
+            'address' => $this->faker->streetAddress() . ', ' . $this->faker->city() . ' ' . $this->faker->postcode(),
             'phone_number' => $this->faker->numerify('555-###-####'),
             'email' => $this->faker->unique()->safeEmail(),
         ];

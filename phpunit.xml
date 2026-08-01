@@ -19,6 +19,14 @@
     </source>
     <php>
         <env name="APP_ENV" value="testing"/>
+        <!--
+          Pinned so the suite does not depend on whose .env is present. .env.example ships
+          fr_FR while most local .env files carry en_US, and Faker formatters are
+          locale-specific: SchoolFactory's stateAbbr() exists only in en_US, so the suite was
+          green locally and 34 tests failed in CI. Matching .env.example means a locale-only
+          formatter now fails on the developer's machine too.
+        -->
+        <env name="APP_FAKER_LOCALE" value="fr_FR"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="CACHE_STORE" value="array"/>
