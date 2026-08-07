@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Support\OfferPercentages;
+use App\Support\TransactionRules;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -788,14 +789,112 @@ class TransactionController extends Controller
      *
      * @return \Illuminate\Http\Response
      */
-    public function create()
+    public function create(Request $request)
     {
-        $data = $this->getCommonData();
-        $data['formType'] = 'create';
-        $data['transaction'] = null;
+        $data = $this->getFormData('create', null, $this->formDate($request));
+
+        // "Payer" on the employee list arrives as ?user_id=. It used to arrive as a whole
+        // prefilled form in the query string — type, amount, description — which create()
+        // read none of, so the button opened a blank form.
+        $data['preselectedUserId'] = $request->filled('user_id')
+            ? (int) $request->input('user_id')
+            : null;
 
         return Inertia::render('Menu/PaymentsPage', $data);
     }
+
+    /**
+     * Parse the ?on= date the form sends when its payment date moves to another month.
+     *
+     * An assistant's available balance is their salary less what they have been paid IN
+     * THAT MONTH, so it is not a property of the person — it changes with the date on the
+     * form. Backdating a payment to a month they were already paid for has to show the
+     * remainder for that month, not for today.
+     */
+    private function formDate(Request $request): Carbon
+    {
+        try {
+            return $request->filled('on')
+                ? Carbon::parse($request->input('on'))
+                : Carbon::now();
+        } catch (\Throwable) {
+            return Carbon::now();
+        }
+    }
+
+    /**
+     * The props a form view needs — and nothing else.
+     *
+     * create() and edit() used to call getCommonData(), which loads every user, a page of
+     * 50 transactions, and calculateAdminEarningsForComparison(): a loop over every month
+     * since the earliest invoice in the system, running two aggregate queries per month.
+     * Opening the "new transaction" form paid for a full financial dashboard that the form
+     * view does not render — PaymentsPage swaps to `activeView === "form"` and the list,
+     * the analytics and the earnings section are all unmounted.
+     *
+     * What a form actually needs is the staff it can pay, and what each of them is owed.
+     */
+    private function getFormData(string $formType, ?Transaction $transaction = null, ?Carbon $date = null): array
+    {
+        // The date drives the assistant salary cap, so the balances have to be computed
+        // against the date the form will open on, not against today.
+        $date ??= $transaction?->payment_date
+            ? Carbon::parse($transaction->payment_date)
+            : Carbon::now();
+
+        $staff = User::with(['teacher', 'assistant'])
+            ->whereIn('role', TransactionRules::PAYABLE_ROLES)
+            ->orderBy('name')
+            ->get()
+            ->map(fn ($user) => TransactionRules::summarise($user, $date))
+            ->values()
+            ->all();
+
+        return [
+            'formType' => $formType,
+            'transaction' => $transaction,
+            'staff' => $staff,
+            'expenseCategories' => self::EXPENSE_CATEGORIES,
+            'frequencies' => self::FREQUENCY_LABELS,
+            // PaymentsPage renders a paginator and an earnings panel below the form area.
+            // Empty shells rather than real data: nothing on a form view reads them, and
+            // computing them is the expensive half of this request.
+            'transactions' => ['data' => [], 'links' => [], 'total' => 0],
+            'adminEarnings' => null,
+        ];
+    }
+
+    /**
+     * Expense categories, defined server-side.
+     *
+     * They were hardcoded in TransactionDetails.jsx, which meant nothing on the server
+     * could validate against them — and `category` was never persisted anyway. Now the
+     * form renders this list and the validator checks against it.
+     */
+    public const EXPENSE_CATEGORIES = [
+        'classroom' => 'Matériel de classe',
+        'office' => 'Fournitures de bureau',
+        'sports' => 'Équipement sportif',
+        'technology' => 'Technologie',
+        'library' => 'Ressources de bibliothèque',
+        'internet' => 'Internet / WiFi',
+        'utilities' => 'Eau, électricité',
+        'maintenance' => 'Maintenance',
+        'travel' => 'Sorties scolaires',
+        'training' => 'Formation du personnel',
+        'software' => 'Logiciels',
+        'rent' => 'Loyer',
+        'other' => 'Autre',
+    ];
+
+    /** Labels for Transaction::FREQUENCIES — the one accepted vocabulary. */
+    public const FREQUENCY_LABELS = [
+        'weekly' => 'Chaque semaine',
+        'monthly' => 'Chaque mois',
+        'quarterly' => 'Tous les 3 mois',
+        'semiannually' => 'Tous les 6 mois',
+        'yearly' => 'Chaque année',
+    ];
 
     /**
      * Store a newly created resource in storage.
@@ -805,184 +904,18 @@ class TransactionController extends Controller
     public function store(Request $request)
     {
         try {
-            // Log the incoming request data
+            // Logs the fields, not $request->all(). The old call wrote the entire request
+            // body — named staff, amounts, free-text descriptions — into the application
+            // log on every single transaction, where it is kept far longer than anyone
+            // reviewing payroll access expects.
             Log::info('Transaction store request', [
-                'data' => $request->all(),
-                'client_ip' => $request->ip(),
+                'type' => $request->input('type'),
+                'user_id' => $request->input('user_id'),
+                'amount' => $request->input('amount'),
             ]);
 
-            // Validate the request
-            $validated = $request->validate([
-                'type' => 'required|string|in:wallet,payment,salary,expense', // Add 'expense' here
-                'user_id' => 'nullable|exists:users,id',
-                'amount' => 'required|numeric|min:0.01',
-                'description' => 'nullable|string|max:255',
-                'is_recurring' => 'nullable|boolean',
-                'frequency' => 'nullable|required_if:is_recurring,1|in:weekly,monthly,quarterly,yearly',
-                'next_payment_date' => 'nullable|required_if:is_recurring,1|date',
-                'payment_date' => 'nullable|date',
-            ]);
-            // Always set is_recurring to 0 or 1
-            $validated['is_recurring'] = $request->boolean('is_recurring') ? 1 : 0;
-
-            // Set payment_date to today if not provided
-            if (! isset($validated['payment_date'])) {
-                $validated['payment_date'] = now();
-            }
-
-            // For salary or payment transactions, apply custom logic for teacher and assistant
-            if (in_array($validated['type'], ['salary', 'payment'])) {
-                $paymentDate = Carbon::parse($validated['payment_date']);
-                $month = $paymentDate->month;
-                $year = $paymentDate->year;
-                $user = User::find($validated['user_id']);
-
-                if ($user && $user->role === 'teacher') {
-                    $teacher = $user->teacher;
-                    if (! $teacher) {
-                        Log::error('Transaction store failed: Teacher model not found', [
-                            'user_id' => $user->id,
-                            'email' => $user->email,
-                        ]);
-
-                        return back()->with('error', 'Teacher profile not found');
-                    }
-                    // Only prevent payment if wallet is 0
-                    if ($teacher->wallet == 0) {
-                        Log::warning('Transaction store prevented: Teacher wallet zero', [
-                            'user_id' => $user->id,
-                            'month' => $month,
-                            'year' => $year,
-                            'type' => $validated['type'],
-                        ]);
-
-                        return back()->with('error', 'Cannot process payment for teacher with zero wallet balance');
-                    }
-                    // Save rest (wallet - amount) in transaction
-                    $validated['rest'] = $teacher->wallet - $validated['amount'];
-                } elseif ($user && $user->role === 'assistant') {
-                    $assistant = $user->assistant;
-                    if (! $assistant) {
-                        return back()->with('error', 'Assistant profile not found');
-                    }
-                    // Calculate how much has already been paid this month
-                    $alreadyPaid = Transaction::where('user_id', $user->id)
-                        ->where('type', 'salary')
-                        ->inMonth($year, $month)
-                        ->sum('amount');
-                    $baseSalary = $assistant->salary;
-                    $remainingSalary = $baseSalary - $alreadyPaid;
-                    // Only prevent payment if already paid >= salary
-                    if ($alreadyPaid >= $baseSalary) {
-                        return back()->with('error', 'Assistant has already received their full salary for '.$paymentDate->format('F Y'));
-                    }
-                    // Prevent payment if amount exceeds remaining salary
-                    if ($validated['amount'] > $remainingSalary) {
-                        return back()->with('error', 'Payment amount exceeds remaining salary for '.$paymentDate->format('F Y').'. Remaining: '.$remainingSalary.', Requested: '.$validated['amount']);
-                    }
-                    // Save rest (salary - alreadyPaid - amount) in transaction
-                    $validated['rest'] = $remainingSalary - $validated['amount'];
-                }
-            }
-
-            // Special validation for payment transactions
-            if ($validated['type'] === 'payment') {
-                $user = User::find($validated['user_id']);
-
-                if (! $user) {
-                    Log::error('Transaction store failed: User not found', [
-                        'user_id' => $validated['user_id'],
-                    ]);
-
-                    return back()->with('error', 'User not found');
-                }
-
-                // Check if user is a teacher for payment transactions
-                if ($user->role === 'teacher') {
-                    $teacher = $user->teacher;
-
-                    if (! $teacher) {
-                        Log::error('Transaction store failed: Teacher model not found', [
-                            'user_id' => $user->id,
-                            'email' => $user->email,
-                        ]);
-
-                        return back()->with('error', 'Teacher profile not found');
-                    }
-
-                    // Check if teacher has 0 wallet
-                    if ($teacher->wallet <= 0) {
-                        Log::warning('Transaction store failed: Teacher has zero wallet balance', [
-                            'teacher_id' => $teacher->id,
-                            'wallet_balance' => $teacher->wallet,
-                        ]);
-
-                        return back()->with('error', 'Cannot process payment for teacher with zero wallet balance');
-                    }
-
-                    // Check wallet balance
-                    if ($teacher->wallet < $validated['amount']) {
-                        Log::warning('Transaction store failed: Insufficient wallet balance', [
-                            'teacher_id' => $teacher->id,
-                            'wallet_balance' => $teacher->wallet,
-                            'payment_amount' => $validated['amount'],
-                        ]);
-
-                        return back()->with('error', 'Insufficient wallet balance');
-                    }
-
-                    Log::info('Teacher payment validation passed', [
-                        'teacher_id' => $teacher->id,
-                        'wallet_balance' => $teacher->wallet,
-                        'payment_amount' => $validated['amount'],
-                    ]);
-                }
-            } elseif ($validated['type'] === 'salary') {
-                $user = User::find($validated['user_id']);
-
-                if (! $user || $user->role !== 'assistant') {
-                    return back()->with('error', 'Salary payments are only for assistants');
-                }
-
-                $assistant = $user->assistant;
-                if (! $assistant) {
-                    return back()->with('error', 'Assistant profile not found');
-                }
-
-                // Get the month/year from payment date
-                $paymentDate = Carbon::parse($validated['payment_date']);
-                $month = $paymentDate->month;
-                $year = $paymentDate->year;
-
-                // Calculate how much has already been paid this month
-                $alreadyPaid = Transaction::where('user_id', $user->id)
-                    ->where('type', 'salary')
-                    ->inMonth($year, $month)
-                    ->sum('amount');
-
-                // Calculate remaining salary
-                $baseSalary = $assistant->salary;
-                $remainingSalary = $baseSalary - $alreadyPaid;
-
-                Log::info('Assistant salary check', [
-                    'assistant_id' => $assistant->id,
-                    'base_salary' => $baseSalary,
-                    'already_paid' => $alreadyPaid,
-                    'remaining_salary' => $remainingSalary,
-                    'payment_amount' => $validated['amount'],
-                ]);
-
-                // Check if assistant has already been paid their full salary
-                if ($alreadyPaid >= $baseSalary) {
-                    return back()->with('error', 'Assistant has already received their full salary for '.$paymentDate->format('F Y'));
-                }
-
-                // Check if payment exceeds remaining salary
-                if ($validated['amount'] > $remainingSalary) {
-                    return back()->with('error', 'Payment amount exceeds remaining salary for '.$paymentDate->format('F Y').
-                        '. Remaining: '.$remainingSalary.', Requested: '.$validated['amount']);
-                }
-            }
+            $validated = $this->validateTransactionData($request);
+            $validated = $this->applyPaymentRules($validated);
 
             // The transaction row and the wallet movement are one unit of work.
             //
@@ -992,25 +925,14 @@ class TransactionController extends Controller
             // back both or neither.
             $transaction = null;
 
-            try {
-                DB::transaction(function () use ($validated, &$transaction) {
-                    $transaction = new Transaction($validated);
-                    $transaction->save();
+            DB::transaction(function () use ($validated, &$transaction) {
+                $transaction = new Transaction($validated);
+                $transaction->save();
 
-                    // Only update employee balance for salary, wallet, or payment
-                    if (in_array($transaction->type, ['salary', 'wallet', 'payment'])) {
-                        $this->updateEmployeeBalance($transaction);
-                    }
-                });
-            } catch (\Exception $e) {
-                Log::error('Transaction store failed during balance update', [
-                    'type' => $validated['type'] ?? null,
-                    'user_id' => $validated['user_id'] ?? null,
-                    'error' => $e->getMessage(),
-                ]);
-
-                return back()->with('error', $e->getMessage());
-            }
+                if (in_array($transaction->type, Transaction::BALANCE_TYPES, true)) {
+                    $this->updateEmployeeBalance($transaction);
+                }
+            });
 
             Log::info('Transaction created successfully', [
                 'transaction_id' => $transaction->id,
@@ -1018,26 +940,125 @@ class TransactionController extends Controller
                 'amount' => $transaction->amount,
             ]);
 
-            // Return an Inertia redirect instead of JSON response
-            return redirect()->route('transactions.index')->with('success', 'Transaction created successfully');
+            return redirect()->route('transactions.index')
+                ->with('success', $this->successMessage($transaction));
 
         } catch (ValidationException $e) {
-            Log::warning('Transaction store validation failed', [
-                'errors' => $e->errors(),
-                'request_data' => $request->all(),
-            ]);
+            // Business rejections (wallet too small, salary already paid) arrive here as
+            // well as format errors, because App\Support\TransactionRules throws them
+            // attached to the field they concern. withInput() matters: the form is long
+            // enough that losing it is its own reason not to use the screen.
+            Log::warning('Transaction store validation failed', ['errors' => $e->errors()]);
 
             return back()->withErrors($e->errors())->withInput();
 
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
+            // \Throwable, not \Exception: a TypeError or a DB deadlock here used to escape
+            // to the generic 500 page, which tells the person doing payroll nothing about
+            // whether the money moved.
             Log::error('Transaction store exception', [
                 'message' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
-                'request_data' => $request->all(),
             ]);
 
-            return back()->with('error', 'Error creating transaction: '.$e->getMessage());
+            return back()
+                ->with('error', "La transaction n'a pas pu être enregistrée. Aucun montant n'a été déplacé. Détail : ".$e->getMessage())
+                ->withInput();
         }
+    }
+
+    /**
+     * Resolve and check everything about WHO is being paid, before anything is written.
+     *
+     * Replaces the two overlapping blocks store() used to run — one that computed `rest`
+     * and one that re-checked the same wallet three ways — and is now shared with update()
+     * so an edit cannot do what a create refuses.
+     *
+     * @param  array<string, mixed>  $validated
+     * @return array<string, mixed>
+     *
+     * @throws ValidationException
+     */
+    private function applyPaymentRules(array $validated, ?Transaction $existing = null): array
+    {
+        $validated['is_recurring'] = ! empty($validated['is_recurring']) ? 1 : 0;
+
+        if (empty($validated['payment_date'])) {
+            $validated['payment_date'] = now();
+        }
+
+        $paymentDate = Carbon::parse($validated['payment_date']);
+
+        if (! $validated['is_recurring']) {
+            // Leaving these set on a non-recurring row makes it show up in the recurring
+            // list with a due date, where somebody will eventually process it.
+            $validated['frequency'] = null;
+            $validated['next_payment_date'] = null;
+        }
+
+        if ($validated['type'] === Transaction::TYPE_EXPENSE) {
+            $validated['category'] = $validated['category'] ?: 'other';
+            $validated['rest'] = null;
+            // An expense has no payee. user_id stays as sent so the page keeps a record of
+            // who entered it, but user_name is cleared: it belongs to the payee, and
+            // showing the admin's name in the "paid to" column read as a payment to them.
+            $validated['user_name'] = null;
+
+            return $validated;
+        }
+
+        // Every other type pays a person, so one must be chosen.
+        $user = ! empty($validated['user_id']) ? User::find($validated['user_id']) : null;
+
+        if (! $user) {
+            throw ValidationException::withMessages([
+                'user_id' => 'Veuillez choisir la personne à payer.',
+            ]);
+        }
+
+        $validated['category'] = null;
+        $validated['user_name'] = $user->name;
+
+        // A wallet top-up ADDS money, so there is no balance to run out of. It is also no
+        // longer reachable from this form — top-ups go through the teacher's own wallet
+        // panel, which requires a reason — but the type is still accepted for the batch
+        // and recurring paths that predate it.
+        if ($validated['type'] === Transaction::TYPE_WALLET) {
+            if ($user->role !== 'teacher') {
+                throw ValidationException::withMessages([
+                    'user_id' => 'Seul un enseignant possède un portefeuille.',
+                ]);
+            }
+
+            $validated['rest'] = null;
+
+            return $validated;
+        }
+
+        TransactionRules::assertPayable($user, (float) $validated['amount'], $paymentDate, $existing?->id);
+
+        // The type follows the role — it is never taken from the request. The form used to
+        // post a type chosen in a dropdown and then correct it in JavaScript on submit, so
+        // a stale value could reach the server and record a teacher's payout as a salary,
+        // which bypasses the wallet entirely.
+        $validated['type'] = TransactionRules::typeFor($user);
+        $validated['rest'] = TransactionRules::restAfter($user, (float) $validated['amount'], $paymentDate, $existing?->id);
+
+        return $validated;
+    }
+
+    /** What actually happened, in one sentence, in French. */
+    private function successMessage(Transaction $transaction): string
+    {
+        $amount = TransactionRules::money((float) $transaction->amount);
+        $who = $transaction->user_name ?: 'le personnel';
+
+        return match ($transaction->type) {
+            Transaction::TYPE_PAYMENT => "{$amount} versés à {$who}, déduits de son portefeuille.",
+            Transaction::TYPE_SALARY => "{$amount} versés à {$who} au titre de son salaire.",
+            Transaction::TYPE_WALLET => "{$amount} ajoutés au portefeuille de {$who}.",
+            default => "Dépense de {$amount} enregistrée.",
+        };
     }
 
     /**
@@ -1061,13 +1082,15 @@ class TransactionController extends Controller
      * @param  int  $id
      * @return \Illuminate\Http\Response
      */
-    public function edit($id)
+    public function edit(Request $request, $id)
     {
-        $data = $this->getCommonData();
-        $data['formType'] = 'edit';
-        $data['transaction'] = Transaction::with('user')->findOrFail($id);
+        $transaction = Transaction::with('user')->findOrFail($id);
 
-        return Inertia::render('Menu/PaymentsPage', $data);
+        return Inertia::render('Menu/PaymentsPage', $this->getFormData(
+            'edit',
+            $transaction,
+            $request->filled('on') ? $this->formDate($request) : null,
+        ));
     }
 
     /**
@@ -1078,59 +1101,43 @@ class TransactionController extends Controller
      */
     public function update(Request $request, $id)
     {
-        $validated = $this->validateTransactionData($request);
         $transaction = Transaction::findOrFail($id);
 
-        // Store old values for comparison
+        // Captured BEFORE the row is touched: the wallet revert below needs what the row
+        // used to say, and $transaction->update() overwrites it in place.
         $oldType = $transaction->type;
-        $oldAmount = $transaction->amount;
+        $oldAmount = (float) $transaction->amount;
         $oldUserId = $transaction->user_id;
 
-        // Get the user to check their role
-        $user = null;
-        if (! empty($validated['user_id'])) {
-            $user = User::find($validated['user_id']);
-        }
+        try {
+            $validated = $this->validateTransactionData($request);
 
-        // Check if this is a payment for a teacher and validate against wallet
-        if ($user && $user->role === 'teacher' && $validated['type'] === 'payment') {
-            // Get teacher's wallet
-            $teacher = $user->teacher;
+            // Same rules as a create, and for the same reason: an edit moves exactly as
+            // much money as a create does. update() used to check the teacher's wallet
+            // only when the amount went up, and never checked an assistant's salary cap at
+            // all — so an assistant already paid in full could be edited to any figure.
+            $validated = $this->applyPaymentRules($validated, $transaction);
 
-            // Only check the wallet balance if the amount is increasing or this is a new payment
-            $isNewPayment = $oldType !== 'payment' || $oldUserId !== $validated['user_id'];
-            $amountIncreased = $oldType === 'payment' && $oldUserId === $validated['user_id'] && $validated['amount'] > $oldAmount;
+            $balanceChanged = $oldType !== $validated['type']
+                || abs($oldAmount - (float) $validated['amount']) > 0.001
+                || $oldUserId !== ($validated['user_id'] ?? null);
 
-            if ($teacher && ($isNewPayment || $amountIncreased)) {
-                $additionalAmount = $isNewPayment ? $validated['amount'] : ($validated['amount'] - $oldAmount);
+            // Atomic: the row update, the revert of the old wallet effect and the apply of
+            // the new one are three writes that must not be able to land partially.
+            // Without this, a failure between the revert and the apply left a teacher
+            // permanently debited.
+            DB::transaction(function () use ($transaction, $validated, $oldType, $oldAmount, $oldUserId, $balanceChanged) {
+                $transaction->update($validated);
 
-                if ($additionalAmount > $teacher->wallet) {
-                    return redirect()->back()
-                        ->withErrors(['amount' => 'Payment amount cannot exceed the teacher\'s wallet balance.'])
-                        ->withInput();
+                if (! $balanceChanged) {
+                    return;
                 }
-            }
 
-            // Auto-append to description if not already mentioned
-            if (! str_contains(strtolower($validated['description'] ?? ''), 'wallet payment')) {
-                $validated['description'] = ($validated['description'] ? $validated['description'].' - ' : '').
-                    'Wallet payment for teacher '.$user->name;
-            }
-        }
-
-        // Atomic: the row update, the revert of the old wallet effect and the apply of the
-        // new one are three writes that must not be able to land partially. Without this,
-        // a failure between the revert and the apply left a teacher permanently debited.
-        DB::transaction(function () use ($transaction, $validated, $oldType, $oldAmount, $oldUserId) {
-            // Update the transaction
-            $transaction->update($validated);
-
-            // If payment type or amount changed, adjust employee balance
-            if (($oldType !== $validated['type'] || $oldAmount !== $validated['amount'] || $oldUserId !== $validated['user_id'])
-                && in_array($validated['type'], ['salary', 'wallet', 'payment'])) {
-
-                // Revert old transaction effect if necessary
-                if (in_array($oldType, ['salary', 'wallet', 'payment'])) {
+                // The revert runs whenever the OLD row moved a balance, even if the new
+                // one does not. Retyping a teacher payout as an expense used to skip this
+                // branch entirely — the outer `if` required the NEW type to be a balance
+                // type — and the money stayed out of the wallet with nothing recording it.
+                if (in_array($oldType, Transaction::BALANCE_TYPES, true)) {
                     $this->revertEmployeeBalance([
                         'type' => $oldType,
                         'user_id' => $oldUserId,
@@ -1138,12 +1145,30 @@ class TransactionController extends Controller
                     ]);
                 }
 
-                // Apply new transaction effect
-                $this->updateEmployeeBalance($transaction);
-            }
-        });
+                if (in_array($transaction->type, Transaction::BALANCE_TYPES, true)) {
+                    $this->updateEmployeeBalance($transaction);
+                }
+            });
 
-        return redirect()->route('transactions.index')->with('success', 'Transaction updated successfully!');
+            return redirect()->route('transactions.index')
+                ->with('success', $this->successMessage($transaction->refresh()));
+
+        } catch (ValidationException $e) {
+            return back()->withErrors($e->errors())->withInput();
+
+        } catch (\Throwable $e) {
+            // There was no catch here at all. updateEmployeeBalance() throws on an
+            // insufficient wallet, so raising the amount on an old payout past the current
+            // balance produced a raw 500 page rather than a message about the balance.
+            Log::error('Transaction update exception', [
+                'transaction_id' => $transaction->id,
+                'message' => $e->getMessage(),
+            ]);
+
+            return back()
+                ->with('error', "La transaction n'a pas pu être modifiée. Rien n'a changé. Détail : ".$e->getMessage())
+                ->withInput();
+        }
     }
 
     /**
@@ -1156,18 +1181,34 @@ class TransactionController extends Controller
     {
         $transaction = Transaction::findOrFail($id);
 
-        // Atomic: reverting the wallet and deleting the row must land together, or a
-        // failed delete leaves the teacher debited for a transaction that still exists.
-        DB::transaction(function () use ($transaction) {
-            // Revert the effect of the transaction on employee balance
-            if (in_array($transaction->type, ['salary', 'wallet', 'payment'])) {
-                $this->revertEmployeeBalance($transaction);
-            }
+        try {
+            // Atomic: reverting the wallet and deleting the row must land together, or a
+            // failed delete leaves the teacher debited for a transaction that still exists.
+            DB::transaction(function () use ($transaction) {
+                if (in_array($transaction->type, Transaction::BALANCE_TYPES, true)) {
+                    $this->revertEmployeeBalance($transaction);
+                }
 
-            $transaction->delete();
-        });
+                $transaction->delete();
+            });
+        } catch (\Throwable $e) {
+            Log::error('Transaction delete exception', [
+                'transaction_id' => $transaction->id,
+                'message' => $e->getMessage(),
+            ]);
 
-        return redirect()->route('transactions.index')->with('success', 'Transaction deleted successfully!');
+            return back()->with('error', "La transaction n'a pas pu être supprimée. Détail : ".$e->getMessage());
+        }
+
+        // Deleting a teacher payout puts the money BACK in the wallet, which is the
+        // opposite of what "supprimer" sounds like. Worth saying, because the next thing
+        // the admin sees is a wallet balance that went up.
+        $restored = $transaction->type === Transaction::TYPE_PAYMENT
+            ? ' '.TransactionRules::money((float) $transaction->amount).' ont été rendus au portefeuille de '.($transaction->user_name ?: "l'enseignant").'.'
+            : '';
+
+        return redirect()->route('transactions.index')
+            ->with('success', 'Transaction supprimée.'.$restored);
     }
 
     /**
@@ -1211,77 +1252,41 @@ class TransactionController extends Controller
             'payment_date' => 'required|date',
             'description' => 'nullable|string|max:500',
             'is_recurring' => 'nullable|boolean',
-            'frequency' => 'nullable|required_if:is_recurring,true|in:monthly,yearly,custom',
-            'next_payment_date' => 'nullable|required_if:is_recurring,true|date',
+            'frequency' => 'nullable|required_if:is_recurring,1,true|in:'.implode(',', Transaction::FREQUENCIES),
+            'next_payment_date' => 'nullable|required_if:is_recurring,1,true|date|after_or_equal:payment_date',
         ]);
 
-        // Get the month/year from the payment date
         $paymentDate = Carbon::parse($validated['payment_date']);
-        $month = $paymentDate->month;
-        $year = $paymentDate->year;
 
-        // Find employees who have already been paid this month
-        $alreadyPaidUserIds = Transaction::inMonth($year, $month)
-            ->where(function ($query) {
-                $query->where('type', 'salary')
-                    ->orWhere('type', 'payment');
-            })
-            ->pluck('user_id')
-            ->toArray();
+        $candidates = User::with(['teacher', 'assistant'])
+            ->when(
+                $validated['role'] !== 'all',
+                fn ($q) => $q->where('role', $validated['role']),
+                fn ($q) => $q->whereIn('role', TransactionRules::PAYABLE_ROLES)
+            )
+            ->get();
 
-        // Query to get eligible users
-        $query = User::with(['teacher', 'assistant']);
+        // Eligibility is now one question — "is anything owed?" — asked of the same helper
+        // that the single-payment form and the recurring runner use. This method used to
+        // exclude anyone with ANY payment in the month, so an assistant paid half their
+        // salary was dropped from the batch entirely rather than being paid the other half;
+        // availableFor() nets that off and pays exactly the remainder.
+        $eligible = $candidates->filter(
+            fn ($user) => TransactionRules::availableFor($user, $paymentDate) > 0
+        );
 
-        // Filter by role if not 'all'
-        if ($validated['role'] !== 'all') {
-            $query->where('role', $validated['role']);
-        } else {
-            $query->whereIn('role', ['teacher', 'assistant']);
+        if ($eligible->isEmpty()) {
+            return redirect()->route('transactions.index')->with(
+                'warning',
+                'Personne à payer pour '.$paymentDate->format('m/Y')
+                    .' : les '.$candidates->count().' membres du personnel concernés sont déjà réglés ou n\'ont rien en attente.'
+            );
         }
 
-        // Filter out already paid users
-        $query->whereNotIn('id', $alreadyPaidUserIds);
+        $result = $this->processBatchPayment($eligible, $validated);
 
-        // Get the users
-        $allUsers = $query->get();
-
-        // Filter out teachers with zero wallet balance
-        $eligibleUsers = $allUsers->filter(function ($user) {
-            // For teachers, check wallet balance
-            if ($user->role === 'teacher') {
-                return $user->teacher && $user->teacher->wallet > 0;
-            }
-
-            // All assistants are eligible
-            return true;
-        });
-
-        if ($eligibleUsers->isEmpty()) {
-            $message = 'No eligible employees found for payment.';
-
-            // Provide more specific information
-            if ($validated['role'] === 'teacher') {
-                $zeroWalletCount = $allUsers->filter(function ($user) {
-                    return $user->role === 'teacher' && (! $user->teacher || $user->teacher->wallet <= 0);
-                })->count();
-
-                if ($zeroWalletCount > 0) {
-                    $message .= " Found {$zeroWalletCount} teachers with zero wallet balance.";
-                }
-            }
-
-            return redirect()->route('transactions.index')
-                ->with('warning', $message);
-        }
-
-        $result = $this->processBatchPayment($eligibleUsers, $validated);
-
-        if ($result['success']) {
-            return redirect()->route('transactions.index')->with('success', $result['message']);
-        } else {
-            return redirect()->route('transactions.index')
-                ->with('error', "Error processing batch payments: {$result['message']}");
-        }
+        return redirect()->route('transactions.index')
+            ->with($result['success'] ? 'success' : 'error', $result['message']);
     }
 
     /**
@@ -1390,228 +1395,236 @@ class TransactionController extends Controller
     }
 
     /**
-     * Process batch payment for multiple users
+     * Pay a group of staff in one go, each for whatever they are currently owed.
+     *
+     * TWO BUGS THIS REPLACES
+     * ----------------------
+     * 1. `$alreadyPaid` was both a counter and a sum of money. It was incremented per
+     *    skipped employee, then REASSIGNED inside the assistant branch to
+     *    `Transaction::...->sum('amount')`. After the first assistant who had been paid
+     *    anything, the closing summary read that dirham total as a headcount: a run that
+     *    skipped two people and touched an assistant already paid 4 500 DH reported
+     *    "4500 employees were skipped because they were already paid this month."
+     *
+     * 2. One `DB::beginTransaction()` wrapped the entire loop, so a single failure — an
+     *    assistant with a missing staff record, a wallet that emptied mid-run — rolled
+     *    back everybody, including the payments that had succeeded. The admin saw an error
+     *    and no payments, with nothing saying which employee caused it.
+     *
+     * Each employee is now their own transaction, and every skip carries a reason.
      *
      * @param  \Illuminate\Database\Eloquent\Collection  $users
      * @param  array  $data
-     * @return array
+     * @return array{success: bool, processed: int, message: string}
      */
     private function processBatchPayment($users, $data)
     {
-        $processed = 0;
-        $skipped = 0;
-        $alreadyPaid = 0;
-        $zeroWallet = 0;
-
-        // Get the payment date
         $paymentDate = Carbon::parse($data['payment_date']);
-        $month = $paymentDate->month;
-        $year = $paymentDate->year;
+        $processed = 0;
+        $totalPaid = 0.0;
+        $skipped = [];
 
-        DB::beginTransaction();
-        try {
-            foreach ($users as $user) {
-                // Final check that user hasn't been paid this month/year
-                $existingPayment = Transaction::where('user_id', $user->id)
-                    ->whereIn('type', ['salary', 'payment'])
-                    ->inMonth($year, $month)
-                    ->exists();
+        foreach ($users as $user) {
+            $amount = TransactionRules::availableFor($user, $paymentDate);
 
-                if ($existingPayment) {
-                    $alreadyPaid++;
+            if ($amount <= 0) {
+                $skipped[] = $user->name.($user->role === 'teacher'
+                    ? ' (portefeuille vide)'
+                    : ' (salaire déjà versé)');
 
-                    continue;
-                }
+                continue;
+            }
 
-                $amount = 0;
-                $type = '';
+            try {
+                DB::transaction(function () use ($user, $amount, $data, $paymentDate, &$processed, &$totalPaid) {
+                    // Re-checked inside the transaction. The eligibility list was built
+                    // before the run, and a manual payment made in another tab between the
+                    // two would otherwise be paid twice.
+                    TransactionRules::assertPayable($user, $amount, $paymentDate);
 
-                if ($user->role === 'teacher') {
-                    $teacher = $user->teacher ?? DB::table('teachers')
-                        ->where('email', $user->email)
-                        ->first();
-
-                    if ($teacher && $teacher->wallet > 0) {
-                        $amount = $teacher->wallet;
-                        $type = 'payment'; // Changed from 'wallet' to 'payment' for teacher payments
-                    } else {
-                        $zeroWallet++;
-
-                        continue;
-                    }
-                } elseif ($user->role === 'assistant') {
-                    $assistant = $user->assistant ?? DB::table('assistants')
-                        ->where('email', $user->email)
-                        ->first();
-
-                    if (! $assistant || ! $assistant->salary || $assistant->salary <= 0) {
-                        $skipped++;
-
-                        continue;
-                    }
-
-                    // Calculate how much has already been paid this month
-                    $alreadyPaid = Transaction::where('user_id', $user->id)
-                        ->where('type', 'salary')
-                        ->inMonth($year, $month)
-                        ->sum('amount');
-
-                    // If they've already received full or partial payment
-                    if ($alreadyPaid > 0) {
-                        $baseSalary = $assistant->salary;
-                        $remainingSalary = $baseSalary - $alreadyPaid;
-
-                        // If they've received their full salary already
-                        if ($alreadyPaid >= $baseSalary) {
-                            $skipped++;
-
-                            continue;
-                        }
-
-                        // Pay only the remaining amount
-                        $amount = $remainingSalary;
-                    } else {
-                        $amount = $assistant->salary;
-                    }
-
-                    $type = 'salary';
-                }
-
-                if ($amount > 0) {
-                    // Create a new transaction for this payment
                     $transaction = Transaction::create([
-                        'type' => $type,
+                        'type' => TransactionRules::typeFor($user),
                         'user_id' => $user->id,
                         'user_name' => $user->name,
                         'amount' => $amount,
-                        'description' => $data['description'] ?? "Monthly {$type} payment",
+                        'rest' => TransactionRules::restAfter($user, $amount, $paymentDate),
+                        'description' => $data['description']
+                            ?: 'Paiement groupé — '.$paymentDate->format('m/Y'),
                         'payment_date' => $data['payment_date'],
-                        'is_recurring' => $data['is_recurring'] ?? false,
+                        'is_recurring' => ! empty($data['is_recurring']) ? 1 : 0,
                         'frequency' => $data['frequency'] ?? null,
                         'next_payment_date' => $data['next_payment_date'] ?? null,
                     ]);
 
-                    // Update the appropriate balance
                     $this->updateEmployeeBalance($transaction);
 
                     $processed++;
-                } else {
-                    $skipped++;
-                }
-            }
+                    $totalPaid += $amount;
+                });
+            } catch (ValidationException $e) {
+                $skipped[] = $user->name.' : '.implode(' ', array_merge(...array_values($e->errors())));
+            } catch (\Throwable $e) {
+                Log::error('Batch payment failed for one employee', [
+                    'user_id' => $user->id,
+                    'message' => $e->getMessage(),
+                ]);
 
-            DB::commit();
-            $message = '';
-            if ($alreadyPaid > 0) {
-                $message = "{$alreadyPaid} employees were skipped because they were already paid this month. ";
+                $skipped[] = $user->name.' : '.$e->getMessage();
             }
-            if ($zeroWallet > 0) {
-                $message .= "{$zeroWallet} teachers were skipped because they have zero wallet balance. ";
-            }
-
-            return [
-                'success' => true,
-                'processed' => $processed,
-                'message' => $message."Successfully processed payments for {$processed} employees.",
-            ];
-        } catch (\Exception $e) {
-            DB::rollBack();
-
-            return [
-                'success' => false,
-                'message' => $e->getMessage(),
-            ];
         }
+
+        $message = $processed > 0
+            ? "{$processed} paiement(s) effectué(s), ".TransactionRules::money($totalPaid).' au total.'
+            : 'Aucun paiement effectué.';
+
+        if ($skipped !== []) {
+            $message .= ' Non payés : '.implode(' | ', $skipped);
+        }
+
+        return [
+            // A run that paid nobody is not a success, even when nothing threw.
+            'success' => $processed > 0,
+            'processed' => $processed,
+            'message' => $message,
+        ];
     }
 
     /**
-     * Process all recurring payments that are due.
+     * Turn recurring templates into real, paid transactions.
      *
-     * @return \Illuminate\Http\Response
-     */
-    public function processRecurring()
-    {
-        try {
-            // Find all recurring transactions that are due for processing
-            $dueTransactions = Transaction::where('is_recurring', true)
-                ->whereDate('next_payment_date', '<=', now())
-                ->get();
-
-            // Process the transactions
-            $processed = $this->processRecurringTransactions($dueTransactions);
-
-            return redirect()->route('transactions.index')
-                ->with('success', "Successfully processed {$processed} recurring transactions.");
-        } catch (\Exception $e) {
-            return redirect()->route('transactions.index')
-                ->with('error', "Error processing recurring transactions: {$e->getMessage()}");
-        }
-    }
-
-    /**
-     * Process recurring transactions
+     * THE BUG THIS REPLACES
+     * ---------------------
+     * There were five copies of this loop — one here and one inside each of the four
+     * routed process*Recurring* methods — and the four routed ones never touched a wallet.
+     * They created a row of `type => 'payment'` against a teacher, recorded it in the
+     * pivot, advanced the schedule, and reported success, while the teacher's wallet was
+     * never debited. The payout existed on the payments screen and in the month's expense
+     * total; the money was still sitting in the wallet, available to be paid out a second
+     * time by hand. Only the copy in this method updated a balance, and only for
+     * `salary`/`wallet` — never `payment`, the type every teacher payout actually uses.
      *
-     * @param  \Illuminate\Database\Eloquent\Collection  $transactions
-     * @return int
+     * Everything now runs through here: one row, one wallet movement, one pivot entry, one
+     * schedule advance, per template, inside one transaction.
+     *
+     * A template that cannot be paid — an empty wallet, a teacher whose staff record has
+     * gone missing — is SKIPPED with a reason rather than aborting the run. One
+     * unpayable teacher used to take the whole month's batch down with it, and because the
+     * loop was not transactional, whatever had already been written stayed written.
+     *
+     * @param  iterable<Transaction>  $templates
+     * @return array{processed: int, skipped: array<int, string>}
      */
-    private function processRecurringTransactions($transactions)
+    private function runRecurring($templates): array
     {
         $processed = 0;
+        $skipped = [];
 
-        foreach ($transactions as $transaction) {
-            // Create a new transaction based on the recurring one
-            $newTransaction = $transaction->replicate();
-            $newTransaction->payment_date = $transaction->next_payment_date;
-            $newTransaction->created_at = now();
-            $newTransaction->updated_at = now();
-            $newTransaction->save();
+        foreach ($templates as $template) {
+            $dueDate = $template->next_payment_date
+                ? Carbon::parse($template->next_payment_date)
+                : Carbon::now();
 
-            // Insert into recurring_transaction_payments pivot table
-            $period = $transaction->next_payment_date ? date('Y-m', strtotime($transaction->next_payment_date)) : now()->format('Y-m');
-            \App\Models\RecurringTransactionPayment::create([
-                'recurring_transaction_id' => $transaction->id,
-                'transaction_id' => $newTransaction->id,
-                'period' => $period,
-            ]);
+            try {
+                DB::transaction(function () use ($template, $dueDate, &$processed) {
+                    $payee = $template->user_id ? User::find($template->user_id) : null;
+                    $amount = (float) $template->amount;
+                    $type = $template->type;
 
-            // Update employee balance
-            if (in_array($transaction->type, ['salary', 'wallet'])) {
-                $this->updateEmployeeBalance($newTransaction);
+                    if ($payee && in_array($type, [Transaction::TYPE_SALARY, Transaction::TYPE_PAYMENT], true)) {
+                        // The same check a manual payment gets. Without it a recurring
+                        // teacher payout drains a wallet that no longer holds the amount,
+                        // and TeacherWalletService::debit() clamps at zero — so the row
+                        // would claim more than the ledger actually moved.
+                        TransactionRules::assertPayable($payee, $amount, $dueDate);
+                        $type = TransactionRules::typeFor($payee);
+                    }
+
+                    $paid = Transaction::create([
+                        'type' => $type,
+                        'category' => $template->category,
+                        'user_id' => $template->user_id,
+                        'user_name' => $payee?->name ?? $template->user_name,
+                        'amount' => $amount,
+                        'rest' => $payee && $type !== Transaction::TYPE_EXPENSE
+                            ? TransactionRules::restAfter($payee, $amount, $dueDate)
+                            : null,
+                        'description' => trim(($template->description ?: 'Paiement récurrent')
+                            .' (récurrence n°'.$template->id.')'),
+                        'payment_date' => $dueDate,
+                        // The child is a one-off. Leaving is_recurring set made it a
+                        // template in its own right, so the next run picked it up too and
+                        // the schedule multiplied every month.
+                        'is_recurring' => 0,
+                        'frequency' => null,
+                        'next_payment_date' => null,
+                    ]);
+
+                    if (in_array($paid->type, Transaction::BALANCE_TYPES, true)) {
+                        $this->updateEmployeeBalance($paid);
+                    }
+
+                    \App\Models\RecurringTransactionPayment::create([
+                        'recurring_transaction_id' => $template->id,
+                        'transaction_id' => $paid->id,
+                        'period' => $dueDate->format('Y-m'),
+                    ]);
+
+                    // Advance from the date that was DUE, not from today. Advancing from
+                    // now() meant a run that happened three days late pushed every
+                    // subsequent payment three days later, month after month.
+                    $template->next_payment_date = $template->nextDateAfter($dueDate);
+                    $template->save();
+
+                    $processed++;
+                });
+            } catch (ValidationException $e) {
+                $skipped[] = ($template->user_name ?: 'Récurrence n°'.$template->id).' : '
+                    .implode(' ', array_merge(...array_values($e->errors())));
+            } catch (\Throwable $e) {
+                Log::error('Recurring transaction failed', [
+                    'recurring_transaction_id' => $template->id,
+                    'message' => $e->getMessage(),
+                ]);
+
+                $skipped[] = ($template->user_name ?: 'Récurrence n°'.$template->id).' : '.$e->getMessage();
             }
-
-            // Calculate the next payment date based on frequency
-            $nextDate = $this->calculateNextPaymentDate($transaction);
-
-            // Update the next payment date
-            $transaction->next_payment_date = $nextDate;
-            $transaction->save();
-
-            $processed++;
         }
 
-        return $processed;
+        return ['processed' => $processed, 'skipped' => $skipped];
     }
 
     /**
-     * Calculate next payment date based on frequency
+     * One sentence describing what a recurring run did, including what it could not do.
      *
-     * @param  Transaction  $transaction
-     * @return \Carbon\Carbon
+     * @param  array{processed: int, skipped: array<int, string>}  $result
      */
-    private function calculateNextPaymentDate($transaction)
+    private function recurringOutcome(array $result): array
     {
-        switch ($transaction->frequency) {
-            case 'monthly':
-                return Carbon::parse($transaction->next_payment_date)->addMonth();
-            case 'yearly':
-                return Carbon::parse($transaction->next_payment_date)->addYear();
-            case 'custom':
-            default:
-                // For custom frequency, admin needs to set the next date manually
-                // We'll just increment by 30 days as a fallback
-                return Carbon::parse($transaction->next_payment_date)->addDays(30);
+        $processed = $result['processed'];
+        $skipped = $result['skipped'];
+
+        $message = $processed === 1
+            ? '1 paiement récurrent effectué.'
+            : "{$processed} paiements récurrents effectués.";
+
+        if ($skipped === []) {
+            return ['key' => $processed > 0 ? 'success' : 'warning', 'message' => $processed > 0
+                ? $message
+                : 'Aucun paiement récurrent à effectuer.'];
         }
+
+        // The reasons are listed, not counted. "3 skipped" tells the admin something is
+        // wrong but not which teacher to look at, so nothing gets fixed.
+        return [
+            'key' => $processed > 0 ? 'warning' : 'error',
+            'message' => $message.' Non effectués : '.implode(' | ', $skipped),
+        ];
     }
+
+    // NOTE: calculateNextPaymentDate() and updateNextPaymentDate() lived here. They were
+    // the second and third mappings from a frequency to a date, and neither agreed with
+    // the other or with the list the form offered — see Transaction::FREQUENCIES. The one
+    // mapping is now Transaction::nextDateAfter().
 
     /**
      * Validate transaction data
@@ -1620,18 +1633,72 @@ class TransactionController extends Controller
      */
     private function validateTransactionData(Request $request)
     {
-        return $request->validate([
-            'type' => 'required|in:salary,wallet,payment,expense',
+        $frequencies = implode(',', Transaction::FREQUENCIES);
+        $categories = implode(',', array_keys(self::EXPENSE_CATEGORIES));
+
+        // ONE validator for create and update. They used to differ: store() accepted
+        // weekly/monthly/quarterly/yearly and a 255-char description, update() accepted
+        // monthly/yearly/custom and 500 chars. So a transaction saved as "quarterly" with
+        // a 400-character note could not be edited afterwards without silently failing
+        // validation — and the resulting error never rendered on the payments page.
+        $rules = [
+            'type' => 'required|in:'.implode(',', [
+                Transaction::TYPE_SALARY,
+                Transaction::TYPE_WALLET,
+                Transaction::TYPE_PAYMENT,
+                Transaction::TYPE_EXPENSE,
+            ]),
             'user_id' => 'nullable|exists:users,id',
-            'user_name' => 'nullable|string|max:255',
-            'amount' => 'required|numeric|min:0',
-            'rest' => 'nullable|numeric|min:0',
+            'category' => 'nullable|required_if:type,expense|in:'.$categories,
+            'custom_category' => 'nullable|string|max:100',
+            // min:0.01, not min:0. A zero-dirham transaction moves nothing, reconciles as
+            // a payment that never happened, and blocks the batch run for that month
+            // because the payee now counts as already paid.
+            'amount' => 'required|numeric|min:0.01|max:9999999.99',
             'description' => 'nullable|string|max:500',
             'payment_date' => 'required|date',
             'is_recurring' => 'nullable|boolean',
-            'frequency' => 'nullable|required_if:is_recurring,true|in:monthly,yearly,custom',
-            'next_payment_date' => 'nullable|required_if:is_recurring,true|date',
-        ]);
+            // required_if takes a list of matching values: the checkbox arrives as "1"
+            // from a form post and as true from an Inertia JSON request.
+            'frequency' => 'nullable|required_if:is_recurring,1,true|in:'.$frequencies,
+            'next_payment_date' => 'nullable|required_if:is_recurring,1,true|date|after_or_equal:payment_date',
+        ];
+
+        $messages = [
+            'type.required' => 'Choisissez un type de transaction.',
+            'type.in' => 'Type de transaction inconnu.',
+            'user_id.exists' => "Cette personne n'existe plus.",
+            'category.required_if' => 'Choisissez une catégorie de dépense.',
+            'category.in' => 'Catégorie de dépense inconnue.',
+            'amount.required' => 'Saisissez un montant.',
+            'amount.numeric' => 'Le montant doit être un nombre.',
+            'amount.min' => 'Le montant doit être supérieur à 0.',
+            'amount.max' => 'Ce montant est trop élevé.',
+            'description.max' => 'La description ne peut pas dépasser 500 caractères.',
+            'payment_date.required' => 'Choisissez une date de paiement.',
+            'payment_date.date' => 'Date de paiement invalide.',
+            'frequency.required_if' => 'Choisissez la fréquence de répétition.',
+            'frequency.in' => 'Fréquence inconnue.',
+            'next_payment_date.required_if' => 'Choisissez la date du prochain paiement.',
+            'next_payment_date.after_or_equal' => 'Le prochain paiement ne peut pas précéder celui-ci.',
+        ];
+
+        $validated = $request->validate($rules, $messages);
+
+        // NOTE: `rest` is absent from $rules on purpose, so it can never come in from the
+        // request. The form computed it in JavaScript and posted it; update() saved that
+        // value verbatim, and the form only recalculated it for salaries — so every edited
+        // teacher payout recorded the full wallet balance as the remainder instead of what
+        // was actually left. It is computed server-side in applyPaymentRules().
+
+        // "Autre" means the admin typed the category, so store what they typed.
+        if (($validated['category'] ?? null) === 'other' && $request->filled('custom_category')) {
+            $validated['category'] = trim($request->input('custom_category'));
+        }
+
+        unset($validated['custom_category']);
+
+        return $validated;
     }
 
     /**
@@ -1893,259 +1960,131 @@ class TransactionController extends Controller
                 ->get();
 
             if ($recurringTransactions->isEmpty()) {
-                return redirect()->back()->with('error', 'No recurring transactions found for this month.');
+                return redirect()->back()->with('warning', 'Aucune récurrence prévue pour ce mois.');
             }
 
-            // Get users who have already been paid this month
-            $paidUserIds = Transaction::where('is_recurring', 0)
+            // Skip anyone who already has a payment recorded in this month, whatever its
+            // origin. Restricted to the types that pay a person: the old version matched
+            // ANY transaction in the window, so a single expense row — which carries the
+            // admin's user_id — marked the admin as paid and silently suppressed every
+            // recurrence attached to them.
+            $paidUserIds = Transaction::whereIn('type', [Transaction::TYPE_SALARY, Transaction::TYPE_PAYMENT])
+                ->where('is_recurring', 0)
                 ->whereBetween('payment_date', [$startDate, $endDate])
                 ->pluck('user_id')
-                ->toArray();
+                ->filter()
+                ->all();
 
-            // Filter out transactions where the user has already been paid this month
-            $unpaidTransactions = $recurringTransactions->filter(function ($transaction) use ($paidUserIds) {
-                return ! in_array($transaction->user_id, $paidUserIds);
-            });
+            $due = $recurringTransactions->reject(
+                fn ($t) => $t->user_id && in_array($t->user_id, $paidUserIds, true)
+            );
 
-            if ($unpaidTransactions->isEmpty()) {
-                return redirect()->back()->with('success', 'All transactions for this month have already been processed.');
+            if ($due->isEmpty()) {
+                return redirect()->back()->with('success', 'Toutes les récurrences de ce mois ont déjà été traitées.');
             }
 
-            $count = 0;
-            foreach ($unpaidTransactions as $transaction) {
-                // Create a new transaction based on the recurring one
-                $newTransaction = new Transaction;
-                $newTransaction->user_id = $transaction->user_id;
-                $newTransaction->type = $transaction->type;
-                $newTransaction->amount = $transaction->amount;
-                $newTransaction->rest = $transaction->rest;
-                $newTransaction->description = $transaction->description.' (Recurring payment from #'.$transaction->id.')';
-                $newTransaction->payment_date = now();
-                $newTransaction->is_recurring = 0; // This is a one-time transaction
-                $newTransaction->save();
+            $outcome = $this->recurringOutcome($this->runRecurring($due));
 
-                // Insert into recurring_transaction_payments pivot table
-                \App\Models\RecurringTransactionPayment::create([
-                    'recurring_transaction_id' => $transaction->id,
-                    'transaction_id' => $newTransaction->id,
-                    'period' => now()->format('Y-m'),
-                ]);
+            return redirect()->back()->with($outcome['key'], $outcome['message']);
+        } catch (\Throwable $e) {
+            Log::error('Recurring month run failed', ['message' => $e->getMessage()]);
 
-                // Update the next payment date of the recurring transaction
-                $this->updateNextPaymentDate($transaction);
-
-                $count++;
-            }
-
-            return redirect()->back()->with('success', $count.' transactions processed successfully.');
-        } catch (\Exception $e) {
-            return redirect()->back()->with('error', 'Error processing transactions: '.$e->getMessage());
+            return redirect()->back()->with('error', 'Le traitement des récurrences a échoué : '.$e->getMessage());
         }
     }
 
     /**
-     * Process a single recurring transaction
+     * Process one recurring transaction now.
      */
     public function processSingleRecurringTransaction($id)
     {
-        try {
-            $transaction = Transaction::findOrFail($id);
+        $transaction = Transaction::findOrFail($id);
 
-            if (! $transaction->is_recurring) {
-                return redirect()->back()->with('error', 'This is not a recurring transaction.');
-            }
-
-            // Create a new transaction based on the recurring one
-            $newTransaction = new Transaction;
-            $newTransaction->user_id = $transaction->user_id;
-            $newTransaction->type = $transaction->type;
-            $newTransaction->amount = $transaction->amount;
-            $newTransaction->rest = $transaction->rest;
-            $newTransaction->description = $transaction->description.' (Recurring payment from #'.$transaction->id.')';
-            $newTransaction->payment_date = now();
-            $newTransaction->is_recurring = 0; // This is a one-time transaction
-            $newTransaction->save();
-
-            // Insert into recurring_transaction_payments pivot table
-            \App\Models\RecurringTransactionPayment::create([
-                'recurring_transaction_id' => $transaction->id,
-                'transaction_id' => $newTransaction->id,
-                'period' => now()->format('Y-m'),
-            ]);
-
-            // Update the next payment date of the recurring transaction
-            $this->updateNextPaymentDate($transaction);
-
-            return redirect()->back()->with('success', 'Transaction processed successfully.');
-        } catch (\Exception $e) {
-            return redirect()->back()->with('error', 'Error processing transaction: '.$e->getMessage());
+        if (! $transaction->is_recurring) {
+            return redirect()->back()->with('error', "Cette transaction n'est pas récurrente.");
         }
+
+        $outcome = $this->recurringOutcome($this->runRecurring([$transaction]));
+
+        return redirect()->back()->with($outcome['key'], $outcome['message']);
     }
 
     /**
-     * Process selected recurring transactions
+     * Process the recurring transactions the admin ticked.
      */
     public function processSelectedRecurringTransactions(Request $request)
     {
-        try {
-            $transactionIds = $request->transactions;
+        $ids = $request->input('transactions', []);
 
-            if (empty($transactionIds)) {
-                return redirect()->back()->with('error', 'No transactions selected.');
-            }
-
-            // Get the current month date range
-            $startDate = Carbon::now()->startOfMonth();
-            $endDate = Carbon::now()->endOfMonth();
-
-            // Get users who have already been paid this month
-            $paidUserIds = Transaction::where('is_recurring', 0)
-                ->whereBetween('payment_date', [$startDate, $endDate])
-                ->pluck('user_id')
-                ->toArray();
-
-            $count = 0;
-            $skipped = 0;
-
-            foreach ($transactionIds as $id) {
-                $transaction = Transaction::find($id);
-
-                if ($transaction && $transaction->is_recurring) {
-                    // Skip if user already paid this month
-                    if (in_array($transaction->user_id, $paidUserIds)) {
-                        $skipped++;
-
-                        continue;
-                    }
-
-                    // Create a new transaction based on the recurring one
-                    $newTransaction = new Transaction;
-                    $newTransaction->user_id = $transaction->user_id;
-                    $newTransaction->type = $transaction->type;
-                    $newTransaction->amount = $transaction->amount;
-                    $newTransaction->rest = $transaction->rest;
-                    $newTransaction->description = $transaction->description.' (Recurring payment from #'.$transaction->id.')';
-                    $newTransaction->payment_date = now();
-                    $newTransaction->is_recurring = 0; // This is a one-time transaction
-                    $newTransaction->save();
-
-                    // Insert into recurring_transaction_payments pivot table
-                    \App\Models\RecurringTransactionPayment::create([
-                        'recurring_transaction_id' => $transaction->id,
-                        'transaction_id' => $newTransaction->id,
-                        'period' => now()->format('Y-m'),
-                    ]);
-
-                    // Update the next payment date of the recurring transaction
-                    $this->updateNextPaymentDate($transaction);
-
-                    // Add this user to the paid list to prevent duplicates within this batch
-                    $paidUserIds[] = $transaction->user_id;
-
-                    $count++;
-                }
-            }
-
-            $message = $count.' transactions processed successfully.';
-            if ($skipped > 0) {
-                $message .= ' '.$skipped.' transactions skipped (already paid this month).';
-            }
-
-            return redirect()->back()->with('success', $message);
-        } catch (\Exception $e) {
-            return redirect()->back()->with('error', 'Error processing transactions: '.$e->getMessage());
+        if (empty($ids) || ! is_array($ids)) {
+            return redirect()->back()->with('error', 'Aucune récurrence sélectionnée.');
         }
+
+        // One query instead of Transaction::find() inside the loop, and is_recurring is
+        // filtered here rather than skipped silently in the body — a selected id that is
+        // not a recurrence used to vanish from the count with no explanation.
+        $templates = Transaction::whereIn('id', $ids)->where('is_recurring', 1)->get();
+
+        if ($templates->isEmpty()) {
+            return redirect()->back()->with('error', 'Aucune récurrence valide dans la sélection.');
+        }
+
+        $start = Carbon::now()->startOfMonth();
+        $end = Carbon::now()->endOfMonth();
+
+        $paidUserIds = Transaction::whereIn('type', [Transaction::TYPE_SALARY, Transaction::TYPE_PAYMENT])
+            ->where('is_recurring', 0)
+            ->whereBetween('payment_date', [$start, $end])
+            ->pluck('user_id')
+            ->filter()
+            ->all();
+
+        $alreadyPaid = [];
+        $due = $templates->reject(function ($t) use ($paidUserIds, &$alreadyPaid) {
+            if ($t->user_id && in_array($t->user_id, $paidUserIds, true)) {
+                $alreadyPaid[] = ($t->user_name ?: 'Récurrence n°'.$t->id).' : déjà payé ce mois-ci.';
+
+                return true;
+            }
+
+            // Guard against the same payee appearing twice in one selection. The old loop
+            // appended to $paidUserIds as it went, which this preserves.
+            $paidUserIds[] = $t->user_id;
+
+            return false;
+        });
+
+        $result = $this->runRecurring($due);
+        $result['skipped'] = array_merge($alreadyPaid, $result['skipped']);
+        $outcome = $this->recurringOutcome($result);
+
+        return redirect()->back()->with($outcome['key'], $outcome['message']);
     }
 
     /**
-     * Process all recurring transactions
+     * Process every recurring transaction that has come due.
      */
     public function processAllRecurringTransactions()
     {
-        try {
-            $recurringTransactions = Transaction::where('is_recurring', 1)->get();
+        // The due filter is a WHERE now, not a Carbon comparison inside a foreach over
+        // every recurrence in the table. A NULL next_payment_date counts as due: it means
+        // the recurrence has never run, and the old code parsed the null into today's date
+        // and then compared it to today, so whether it ran at all depended on the time of
+        // day the button was pressed.
+        $due = Transaction::where('is_recurring', 1)
+            ->where(function ($q) {
+                $q->whereNull('next_payment_date')
+                    ->orWhereDate('next_payment_date', '<=', Carbon::today());
+            })
+            ->get();
 
-            if ($recurringTransactions->isEmpty()) {
-                return redirect()->back()->with('error', 'No recurring transactions found.');
-            }
-
-            $count = 0;
-            foreach ($recurringTransactions as $transaction) {
-                // Check if the transaction is due for processing
-                $nextPaymentDate = Carbon::parse($transaction->next_payment_date);
-                $today = Carbon::today();
-
-                if ($nextPaymentDate->lte($today)) {
-                    // Create a new transaction based on the recurring one
-                    $newTransaction = new Transaction;
-                    $newTransaction->user_id = $transaction->user_id;
-                    $newTransaction->type = $transaction->type;
-                    $newTransaction->amount = $transaction->amount;
-                    $newTransaction->rest = $transaction->rest;
-                    $newTransaction->description = $transaction->description.' (Recurring payment from #'.$transaction->id.')';
-                    $newTransaction->payment_date = now();
-                    $newTransaction->is_recurring = 0; // This is a one-time transaction
-                    $newTransaction->save();
-
-                    // Insert into recurring_transaction_payments pivot table
-                    \App\Models\RecurringTransactionPayment::create([
-                        'recurring_transaction_id' => $transaction->id,
-                        'transaction_id' => $newTransaction->id,
-                        'period' => now()->format('Y-m'),
-                    ]);
-
-                    // Update the next payment date of the recurring transaction
-                    $this->updateNextPaymentDate($transaction);
-
-                    $count++;
-                }
-            }
-
-            if ($count > 0) {
-                return redirect()->back()->with('success', $count.' transactions processed successfully.');
-            } else {
-                return redirect()->back()->with('success', 'No transactions were due for processing.');
-            }
-        } catch (\Exception $e) {
-            return redirect()->back()->with('error', 'Error processing transactions: '.$e->getMessage());
-        }
-    }
-
-    /**
-     * Update the next payment date based on frequency
-     */
-    private function updateNextPaymentDate($transaction)
-    {
-        $currentNextPaymentDate = Carbon::parse($transaction->next_payment_date ?: $transaction->payment_date);
-
-        switch ($transaction->frequency) {
-            case 'daily':
-                $nextPaymentDate = $currentNextPaymentDate->addDay();
-                break;
-            case 'weekly':
-                $nextPaymentDate = $currentNextPaymentDate->addWeek();
-                break;
-            case 'biweekly':
-                $nextPaymentDate = $currentNextPaymentDate->addWeeks(2);
-                break;
-            case 'monthly':
-                $nextPaymentDate = $currentNextPaymentDate->addMonth();
-                break;
-            case 'quarterly':
-                $nextPaymentDate = $currentNextPaymentDate->addMonths(3);
-                break;
-            case 'semiannually':
-                $nextPaymentDate = $currentNextPaymentDate->addMonths(6);
-                break;
-            case 'annually':
-                $nextPaymentDate = $currentNextPaymentDate->addYear();
-                break;
-            default:
-                $nextPaymentDate = $currentNextPaymentDate->addMonth(); // Default to monthly
+        if ($due->isEmpty()) {
+            return redirect()->back()->with('warning', 'Aucune récurrence à traiter aujourd\'hui.');
         }
 
-        $transaction->next_payment_date = $nextPaymentDate;
-        $transaction->save();
+        $outcome = $this->recurringOutcome($this->runRecurring($due));
+
+        return redirect()->back()->with($outcome['key'], $outcome['message']);
     }
 
     /**

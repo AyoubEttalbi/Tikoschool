@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { router } from "@inertiajs/react";
 import PageHeader from "@/Components/PaymentsAndTransactions/PageHeader";
 import Alert from "@/Components/PaymentsAndTransactions/Alert";
@@ -36,26 +36,52 @@ const RecurringTransactionsPage = ({
     });
     const [showUnpaidOnly, setShowUnpaidOnly] = useState(false);
 
-    // If recurringTransactions or month changes, reset selections
+    /*
+     * BOTH EFFECTS BELOW USED TO LOOP FOREVER — "Maximum update depth exceeded".
+     *
+     * The first depended on `recurringTransactions`. That prop defaults to `[]`, and a
+     * default parameter is evaluated on EVERY render, so an absent prop produced a brand
+     * new array each time. A new array is never `===` the previous one, so the effect ran
+     * on every render, called setState, caused another render, and so on. PaymentsPage
+     * renders this component embedded without passing the prop, which is exactly the case
+     * that triggered it.
+     *
+     * The fix is to depend on the CONTENT rather than the array identity.
+     */
+    const transactionIds = Array.isArray(recurringTransactions)
+        ? recurringTransactions.map((t) => t.id).join(",")
+        : "";
+
     useEffect(() => {
         setSelectedTransactions([]);
-    }, [recurringTransactions, month]);
+    }, [transactionIds, month]);
 
-    // Load data with current month when component mounts
+    /*
+     * The second effect issued a router.get whenever `selectedMonth` was falsy — and when
+     * embedded in PaymentsPage that prop is never sent, so the guard was permanently true.
+     * Each navigation re-rendered the component with the prop still missing and fired
+     * another one, in a loop.
+     *
+     * Embedded, there is nothing to fetch: PaymentsPage's "Traiter les récurrents" button
+     * navigates to this page properly, with the month in the URL. The ref makes the
+     * standalone case fire at most once whatever the props do afterwards.
+     */
+    const hasRequestedMonth = useRef(false);
+
     useEffect(() => {
-        if (!selectedMonth) {
-            const now = new Date();
-            const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-            router.get(
-                route("transactions.recurring", { month: currentMonth }),
-                {},
-                {
-                    preserveState: true,
-                    replace: true,
-                },
-            );
-        }
-    }, [selectedMonth]);
+        if (isEmbedded || selectedMonth || hasRequestedMonth.current) return;
+
+        hasRequestedMonth.current = true;
+
+        const now = new Date();
+        const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+        router.get(
+            route("transactions.recurring", { month: currentMonth }),
+            {},
+            { preserveState: true, replace: true },
+        );
+    }, [selectedMonth, isEmbedded]);
 
     // Toggle all transactions selection
     const toggleSelectAll = (e) => {

@@ -1,7 +1,24 @@
 import { format } from "date-fns";
 
+/**
+ * Money, always as "1 234,50 DH".
+ *
+ * The old body was `${amount.toLocaleString()} DH`, which threw a TypeError on null or
+ * undefined — and blanked the whole table, because an exception during render takes the
+ * component down, not just the cell. It also relied on the browser's default locale, and
+ * `amount` arrives from Laravel as a STRING for every `decimal:2` column, so
+ * String.prototype.toLocaleString ran instead and returned "1800.00" unformatted. Two
+ * different renderings of the same figure depending on which column it came from.
+ */
 export const formatCurrency = (amount) => {
-    return `${amount.toLocaleString()} DH`;
+    const value = Number(amount);
+
+    if (!Number.isFinite(value)) return "— DH";
+
+    return `${value.toLocaleString("fr-FR", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    })} DH`;
 };
 
 export const formatDate = (dateString) => {
@@ -35,8 +52,10 @@ export const getTransactionTypeColor = (type) => {
     switch (type) {
         case "salary":
             return "bg-blue-100 text-blue-800";
+        case "payment":
+            return "bg-emerald-100 text-emerald-800";
         case "wallet":
-            return "bg-green-100 text-green-800";
+            return "bg-violet-100 text-violet-800";
         case "expense":
             return "bg-orange-100 text-orange-800";
         default:
@@ -44,16 +63,27 @@ export const getTransactionTypeColor = (type) => {
     }
 };
 
+/**
+ * The four types, in French.
+ *
+ * `payment` — every teacher payout in the system — had no case here, so it fell to the
+ * default branch and rendered as the raw English column value, "Payment", on a screen
+ * where every other label is French. `wallet` was mislabelled "Paiement", which is the
+ * opposite of what it does: it ADDS money to a wallet rather than paying it out, so the
+ * two movements that go in opposite directions read as the same word.
+ */
 export const getTransactionTypeLabel = (type) => {
     switch (type) {
         case "salary":
             return "Salaire";
-        case "wallet":
+        case "payment":
             return "Paiement";
+        case "wallet":
+            return "Ajout au portefeuille";
         case "expense":
             return "Dépense";
         default:
-            return type.charAt(0).toUpperCase() + type.slice(1);
+            return type ? type.charAt(0).toUpperCase() + type.slice(1) : "—";
     }
 };
 

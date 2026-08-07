@@ -36,6 +36,17 @@ const PaymentsList = ({
             (acc, transaction) => {
                 const userId = transaction.user_id;
 
+                /* An expense is money leaving the school, not money owed to a person, so
+                   it must not create an employee. It used to: expenses have no payee, so
+                   they all collapsed into one bucket keyed on a null user_id and appeared
+                   in the staff list as a person called "Inconnu" with no email, 0 DH
+                   salary and a "Réglé" status. Nobody could work out who that was, because
+                   it was not anybody — it was the loyer and the maintenance bills added
+                   together. Same guard for any row with no user attached. */
+                if (transaction.type === "expense" || !userId) {
+                    return acc;
+                }
+
                 if (!acc[userId]) {
                     // Find the user from the users array to get their role and salary
                     const userInfo =
@@ -66,10 +77,10 @@ const PaymentsList = ({
                 // Add transaction to the user's transactions array
                 acc[userId].transactions.push(transaction);
 
-                // Track expenses
-                if (transaction.type === "expense") {
-                    acc[userId].totalExpenses += parseFloat(transaction.amount);
-                }
+                // NOTE: a per-user `totalExpenses` was accumulated here. Expenses are
+                // filtered out above, so it can only ever be 0 now — and nothing rendered
+                // it in the first place. School expenses are totalled server-side and
+                // shown in AdminEarningsSection, which is where they belong.
 
                 return acc;
             },

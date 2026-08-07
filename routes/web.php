@@ -487,11 +487,20 @@ Route::middleware('auth')->get('/api/upcoming-announcements', function () {
     return response()->json(['announcements' => $announcements]);
 });
 
-// API: Teacher earnings per month (paid only)
-Route::middleware('auth')->get('/teacher-earnings-report', [TransactionController::class, 'teacherMonthlyEarningsReport']);
-
-// API: Teacher invoice breakdown for a given month
-Route::middleware('auth')->get('/teacher-invoice-breakdown', [TransactionController::class, 'teacherInvoiceBreakdown']);
+// API: Teacher earnings per month (paid only), and the per-invoice breakdown behind it.
+//
+// These were `auth` only. They take an OPTIONAL teacher_id filter and return every
+// teacher's earnings across every school when it is omitted — so any signed-in teacher or
+// assistant could read the whole payroll by requesting the URL directly. Nothing outside
+// the admin-only payments screen ever calls them.
+//
+// RequireRole rather than AdminMiddleware: both are called with axios, and AdminMiddleware
+// *redirects* to /dashboard, which arrives as a 200 full of HTML that the caller would try
+// to read as JSON. RequireRole aborts 403.
+Route::middleware(['auth', RequireRole::class.':admin'])->group(function () {
+    Route::get('/teacher-earnings-report', [TransactionController::class, 'teacherMonthlyEarningsReport']);
+    Route::get('/teacher-invoice-breakdown', [TransactionController::class, 'teacherInvoiceBreakdown']);
+});
 
 // Route to fetch all schools as JSON for filters (for frontend dropdowns)
 Route::middleware('auth')->get('/schoolsForFilters', [SchoolController::class, 'listJson']);

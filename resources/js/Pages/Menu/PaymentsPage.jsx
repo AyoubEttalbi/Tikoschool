@@ -19,6 +19,10 @@ const PaymentsPage = ({
     transactions,
     transaction,
     users,
+    staff,
+    expenseCategories,
+    frequencies,
+    preselectedUserId,
     formType,
     flash,
     errors,
@@ -32,6 +36,12 @@ const PaymentsPage = ({
     // Ensure users is always an array
     const safeUsers = Array.isArray(users) ? users : [];
 
+    // The form views are served by create()/edit(), which send `staff` — already filtered
+    // to the roles that can be paid, each with the balance actually available on the
+    // form's date. The form used to receive the raw `users` list and work the balance out
+    // itself from three different fields.
+    const safeStaff = Array.isArray(staff) ? staff : [];
+
     const [showForm, setShowForm] = useState(formType ? true : false);
     const [showDetails, setShowDetails] = useState(transaction ? true : false);
     const [activeView, setActiveView] = useState(
@@ -41,8 +51,14 @@ const PaymentsPage = ({
         adminEarnings || [],
     );
 
-    // Fetch admin earnings data if not provided
+    // Fetch admin earnings data if not provided.
+    //
+    // Skipped entirely on a form view: the earnings panel is not rendered there, and this
+    // request scans every invoice in the system and runs two aggregates per month since
+    // the first one. Opening "new transaction" used to pay for it every time.
     useEffect(() => {
+        if (formType) return;
+
         if (
             !adminEarnings ||
             (adminEarnings?.earnings && adminEarnings.earnings.length === 0)
@@ -54,7 +70,7 @@ const PaymentsPage = ({
                 })
                 .catch(() => {});
         }
-    }, [adminEarnings]);
+    }, [adminEarnings, formType]);
 
     // Update state when props change (e.g., after navigation)
     useEffect(() => {
@@ -97,16 +113,12 @@ const PaymentsPage = ({
         }
     };
 
-    const handleMakePayment = (employeeId, balance, employeeData) => {
-        const formData = {
-            user_id: employeeId,
-            type: employeeData.role === "teacher" ? "payment" : "salary",
-            amount: balance > 0 ? balance : 0,
-            payment_date: new Date().toISOString().split("T")[0],
-            description: `${employeeData.role === "teacher" ? "Paiement" : "Paiement de salaire"} pour ${employeeData.userName}`,
-            is_recurring: false,
-        };
-        router.get(route("transactions.create"), formData);
+    const handleMakePayment = (employeeId) => {
+        // Only the id. This used to post a whole prefilled form as query parameters —
+        // type, amount, description, payment_date — and create() read none of them, so
+        // the "Payer" button opened an empty form and the admin re-entered everything.
+        // create() now honours `user_id` and preselects that person.
+        router.get(route("transactions.create"), { user_id: employeeId });
     };
 
     const handleEditEmployee = (editInfo) => {
@@ -178,6 +190,28 @@ const PaymentsPage = ({
                         </button>
                     )}
                 </PageHeader>
+                {/* Errors and warnings were flashed by nearly every failure path in
+                    TransactionController and rendered by none of them — only `success`
+                    was ever read here. A rejected payment redirected back to the same
+                    form with no message at all, which is the single biggest reason this
+                    screen felt like it "did nothing". Failures stay on screen until
+                    dismissed; only the success message times out. */}
+                {flash?.error && (
+                    <Alert
+                        type="error"
+                        message={flash.error}
+                        duration={0}
+                        className="mb-6"
+                    />
+                )}
+                {flash?.warning && (
+                    <Alert
+                        type="warning"
+                        message={flash.warning}
+                        duration={0}
+                        className="mb-6"
+                    />
+                )}
                 {flash?.success && (
                     <Alert
                         type="success"
@@ -203,12 +237,13 @@ const PaymentsPage = ({
                             <Suspense fallback={<div>Chargement du formulaire...</div>}>
                                 <PaymentForm
                                     transaction={transaction}
-                                    transactions={transactions.data}
                                     errors={errors}
                                     formType={formType || "create"}
                                     onCancel={handleCancelForm}
-                                    onSubmit={handleSubmit}
-                                    users={safeUsers}
+                                    staff={safeStaff}
+                                    expenseCategories={expenseCategories}
+                                    frequencies={frequencies}
+                                    preselectedUserId={preselectedUserId}
                                 />
                             </Suspense>
                         )}
@@ -246,9 +281,18 @@ const PaymentsPage = ({
                         )}
                     </div>
                 </div>
-                <Pagination links={transactions.links} />
-                {localAdminEarnings && (
-                    <AdminEarningsSection adminEarnings={localAdminEarnings} />
+                {/* Both only belong under the list. On a form view the controller sends
+                    an empty paginator and no earnings, so these rendered an empty pager
+                    and fired an XHR for a dashboard nobody was looking at. */}
+                {activeView === "list" && (
+                    <>
+                        <Pagination links={transactions?.links ?? []} />
+                        {localAdminEarnings && (
+                            <AdminEarningsSection
+                                adminEarnings={localAdminEarnings}
+                            />
+                        )}
+                    </>
                 )}
             </div>
         </div>

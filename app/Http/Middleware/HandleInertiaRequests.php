@@ -176,6 +176,10 @@ class HandleInertiaRequests extends Middleware
                 // are published rather than renaming one and breaking the other consumers.
                 'success' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),
+                // Several controllers flash `warning` for a partial outcome — a batch run
+                // that paid some people and skipped others. It was never shared, so those
+                // outcomes reached no screen at all and the run looked like it did nothing.
+                'warning' => fn () => $request->session()->get('warning'),
                 // Structured money notice — see App\Support\PaymentNotice. Rendered as a
                 // dialog by PaymentNoticeDialog, mounted once in DashboardLayout.
                 'payment' => fn () => $request->session()->get('payment_notice'),
