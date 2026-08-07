@@ -4,8 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\TeacherMembershipPayment;
 use App\Services\TeacherMembershipPaymentService;
-use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 class TeacherMembershipPaymentController extends Controller
 {
@@ -67,12 +67,12 @@ class TeacherMembershipPaymentController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => "Successfully processed {$result['processed_count']} payments",
-                'data' => $result
+                'data' => $result,
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Error processing monthly payments: ' . $e->getMessage()
+                'message' => 'Error processing monthly payments: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -101,77 +101,12 @@ class TeacherMembershipPaymentController extends Controller
 
         $pendingPayments = TeacherMembershipPayment::active()
             ->withUnpaidCurrentMonth($currentMonth)
-            ->when($teacherId, function($query) use ($teacherId) {
+            ->when($teacherId, function ($query) use ($teacherId) {
                 return $query->where('teacher_id', $teacherId);
             })
             ->with(['teacher', 'student', 'membership'])
             ->get();
 
         return response()->json($pendingPayments);
-    }
-
-    /**
-     * Test invoice deletion reversal (for testing purposes)
-     */
-    public function testInvoiceDeletion(Request $request): JsonResponse
-    {
-        $invoiceId = $request->input('invoice_id');
-        
-        if (!$invoiceId) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Invoice ID is required'
-            ], 400);
-        }
-
-        try {
-            $invoice = \App\Models\Invoice::findOrFail($invoiceId);
-            
-            // Get teacher payment records before deletion
-            $recordsBefore = TeacherMembershipPayment::active()
-                ->where('invoice_id', $invoiceId)
-                ->with(['teacher'])
-                ->get();
-
-            $teacherDetailsBefore = $recordsBefore->map(function($record) {
-                return [
-                    'teacher_id' => $record->teacher_id,
-                    'teacher_name' => $record->teacher->first_name . ' ' . $record->teacher->last_name,
-                    'wallet_before' => $record->teacher->wallet,
-                    'payment_details' => app(\App\Services\TeacherMembershipPaymentService::class)->calculateTeacherPaidAmount($record)
-                ];
-            });
-
-            // Simulate invoice deletion reversal
-            $paymentService = new \App\Services\TeacherMembershipPaymentService();
-            $paymentService->reverseInvoicePayments($invoice);
-
-            // Get teacher details after reversal
-            $teacherDetailsAfter = $recordsBefore->map(function($record) {
-                $teacher = \App\Models\Teacher::find($record->teacher_id);
-                return [
-                    'teacher_id' => $teacher->id,
-                    'teacher_name' => $teacher->first_name . ' ' . $teacher->last_name,
-                    'wallet_after' => $teacher->wallet,
-                    'wallet_change' => $teacher->wallet - $record->teacher->wallet
-                ];
-            });
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Invoice deletion reversal completed',
-                'data' => [
-                    'invoice_id' => $invoiceId,
-                    'before_reversal' => $teacherDetailsBefore,
-                    'after_reversal' => $teacherDetailsAfter
-                ]
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error testing invoice deletion: ' . $e->getMessage()
-            ], 500);
-        }
     }
 }

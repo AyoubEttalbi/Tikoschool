@@ -171,7 +171,14 @@ class HandleInertiaRequests extends Middleware
             ],
             'flash' => [
                 'message' => fn () => $request->session()->get('success'),
+                // Several pages already read `flash.success` (PaymentsPage among them) while
+                // only `message` was ever shared, so those banners never rendered. Both keys
+                // are published rather than renaming one and breaking the other consumers.
+                'success' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),
+                // Structured money notice — see App\Support\PaymentNotice. Rendered as a
+                // dialog by PaymentNoticeDialog, mounted once in DashboardLayout.
+                'payment' => fn () => $request->session()->get('payment_notice'),
             ],
             // Closures make these LAZY: Inertia only evaluates them when the prop is
             // actually requested, so a partial reload (`only: [...]`) no longer pays for

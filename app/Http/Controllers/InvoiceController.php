@@ -267,10 +267,10 @@ class InvoiceController extends Controller
             if (! $paymentResult || ! $paymentResult['success'] || (($paymentResult['created_records'] ?? 0) + ($paymentResult['updated_records'] ?? 0)) === 0) {
                 Log::error('No payment records created', ['invoice_id' => $invoice->id, 'result' => $paymentResult]);
 
-                // NEW: Create user-friendly error messages
-                $userFriendlyErrors = $this->convertToUserFriendlyErrors($paymentResult['errors'] ?? ['Unknown error occurred']);
-
-                throw new \Exception($userFriendlyErrors[0]); // Show first error to user
+                // Carry EVERY reason, not just the first — see PaymentProcessingException.
+                throw new \App\Exceptions\PaymentProcessingException(
+                    $this->convertToUserFriendlyErrors($paymentResult['errors'] ?? [])
+                );
             }
 
             Log::info('Payment records created successfully', [
@@ -329,10 +329,28 @@ class InvoiceController extends Controller
                 ]);
             }
 
-            return redirect()->back()->withErrors([
-                'error' => $this->convertSingleError($e->getMessage()) ?: 'Création de facture annulée: '.$e->getMessage(),
-            ])->withInput();
+            return $this->withPaymentNotice(
+                redirect()->back()->withErrors([
+                    'error' => $this->convertSingleError($e->getMessage()) ?: 'Création de facture annulée: '.$e->getMessage(),
+                ])->withInput(),
+                $e,
+            );
         }
+    }
+
+    /**
+     * Attach the full list of reasons to a redirect, so the UI can open a dialog listing
+     * every problem instead of a one-line banner carrying the first one.
+     */
+    private function withPaymentNotice(\Illuminate\Http\RedirectResponse $redirect, \Throwable $e): \Illuminate\Http\RedirectResponse
+    {
+        $errors = $e instanceof \App\Exceptions\PaymentProcessingException
+            ? $e->errors()
+            : [$this->convertSingleError($e->getMessage())];
+
+        $notice = \App\Support\PaymentNotice::fromProcessingErrors(array_filter($errors));
+
+        return $notice ? $redirect->with('payment_notice', $notice->toArray()) : $redirect;
     }
 
     /**
@@ -696,7 +714,12 @@ class InvoiceController extends Controller
                     'invoice_id' => $invoice->id,
                     'errors' => $paymentResult['errors'] ?? ['Unknown error'],
                 ]);
-                throw new \Exception('Failed to process teacher payment records during invoice update');
+
+                // Was a fixed English string, so whatever the service actually objected to
+                // never reached the person editing the invoice.
+                throw new \App\Exceptions\PaymentProcessingException(
+                    $this->convertToUserFriendlyErrors($paymentResult['errors'] ?? [])
+                );
             }
 
             // NEW: Reconcile deltas whenever amountPaid changes (not only when fully paid)
@@ -761,9 +784,12 @@ class InvoiceController extends Controller
                 ]);
             }
 
-            return redirect()->back()->withErrors([
-                'error' => $this->convertSingleError($e->getMessage()) ?: 'Mise à jour de facture annulée: '.$e->getMessage(),
-            ])->withInput();
+            return $this->withPaymentNotice(
+                redirect()->back()->withErrors([
+                    'error' => $this->convertSingleError($e->getMessage()) ?: 'Mise à jour de facture annulée: '.$e->getMessage(),
+                ])->withInput(),
+                $e,
+            );
         }
     }
 
@@ -808,11 +834,17 @@ class InvoiceController extends Controller
         $this->authorizeInvoice(Invoice::findOrFail($id));
 
         try {
+            // Captured from inside the transaction so the notice describes what was actually
+            // committed. Built into a dialog below — deleting an invoice can leave money in
+            // a teacher's wallet that the person clicking delete now has to recover by hand,
+            // and that cannot be a log line.
+            $reversal = [];
+
             // ALL of this must be atomic. It writes memberships, teachers.wallet,
             // teacher_membership_payments and invoices. Previously it ran with no
             // transaction, so a failure partway through left teacher wallets already
             // debited while the invoice survived — and deleting it again debited them twice.
-            DB::transaction(function () use ($id) {
+            DB::transaction(function () use ($id, &$reversal) {
                 $invoice = Invoice::findOrFail($id);
 
                 // Log the activity before deletion
@@ -843,16 +875,25 @@ class InvoiceController extends Controller
                 // inside `if ($membership)`, so an invoice whose membership had been deleted
                 // was removed without ever reversing the teacher's wallet credit.
                 $paymentService = new \App\Services\TeacherMembershipPaymentService;
-                $paymentService->reverseInvoicePayments($invoice);
+                $reversal = $paymentService->reverseInvoicePayments($invoice);
 
                 $invoice->delete();
             });
 
-            return redirect()->back()->with('success', 'Invoice deleted successfully.');
+            $redirect = redirect()->back()->with('success', 'Facture supprimée.');
+
+            $notice = \App\Support\PaymentNotice::fromReversal($reversal);
+
+            return $notice
+                ? $redirect->with('payment_notice', $notice->toArray())
+                : $redirect;
         } catch (\Throwable $e) {
             Log::error('Error deleting invoice:', ['invoice_id' => $id, 'error' => $e->getMessage()]);
 
-            return redirect()->back()->withErrors(['error' => 'An error occurred while deleting the invoice.']);
+            return redirect()->back()->withErrors([
+                'error' => 'La facture n\'a pas pu être supprimée. Aucune modification n\'a été enregistrée, '
+                    .'et les portefeuilles des enseignants sont inchangés.',
+            ]);
         }
     }
 
@@ -1168,8 +1209,23 @@ class InvoiceController extends Controller
             }
         }
 
-        // If no mapping found, return a default message
-        return 'Erreur lors du traitement: '.substr($error, 0, 100).(strlen($error) > 100 ? '...' : '');
+        // Nothing matched. The table above translates ENGLISH strings that the payment
+        // service used to emit; it now emits French messages that already name the offer,
+        // the teacher and the fix. Truncating those to 100 characters — which is what this
+        // fallback used to do unconditionally — threw away the only part worth reading.
+        //
+        // So: pass a message through untouched unless it looks like raw machinery, and only
+        // then fall back to something a user can act on.
+        $looksTechnical = preg_match('/SQLSTATE|Exception|::|\.php|Stack trace|\\\\[A-Z]\w+\\\\/', $error) === 1;
+
+        if (! $looksTechnical && mb_strlen($error) <= 400) {
+            return $error;
+        }
+
+        Log::warning('Unmapped technical error surfaced during invoice processing', ['error' => $error]);
+
+        return 'Une erreur technique est survenue lors du traitement de la facture. '
+            .'Réessayez, puis contactez l\'administrateur si le problème persiste.';
     }
 
     /**

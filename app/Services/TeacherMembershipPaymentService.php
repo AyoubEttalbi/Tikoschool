@@ -14,6 +14,20 @@ use Illuminate\Support\Facades\Log;
 
 class TeacherMembershipPaymentService
 {
+    /**
+     * How long after the billing date a deleted invoice may still be clawed back out of the
+     * teachers' wallets.
+     *
+     * Deleting the invoice is ALWAYS allowed. What expires is the claw-back: past this many
+     * days the teachers keep what they have already been paid, and whoever pressed delete is
+     * told so explicitly (see reverseInvoicePayments()).
+     *
+     * ONE definition. The rule used to be written as a bare `<= 10` in two separate branches
+     * of reverseTeacherPayment(), which is how the single-month and multi-month paths came to
+     * disagree about what "already paid" meant.
+     */
+    public const REVERSAL_DEADLINE_DAYS = 7;
+
     private ?TeacherWalletService $walletService = null;
 
     /**
@@ -66,19 +80,26 @@ class TeacherMembershipPaymentService
         }
 
         // No percentage defined for this subject: share out whatever the offer has not
-        // already allocated, equally among the membership's teachers.
-        $teachersCount = is_array($membership->teachers) ? count($membership->teachers) : 0;
+        // already allocated — among the teachers who ALSO have no declared percentage.
+        //
+        // The divisor used to be every teacher on the membership, including the ones already
+        // paid from their own declared share. With {"Math": 60} and a Math + Physique
+        // membership that gave Physique 40/2 = 20%, so 60 + 20 = 80% of the student's payment
+        // was distributed and the missing 20% simply evaporated — the school kept it and the
+        // teacher was quietly underpaid, with the log line below reporting the wrong number
+        // as if it were correct.
         $definedPercentagesSum = array_sum($percentages);
         $availableForDistribution = max(0, 100 - $definedPercentagesSum);
+        $undeclaredCount = $this->teachersWithoutDeclaredPercentage($membership, $offer);
 
-        if ($teachersCount > 0 && $availableForDistribution > 0) {
-            $resolved = round($availableForDistribution / $teachersCount, 2);
+        if ($undeclaredCount > 0 && $availableForDistribution > 0) {
+            $resolved = round($availableForDistribution / $undeclaredCount, 2);
 
             Log::info('Auto-assigned percentage to teacher with no defined percentage', [
                 'teacher_subject' => $teacherSubject,
                 'auto_assigned_percentage' => $resolved,
                 'available_for_distribution' => $availableForDistribution,
-                'teachers_count' => $teachersCount,
+                'teachers_without_declared_percentage' => $undeclaredCount,
                 'offer_id' => $offer->id,
                 'membership_id' => $membership->id,
             ]);
@@ -95,12 +116,65 @@ class TeacherMembershipPaymentService
         Log::warning('No percentage left to allocate; teacher share set to 0', [
             'teacher_subject' => $teacherSubject,
             'defined_percentages_sum' => $definedPercentagesSum,
-            'teachers_count' => $teachersCount,
+            'teachers_without_declared_percentage' => $undeclaredCount,
             'offer_id' => $offer->id,
             'membership_id' => $membership->id,
         ]);
 
         return 0.0;
+    }
+
+    /**
+     * How many DISTINCT subjects on this membership the offer says nothing about.
+     *
+     * The divisor for the equal-distribution fallback. Counted by distinct subject rather
+     * than by teacher row so that one teacher listed twice for the same subject cannot
+     * shrink everybody else's share.
+     */
+    private function teachersWithoutDeclaredPercentage(Membership $membership, Offer $offer): int
+    {
+        if (! is_array($membership->teachers)) {
+            return 0;
+        }
+
+        $undeclared = [];
+
+        foreach ($membership->teachers as $teacherData) {
+            $subject = is_array($teacherData) ? ($teacherData['subject'] ?? null) : null;
+
+            if ($subject === null || $subject === '') {
+                continue;
+            }
+
+            if ((float) (OfferPercentages::forSubject($offer, $subject) ?? 0) > 0) {
+                continue;
+            }
+
+            $undeclared[OfferPercentages::normalise($subject)] = true;
+        }
+
+        return count($undeclared);
+    }
+
+    /**
+     * A teacher's name for an error message, falling back to the id when the row is gone.
+     *
+     * Error messages get read by a secretary, not by a developer — "Majid FAYTI (Math)"
+     * tells them which row to open; "teacher 41" does not.
+     */
+    private function teacherLabel(?int $teacherId): string
+    {
+        if (! $teacherId) {
+            return 'Un enseignant';
+        }
+
+        $teacher = Teacher::find($teacherId);
+
+        if (! $teacher) {
+            return "L'enseignant #{$teacherId} (introuvable)";
+        }
+
+        return trim($teacher->first_name.' '.$teacher->last_name) ?: "L'enseignant #{$teacherId}";
     }
 
     protected function totalAllocatedPercentage(Membership $membership, Offer $offer): float
@@ -1306,32 +1380,61 @@ class TeacherMembershipPaymentService
         }
 
         if (! is_array($membership->teachers) || empty($membership->teachers)) {
-            $errors[] = "Membership {$membership->id} has no teachers assigned";
+            $errors[] = "Aucun enseignant n'est associé à cette adhésion. "
+                .'Ouvrez l\'adhésion et ajoutez au moins un enseignant avant de facturer.';
         }
 
         // Validate offer exists and has valid percentages
         if (! $membership->offer) {
-            $errors[] = "Membership {$membership->id} has no associated offer";
+            $errors[] = "Cette adhésion n'a pas d'offre. Sélectionnez une offre sur l'adhésion.";
         } else {
             $offer = $membership->offer;
-            if (! is_array($offer->percentage)) {
-                $errors[] = "Offer {$offer->id} has invalid percentage configuration";
+            if (! is_array($offer->percentage) || $offer->percentage === []) {
+                // An EMPTY map is refused as well as a malformed one. It is not a harmless
+                // default: the equal-distribution fallback would hand the single teacher the
+                // whole 100%, which is a real payout decision nobody made deliberately.
+                $errors[] = "L'offre « {$offer->offer_name} » n'a pas de pourcentages valides. "
+                    .'Définissez le pourcentage de chaque matière dans l\'offre.';
             } else {
-                $percentageSum = array_sum($offer->percentage);
-                // IMPROVED: Allow flexible percentage sums if there are missing teachers
-                $teachersCount = is_array($membership->teachers) ? count($membership->teachers) : 0;
-                $percentageKeys = count($offer->percentage);
+                $percentageSum = round((float) array_sum($offer->percentage), 2);
 
-                // Only validate if percentage count matches teacher count
-                if ($teachersCount > 0 && $percentageKeys != $teachersCount) {
-                    $errors[] = "Offer {$offer->id} has {$percentageKeys} percentages but {$teachersCount} teachers assigned";
+                if ($percentageSum > 100) {
+                    $errors[] = "L'offre « {$offer->offer_name} » répartit {$percentageSum}% entre ses matières "
+                        .'(le total ne peut pas dépasser 100%). Corrigez les pourcentages de l\'offre.';
                 }
 
-                // Only warn about percentage sum if it seems mathematically incorrect
-                if ($percentageSum > 100) {
-                    $errors[] = "Offer {$offer->id} percentages exceed 100%: {$percentageSum}%";
-                } elseif ($percentageSum < 10 && $percentageSum > 0) {
-                    $errors[] = "Offer {$offer->id} has very low total percentages: {$percentageSum}%";
+                // Every teacher on this membership must resolve to a real share.
+                //
+                // This replaces a `count($offer->percentage) != count($membership->teachers)`
+                // check, which was wrong in both directions. It refused an offer that listed
+                // MORE subjects than the student takes — a perfectly normal configuration —
+                // and it accepted an offer whose percentages were fully allocated to someone
+                // else, leaving a teacher on 0% with nothing said.
+                //
+                // Asking the real question instead ("would this teacher be paid nothing?")
+                // uses the same resolver as the payout path, so validation and payment can no
+                // longer disagree about what a subject is worth.
+                if ($percentageSum <= 100 && is_array($membership->teachers)) {
+                    foreach ($membership->teachers as $teacherData) {
+                        $subject = is_array($teacherData) ? ($teacherData['subject'] ?? null) : null;
+
+                        if ($subject === null || $subject === '') {
+                            $errors[] = 'Un enseignant de cette adhésion n\'a pas de matière. '
+                                .'Indiquez la matière de chaque enseignant sur l\'adhésion.';
+
+                            continue;
+                        }
+
+                        if ($this->resolveTeacherPercentage($offer, $membership, $subject) > 0) {
+                            continue;
+                        }
+
+                        $teacherName = $this->teacherLabel($teacherData['teacherId'] ?? null);
+                        $errors[] = "L'offre « {$offer->offer_name} » ne laisse aucun pourcentage pour "
+                            ."{$teacherName} ({$subject}) : cet enseignant serait payé 0 DH. "
+                            .'Ajoutez un pourcentage pour cette matière dans l\'offre, '
+                            .'ou retirez l\'enseignant de l\'adhésion.';
+                    }
                 }
             }
         }
@@ -1343,13 +1446,16 @@ class TeacherMembershipPaymentService
         }
 
         if (empty($selectedMonths)) {
-            $errors[] = "Invoice {$invoice->id} has no selected months";
+            $errors[] = 'Cette facture ne couvre aucun mois. Sélectionnez au moins un mois.';
         }
 
         // Validate amount calculations
         $totalAmountValidation = abs($validated['totalAmount'] - ($validated['amountPaid'] + $validated['rest'])) > 0.01;
         if ($totalAmountValidation) {
-            $errors[] = "Math validation failed: totalAmount ({$validated['totalAmount']}) != amountPaid ({$validated['amountPaid']}) + rest ({$validated['rest']})";
+            $errors[] = 'Les montants ne s\'additionnent pas : total '
+                .number_format((float) $validated['totalAmount'], 2, ',', ' ').' DH ≠ payé '
+                .number_format((float) $validated['amountPaid'], 2, ',', ' ').' DH + reste '
+                .number_format((float) $validated['rest'], 2, ',', ' ').' DH.';
         }
 
         return [
@@ -1364,43 +1470,153 @@ class TeacherMembershipPaymentService
     }
 
     /**
-     * Reverse teacher payments when an invoice is updated or deleted
-     * Business rules provided by client:
-     * - Multi-month invoices: if within 10 days of billing, decrement ALL months (current + future); if after 10 days, only decrement future months, keep current month.
-     * - Single-month invoices: if current month and within 10 days after billing date, decrement the amount; otherwise do not decrement.
+     * Undo the teacher-side effects of an invoice that is being deleted.
+     *
+     * THE RULE
+     * --------
+     *   within REVERSAL_DEADLINE_DAYS of the billing date
+     *       every dirham credited to the teachers for this invoice is taken back.
+     *
+     *   after REVERSAL_DEADLINE_DAYS
+     *       the teachers KEEP what they were already paid. Nothing is clawed back.
+     *
+     * In BOTH cases the scheduled months that have not been paid yet are cancelled, because
+     * an invoice that no longer exists must never keep generating monthly credits.
+     *
+     * WHY THIS RETURNS A STRUCTURE
+     * ----------------------------
+     * "The invoice was deleted but the teacher keeps 240 DH" is a fact the person pressing
+     * delete has to be told. This used to return void and write the decision to the log, so
+     * the UI reported an unqualified success either way and the money quietly stayed put.
+     * The returned array names each teacher, the amount and the reason, and carries
+     * ready-to-display French messages.
+     *
+     * @return array{
+     *     reversed: bool,
+     *     total_reversed: float,
+     *     days_since_billing: int|null,
+     *     deadline_days: int,
+     *     within_deadline: bool,
+     *     applied: array<int, array<string, mixed>>,
+     *     blocked: array<int, array<string, mixed>>,
+     *     messages: array<int, string>
+     * }
      */
-    public function reverseInvoicePayments(Invoice $invoice, ?array $oldData = null)
+    public function reverseInvoicePayments(Invoice $invoice, ?array $oldData = null): array
     {
-        // Deliberately NOT gated on the membership existing. The payment records are keyed
-        // by invoice_id; requiring a live membership meant an invoice whose membership had
-        // been deleted was removed without ever reversing the teacher's wallet credit.
-        $currentMonth = now()->format('Y-m');
         $billingDate = $invoice->billDate;
-        // Carbon 3 returns a SIGNED difference by default, so `now()->diffInDays($past)` is
-        // NEGATIVE. That made the `<= 10` day checks below always true, which reversed a
-        // teacher's entire paid-to-date balance whenever ANY old invoice was deleted.
-        // Measure forward from the billing date so the value is positive for past bills.
+
+        // Carbon 3 returns a SIGNED difference, so `now()->diffInDays($past)` is NEGATIVE.
+        // That made the old `<= 10` checks always true, which reversed a teacher's entire
+        // paid-to-date balance whenever ANY old invoice was deleted. Measuring FORWARD from
+        // the billing date gives a positive number for past bills, which is what the rule
+        // is stated in. A negative value means a post-dated bill — comfortably inside the
+        // window, and handled by the same comparison without a special case.
         $daysSinceBilling = $billingDate
             ? (int) \Carbon\Carbon::parse($billingDate)->startOfDay()->diffInDays(now()->startOfDay(), false)
-            : 999; // If no billing date, treat as expired
+            : null;
 
-        // Keyed on invoice_id ALONE. The previous `where('membership_id', ...)` filter meant
-        // records whose membership_id had been nulled (the FK is ON DELETE SET NULL) were
-        // never found, silently leaving the teacher credited for a deleted invoice.
+        // No billing date means the deadline cannot be measured. The safe answer is to leave
+        // the teachers' money alone rather than guess, so it is treated as expired.
+        $withinDeadline = $daysSinceBilling !== null
+            && $daysSinceBilling <= self::REVERSAL_DEADLINE_DAYS;
+
+        $outcome = [
+            'reversed' => false,
+            'total_reversed' => 0.0,
+            'days_since_billing' => $daysSinceBilling,
+            'deadline_days' => self::REVERSAL_DEADLINE_DAYS,
+            'within_deadline' => $withinDeadline,
+            'applied' => [],
+            'blocked' => [],
+            'messages' => [],
+        ];
+
+        // Deliberately NOT gated on the membership existing, and keyed on invoice_id ALONE.
+        // The previous `where('membership_id', ...)` filter meant records whose membership_id
+        // had been nulled (the FK is ON DELETE SET NULL) were never found, silently leaving
+        // the teacher credited for a deleted invoice.
         $records = TeacherMembershipPayment::active()
             ->where('invoice_id', $invoice->id)
             ->get();
 
         foreach ($records as $record) {
-            $this->reverseTeacherPayment($record, $invoice, $currentMonth, $daysSinceBilling);
+            $this->reverseTeacherPayment($record, $invoice, $withinDeadline, $outcome);
         }
+
+        $outcome['total_reversed'] = round($outcome['total_reversed'], 2);
+        $outcome['reversed'] = $outcome['total_reversed'] > 0;
+        $outcome['messages'] = $this->buildReversalMessages($outcome);
+
+        Log::info('Invoice reversal completed', [
+            'invoice_id' => $invoice->id,
+            'bill_date' => $billingDate?->format('Y-m-d'),
+            'days_since_billing' => $daysSinceBilling,
+            'within_deadline' => $withinDeadline,
+            'total_reversed' => $outcome['total_reversed'],
+            'blocked_count' => count($outcome['blocked']),
+        ]);
+
+        return $outcome;
     }
 
     /**
-     * Reverse a specific teacher payment record based on client rules
+     * Turn the outcome into sentences a school secretary can act on.
+     *
+     * French, because every user-facing string in this application is French.
      */
-    private function reverseTeacherPayment(TeacherMembershipPayment $record, Invoice $invoice, string $currentMonth, int $daysSinceBilling)
+    private function buildReversalMessages(array $outcome): array
     {
+        $messages = [];
+
+        $names = static fn (array $rows) => implode(', ', array_map(
+            fn ($r) => trim(($r['teacher_name'] ?? '').' ('.($r['subject'] ?? '—').') : '
+                .number_format((float) ($r['amount'] ?? 0), 2, ',', ' ').' DH'),
+            $rows
+        ));
+
+        $expired = array_values(array_filter($outcome['blocked'], fn ($r) => $r['reason'] === 'deadline_passed'));
+        if ($expired !== []) {
+            $messages[] = 'Cette facture date de plus de '.$outcome['deadline_days']
+                .' jours : le montant déjà versé ne peut plus être retiré du portefeuille des enseignants. '
+                .'Concernés — '.$names($expired).'.';
+        }
+
+        $short = array_values(array_filter(
+            $outcome['blocked'],
+            fn ($r) => in_array($r['reason'], ['wallet_empty', 'wallet_insufficient'], true)
+        ));
+        if ($short !== []) {
+            $messages[] = 'Solde insuffisant : le montant n\'a pas pu être repris intégralement, '
+                .'le portefeuille aurait été négatif. Restant dû — '.$names($short).'.';
+        }
+
+        if ($outcome['total_reversed'] > 0) {
+            $messages[] = number_format($outcome['total_reversed'], 2, ',', ' ')
+                .' DH ont été repris du portefeuille des enseignants.';
+        }
+
+        return $messages;
+    }
+
+    /**
+     * Apply the deletion rule to ONE teacher-subject payout record.
+     *
+     * The amount at stake is `total_paid_to_teacher` — the record's own tally of what this
+     * invoice actually credited. The old implementation instead re-derived a figure from
+     * `total_teacher_amount / months * futureMonths`, which is what the teacher WOULD be owed
+     * over the remaining months, not what they were given. Where the cron had not yet paid
+     * those months, that debited money the invoice had never credited, and the shortfall came
+     * out of credits belonging to other invoices.
+     *
+     * @param  array<string, mixed>  $outcome  accumulated by reference for the caller's report
+     */
+    private function reverseTeacherPayment(
+        TeacherMembershipPayment $record,
+        Invoice $invoice,
+        bool $withinDeadline,
+        array &$outcome
+    ): void {
         try {
             $teacher = Teacher::find($record->teacher_id);
             if (! $teacher) {
@@ -1409,122 +1625,90 @@ class TeacherMembershipPaymentService
                 return;
             }
 
-            $selectedMonths = $record->selected_months ?? [];
-            sort($selectedMonths);
-            $monthsCount = count($selectedMonths);
+            $paidToTeacher = round((float) ($record->total_paid_to_teacher ?? 0), 2);
 
-            // Default: do not decrement, only stop future months
-            $shouldDecrement = false;
-            $amountToReverse = 0.0;
-
-            if ($monthsCount <= 1) {
-                // Single-month logic
-                $onlyMonth = $monthsCount === 1 ? $selectedMonths[0] : null;
-                if ($onlyMonth) {
-                    if ($onlyMonth === $currentMonth) {
-                        // Current month: allow decrement only within 10 days after billing date
-                        if ($daysSinceBilling <= 10) {
-                            $shouldDecrement = true;
-                            // Reverse whatever was paid to teacher for this invoice (immediate for single month)
-                            $amountToReverse = round((float) ($record->total_paid_to_teacher ?? 0), 2);
-                        }
-                    } elseif ($onlyMonth > $currentMonth) {
-                        // Future month: no decrement, just stop it
-                        $shouldDecrement = false;
-                    } else {
-                        // Past month: do not decrement
-                        $shouldDecrement = false;
-                    }
-                }
-            } else {
-                // Multi-month logic: apply 10-day rule
-                $futureMonths = array_filter($selectedMonths, function ($month) use ($currentMonth) {
-                    return $month > $currentMonth;
-                });
-                $currentMonthIncluded = in_array($currentMonth, $selectedMonths);
-
-                if ($daysSinceBilling <= 10) {
-                    // Within 10 days: decrement ALL months (current + future)
-                    $shouldDecrement = true;
-                    $amountToReverse = round((float) ($record->total_paid_to_teacher ?? 0), 2);
-                } else {
-                    // After 10 days: only decrement future months, keep current month
-                    if (count($futureMonths) > 0) {
-                        $shouldDecrement = true;
-                        // Calculate amount for future months only
-                        $totalAmount = round((float) ($record->total_teacher_amount ?? 0), 2);
-                        $allMonthsCount = count($selectedMonths);
-                        $futureMonthsCount = count($futureMonths);
-                        $amountToReverse = round(($totalAmount / $allMonthsCount) * $futureMonthsCount, 2);
-                    } else {
-                        // No future months to decrement
-                        $shouldDecrement = false;
-                    }
-                }
-            }
-
-            Log::info('Reversal decision', [
+            $entry = [
                 'record_id' => $record->id,
                 'teacher_id' => $teacher->id,
-                'selected_months' => $selectedMonths,
-                'months_count' => $monthsCount,
-                'current_month' => $currentMonth,
-                'days_since_billing' => $daysSinceBilling,
-                'billing_date' => $invoice->billDate?->format('Y-m-d'),
-                'should_decrement' => $shouldDecrement,
-                'calculated_amount_to_reverse' => $amountToReverse,
-                'reversal_rule' => $monthsCount <= 1 ? 'single_month' : 'multi_month',
-                'future_months_count' => $monthsCount > 1 ? count($futureMonths) : 0,
-                'current_month_included' => $monthsCount > 1 ? $currentMonthIncluded : null,
-            ]);
+                'teacher_name' => trim($teacher->first_name.' '.$teacher->last_name),
+                'subject' => $record->teacher_subject,
+                'amount' => $paidToTeacher,
+                'cancelled_months' => array_values($record->months_rest_not_paid_yet ?? []),
+            ];
 
-            if ($shouldDecrement && $amountToReverse > 0) {
-                $teacherWalletBefore = round((float) ($teacher->wallet), 2);
-
-                if ($teacherWalletBefore > 0) {
-                    // debit() clamps at zero internally and records the movement.
-                    // Idempotent on (teacher, invoice, month=null, 'invoice.reversal'), so
-                    // deleting the same invoice twice cannot debit the teacher twice.
-                    $this->wallet()->debit(
-                        $teacher,
-                        $amountToReverse,
-                        \App\Models\TeacherWalletEntry::REASON_REVERSAL,
-                        $record->id,
-                        null,
-                        $invoice->id,
-                        'invoice deleted',
-                        $record->teacher_subject
-                    );
-
-                    Log::info('Decremented teacher wallet due to allowed reversal', [
-                        'record_id' => $record->id,
-                        'teacher_id' => $teacher->id,
-                        'invoice_id' => $invoice->id,
-                        'amount_reversed' => $amountToReverse,
-                        'wallet_before_op' => $teacherWalletBefore,
-                        'wallet_after_op' => round((float) ($teacher->fresh()->wallet), 2),
-                    ]);
-                } else {
-                    Log::warning('Reversal skipped: teacher wallet is already at zero', [
-                        'record_id' => $record->id,
-                        'teacher_id' => $teacher->id,
-                        'invoice_id' => $invoice->id,
-                        'requested_reversal' => round((float) ($record->total_paid_to_teacher ?? 0), 2),
-                    ]);
+            if (! $withinDeadline) {
+                if ($paidToTeacher > 0) {
+                    $outcome['blocked'][] = $entry + ['reason' => 'deadline_passed'];
                 }
+
+                $this->stopFutureMonths($record, $invoice);
+
+                return;
             }
 
-            // Stop future months: deactivate record and clear remaining unpaid months
-            $record->update([
-                'is_active' => false,
-                'months_rest_not_paid_yet' => [],
-            ]);
+            if ($paidToTeacher <= 0) {
+                $this->stopFutureMonths($record, $invoice);
 
-            Log::info('Deactivated teacher membership payment record and cleared unpaid months', [
+                return;
+            }
+
+            $walletBefore = round((float) $teacher->wallet, 2);
+
+            if ($walletBefore <= 0) {
+                // The teacher has already been paid out in cash. debit() would clamp to zero
+                // and silently record nothing; say so instead, because somebody now has to
+                // recover this by hand.
+                $outcome['blocked'][] = $entry + ['reason' => 'wallet_empty'];
+                Log::warning('Reversal blocked: teacher wallet is already at zero', [
+                    'record_id' => $record->id,
+                    'teacher_id' => $teacher->id,
+                    'invoice_id' => $invoice->id,
+                    'requested_reversal' => $paidToTeacher,
+                ]);
+
+                $this->stopFutureMonths($record, $invoice);
+
+                return;
+            }
+
+            $this->wallet()->debit(
+                $teacher,
+                $paidToTeacher,
+                \App\Models\TeacherWalletEntry::REASON_REVERSAL,
+                $record->id,
+                null,
+                $invoice->id,
+                'invoice deleted',
+                $record->teacher_subject
+            );
+
+            // Read the applied amount back rather than assuming it. debit() clamps at zero
+            // internally, so what was requested and what moved are not always the same
+            // number, and the report must state what actually happened.
+            $walletAfter = round((float) $teacher->fresh()->wallet, 2);
+            $applied = round($walletBefore - $walletAfter, 2);
+
+            if ($applied > 0) {
+                $outcome['total_reversed'] += $applied;
+                $outcome['applied'][] = $entry + ['amount' => $applied, 'reason' => 'reversed'];
+            }
+
+            $shortfall = round($paidToTeacher - $applied, 2);
+            if ($shortfall > 0.001) {
+                $outcome['blocked'][] = $entry + ['amount' => $shortfall, 'reason' => 'wallet_insufficient'];
+            }
+
+            Log::info('Decremented teacher wallet due to allowed reversal', [
                 'record_id' => $record->id,
                 'teacher_id' => $teacher->id,
                 'invoice_id' => $invoice->id,
+                'amount_requested' => $paidToTeacher,
+                'amount_applied' => $applied,
+                'wallet_before_op' => $walletBefore,
+                'wallet_after_op' => $walletAfter,
             ]);
+
+            $this->stopFutureMonths($record, $invoice);
 
         } catch (\Exception $e) {
             Log::error('Error reversing teacher payment', [
@@ -1545,6 +1729,28 @@ class TeacherMembershipPaymentService
             // is the only outcome that keeps the ledger and the invoices agreeing.
             throw $e;
         }
+    }
+
+    /**
+     * Cancel the payout record's remaining scheduled months.
+     *
+     * Runs on EVERY deletion path, inside the deadline and outside it. The claw-back is what
+     * expires — the cancellation never does. Leaving the months queued on a deleted invoice
+     * is how a teacher keeps being credited, month after month, for a bill that no longer
+     * exists; the monthly cron selects purely on months_rest_not_paid_yet.
+     */
+    private function stopFutureMonths(TeacherMembershipPayment $record, Invoice $invoice): void
+    {
+        $record->update([
+            'is_active' => false,
+            'months_rest_not_paid_yet' => [],
+        ]);
+
+        Log::info('Deactivated teacher membership payment record and cancelled its scheduled months', [
+            'record_id' => $record->id,
+            'teacher_id' => $record->teacher_id,
+            'invoice_id' => $invoice->id,
+        ]);
     }
 
     /**

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Link, usePage } from "@inertiajs/react";
 import Menu from "@/Components/Menu";
 import Navbar from "@/Components/Navbar";
+import PaymentNoticeDialog from "@/Components/PaymentNoticeDialog";
 import axios from "axios";
 import { getEcho, currentEcho } from "@/echo";
 
@@ -160,6 +161,11 @@ export default function DashboardLayout({ children }) {
             {/* RIGHT - Main Content */}
             <div className="w-[86%] md:w-[92%] lg:w-[84%] xl:w-[86%] bg-[#F7F8FA] flex flex-col">
                 <Navbar auth={user} profile_image={props.auth.profile_image} />
+
+                {/* Mounted once here rather than per page: every controller that touches
+                    teacher money flashes through the same channel, so no page has to opt in. */}
+                <PaymentNoticeDialog />
+
                 {children}
 
                 {/* Floating message button */}

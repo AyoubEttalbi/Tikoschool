@@ -282,12 +282,30 @@ class MembershipController extends Controller
             // deactivates the record itself, so this both moves the money and does what
             // the old code did. It throws on failure (see reverseTeacherPayment), which
             // rolls back the surrounding transaction rather than committing a half-update.
+            // Merged across every invoice on the membership, so reassigning the teachers of a
+            // membership carrying several invoices produces one dialog listing all of them
+            // rather than one per invoice — or, as before, none at all.
+            $reversal = [
+                'reversed' => false, 'total_reversed' => 0.0, 'deadline_days' => \App\Services\TeacherMembershipPaymentService::REVERSAL_DEADLINE_DAYS,
+                'days_since_billing' => null, 'within_deadline' => true, 'applied' => [], 'blocked' => [], 'messages' => [],
+            ];
+
             if ($membership->payment_status === 'paid') {
                 $paymentService = new \App\Services\TeacherMembershipPaymentService;
 
                 foreach ($membership->invoices()->get() as $invoice) {
-                    $paymentService->reverseInvoicePayments($invoice);
+                    $outcome = $paymentService->reverseInvoicePayments($invoice);
+
+                    $reversal['applied'] = array_merge($reversal['applied'], $outcome['applied']);
+                    $reversal['blocked'] = array_merge($reversal['blocked'], $outcome['blocked']);
+                    $reversal['messages'] = array_merge($reversal['messages'], $outcome['messages']);
+                    $reversal['total_reversed'] += $outcome['total_reversed'];
+                    $reversal['within_deadline'] = $reversal['within_deadline'] && $outcome['within_deadline'];
                 }
+
+                $reversal['total_reversed'] = round($reversal['total_reversed'], 2);
+                $reversal['reversed'] = $reversal['total_reversed'] > 0;
+                $reversal['messages'] = array_values(array_unique($reversal['messages']));
 
                 // Anything left active belongs to an invoice that no longer exists;
                 // reverseInvoicePayments() cannot reach it, and leaving it active would
@@ -309,12 +327,23 @@ class MembershipController extends Controller
 
             DB::commit();
 
-            return redirect()->back()->with('success', 'Membership updated successfully.');
+            $redirect = redirect()->back()->with('success', 'Adhésion mise à jour.');
+
+            // Reassigning teachers moves money out of the previous teacher's wallet. Whoever
+            // pressed save has to see that, and see what could not be taken back.
+            $notice = \App\Support\PaymentNotice::fromReversal($reversal);
+
+            return $notice
+                ? $redirect->with('payment_notice', $notice->toArray())
+                : $redirect;
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error updating membership:', ['error' => $e->getMessage()]);
 
-            return redirect()->back()->withErrors(['error' => 'An error occurred while updating the membership.']);
+            return redirect()->back()->withErrors([
+                'error' => "L'adhésion n'a pas pu être mise à jour. Aucune modification n'a été enregistrée, "
+                    .'et les portefeuilles des enseignants sont inchangés.',
+            ]);
         }
     }
 
