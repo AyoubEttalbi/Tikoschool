@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { usePage } from "@inertiajs/react";
-import { AlertTriangle, CheckCircle2, XCircle, X } from "lucide-react";
+import { router, usePage } from "@inertiajs/react";
+import { AlertTriangle, CheckCircle2, XCircle, X, Lock } from "lucide-react";
 
 /**
  * Shows what an action did to teacher money, and what it could not do.
@@ -72,6 +72,25 @@ export default function PaymentNoticeDialog() {
     const { Icon } = tone;
     const messages = notice.messages ?? [];
     const details = notice.details ?? [];
+    const actions = notice.actions ?? [];
+
+    // Fired from a dialog the user opened by pressing delete, so the close has to happen
+    // before the request: leaving it open would let a second click send the same
+    // irreversible action twice while the first is still in flight.
+    const runAction = (action) => {
+        setOpen(false);
+
+        const options = {
+            data: action.data ?? {},
+            preserveScroll: true,
+        };
+
+        if (action.method === "delete") {
+            router.delete(action.url, options);
+        } else {
+            router.post(action.url, action.data ?? {}, { preserveScroll: true });
+        }
+    };
 
     return (
         <div
@@ -145,15 +164,44 @@ export default function PaymentNoticeDialog() {
                     </div>
                 )}
 
-                <div className="flex justify-end border-t border-slate-100 px-6 py-4">
+                {notice.restricted_note && (
+                    /* Shown instead of the per-teacher table. Saying the detail exists but is
+                       restricted is better than an unexplained gap, which reads as a bug. */
+                    <div className="flex items-start gap-2 border-t border-slate-100 bg-slate-50/60 px-6 py-3 text-xs text-slate-500">
+                        <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <span>{notice.restricted_note}</span>
+                    </div>
+                )}
+
+                <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 px-6 py-4">
+                    {/* Always first and focused: the safe choice is the default one. */}
                     <button
                         type="button"
                         onClick={() => setOpen(false)}
                         autoFocus
-                        className={`rounded-md px-4 py-2 text-sm font-medium text-white transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${tone.button}`}
+                        className={
+                            actions.length > 0
+                                ? "rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
+                                : `rounded-md px-4 py-2 text-sm font-medium text-white transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${tone.button}`
+                        }
                     >
                         J'ai compris
                     </button>
+
+                    {actions.map((action, index) => (
+                        <button
+                            key={index}
+                            type="button"
+                            onClick={() => runAction(action)}
+                            className={`rounded-md px-4 py-2 text-sm font-medium text-white transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
+                                action.style === "danger"
+                                    ? "bg-red-600 hover:bg-red-700 focus-visible:outline-red-600"
+                                    : tone.button
+                            }`}
+                        >
+                            {action.label}
+                        </button>
+                    ))}
                 </div>
             </div>
         </div>

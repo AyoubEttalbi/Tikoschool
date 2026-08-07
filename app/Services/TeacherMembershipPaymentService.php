@@ -1183,9 +1183,27 @@ class TeacherMembershipPaymentService
                         ? round(((float) $invoice->amountPaid / $invoiceTotal), 4)
                         : 0.0;
 
-                    // Calculate what should be paid to teacher - FULL AMOUNT, not percentage-based
                     $totalTeacherAmount = round((float) ($record->total_teacher_amount ?? 0), 2);
-                    $desiredPaidToDate = $totalTeacherAmount; // FIXED: Use full amount, not percentage-based
+
+                    // Pay the teacher for the months that have COME ROUND, not the whole
+                    // commission at once.
+                    //
+                    // This used to be a flat `$desiredPaidToDate = $totalTeacherAmount`, so
+                    // any edit that moved the paid amount handed over the entire commission
+                    // immediately and cleared the month queue. The totals stayed correct, but
+                    // the monthly schedule was silently bypassed: a family settling a
+                    // three-month plan in September paid the teacher all three months in
+                    // September. Multi-month invoices are supposed to release month by month.
+                    //
+                    // months_rest_not_paid_yet is the queue the cron drains, so the months NOT
+                    // in it are exactly the ones already due. One month invoices come out of
+                    // this with due == total, which is the immediate payment they always had.
+                    $totalMonths = count($selectedMonths);
+                    $monthsAlreadyDue = max(0, $totalMonths - count($unpaidMonths));
+
+                    $desiredPaidToDate = $totalMonths > 0
+                        ? round($totalTeacherAmount * $monthsAlreadyDue / $totalMonths, 2)
+                        : $totalTeacherAmount;
 
                     // Already paid to teacher (cumulative)
                     $currentPaidToTeacher = round((float) ($record->total_paid_to_teacher ?? 0), 2);
@@ -1215,19 +1233,12 @@ class TeacherMembershipPaymentService
                             );
 
                             $newPaidToTeacher = round($currentPaidToTeacher + $delta, 2);
-                            $recordUpdate = ['total_paid_to_teacher' => $newPaidToTeacher];
 
-                            // CONTAINMENT for the multi-month double-payout: this method credits the
-                            // teacher's FULL commission up front, but used to leave
-                            // months_rest_not_paid_yet populated. The monthly cron
-                            // (teachers:process-monthly-payments) then credited monthly_teacher_amount
-                            // again for each of those months — paying 167-200% of the commission.
-                            // Once the teacher is paid in full there is nothing left to pay monthly.
-                            if ($newPaidToTeacher >= $totalTeacherAmount && $totalTeacherAmount > 0) {
-                                $recordUpdate['months_rest_not_paid_yet'] = [];
-                            }
-
-                            $record->update($recordUpdate);
+                            $record->update($this->rescheduleRemainingMonths(
+                                $newPaidToTeacher,
+                                $totalTeacherAmount,
+                                $unpaidMonths,
+                            ));
 
                             Log::info('Reconciled teacher payout for updated invoice', [
                                 'invoice_id' => $invoice->id,
@@ -1247,19 +1258,16 @@ class TeacherMembershipPaymentService
                             $result['total_delta'] = round($result['total_delta'] + $delta, 2);
                         }
                     } else {
-                        // Same containment as above: the wallet needs no adjustment, but if the
-                        // teacher is already paid in full any residual unpaid months would still
-                        // be picked up and re-credited by the monthly cron.
-                        if ($currentPaidToTeacher >= $totalTeacherAmount && $totalTeacherAmount > 0
-                            && ! empty($record->months_rest_not_paid_yet)) {
-                            $record->update(['months_rest_not_paid_yet' => []]);
-                            Log::info('Cleared residual unpaid months on a fully-paid record', [
-                                'invoice_id' => $invoice->id,
-                                'record_id' => $record->id,
-                                'teacher_id' => $record->teacher_id,
-                                'cleared_months' => $unpaidMonths,
-                            ]);
-                        }
+                        // The wallet needs no adjustment, but the SCHEDULE still might: the
+                        // invoice total may have changed without moving what is owed to date,
+                        // which leaves monthly_teacher_amount describing the old total. And if
+                        // the teacher is already paid in full, any residual unpaid months
+                        // would be picked up and re-credited by the monthly cron.
+                        $record->update($this->rescheduleRemainingMonths(
+                            $currentPaidToTeacher,
+                            $totalTeacherAmount,
+                            $unpaidMonths,
+                        ));
 
                         Log::info('No reconciliation needed (no delta)', [
                             'invoice_id' => $invoice->id,
@@ -1293,6 +1301,46 @@ class TeacherMembershipPaymentService
         }
 
         return $result;
+    }
+
+    /**
+     * Spread whatever is still owed evenly across the months still queued.
+     *
+     * Called after reconciliation has decided what the teacher should be holding today. Two
+     * jobs, and both of them have been the source of a real payout bug:
+     *
+     *  - monthly_teacher_amount has to describe the CURRENT remainder. It is computed when
+     *    the record is written and never revisited, so after an edit that raised the invoice
+     *    total it still described the old one. The cron's outstanding-balance cap stopped
+     *    that overpaying, but the months in between were each short, and the whole balance
+     *    landed in a lump on the final month.
+     *
+     *  - once the teacher is paid in full, the queue must be emptied. The cron selects purely
+     *    on months_rest_not_paid_yet, so a settled record with months still listed is paid
+     *    again — the production invoice 842 case.
+     *
+     * @param  array<int, string>  $unpaidMonths
+     * @return array<string, mixed> attributes for the record update
+     */
+    private function rescheduleRemainingMonths(float $paidToTeacher, float $totalTeacherAmount, array $unpaidMonths): array
+    {
+        $update = ['total_paid_to_teacher' => $paidToTeacher];
+
+        $outstanding = round($totalTeacherAmount - $paidToTeacher, 2);
+        $remainingCount = count($unpaidMonths);
+
+        if ($totalTeacherAmount > 0 && $outstanding <= 0.01) {
+            $update['months_rest_not_paid_yet'] = [];
+            $update['monthly_teacher_amount'] = 0;
+
+            return $update;
+        }
+
+        if ($remainingCount > 0) {
+            $update['monthly_teacher_amount'] = round($outstanding / $remainingCount, 2);
+        }
+
+        return $update;
     }
 
     /**
@@ -1502,15 +1550,99 @@ class TeacherMembershipPaymentService
      *     messages: array<int, string>
      * }
      */
-    public function reverseInvoicePayments(Invoice $invoice, ?array $oldData = null): array
+    /**
+     * What deleting this invoice WOULD do, without doing any of it.
+     *
+     * Lets the controller ask before it acts: past the deadline the user is shown what the
+     * teachers will keep and asked to confirm, instead of finding out afterwards that an
+     * irreversible delete has already happened.
+     *
+     * Shares the deadline arithmetic with reverseInvoicePayments() through
+     * reversalDeadlineState(), so the preview and the action can never disagree — a preview
+     * that promised one thing and a delete that did another would be worse than no preview.
+     *
+     * @return array{
+     *     reversed: bool, total_reversed: float, days_since_billing: int|null,
+     *     deadline_days: int, within_deadline: bool,
+     *     applied: array<int, array<string, mixed>>, blocked: array<int, array<string, mixed>>,
+     *     messages: array<int, string>
+     * }
+     */
+    public function previewInvoiceReversal(Invoice $invoice): array
+    {
+        [$daysSinceBilling, $withinDeadline] = $this->reversalDeadlineState($invoice);
+
+        $outcome = $this->emptyReversalOutcome($daysSinceBilling, $withinDeadline);
+
+        foreach ($this->reversibleRecords($invoice) as $record) {
+            $teacher = Teacher::find($record->teacher_id);
+
+            if (! $teacher) {
+                continue;
+            }
+
+            $paid = round((float) ($record->total_paid_to_teacher ?? 0), 2);
+
+            if ($paid <= 0) {
+                continue;
+            }
+
+            $entry = [
+                'record_id' => $record->id,
+                'teacher_id' => $teacher->id,
+                'teacher_name' => trim($teacher->first_name.' '.$teacher->last_name),
+                'subject' => $record->teacher_subject,
+                'amount' => $paid,
+                'cancelled_months' => array_values($record->months_rest_not_paid_yet ?? []),
+            ];
+
+            if (! $withinDeadline) {
+                $outcome['blocked'][] = $entry + ['reason' => 'deadline_passed'];
+
+                continue;
+            }
+
+            $wallet = round((float) $teacher->wallet, 2);
+
+            if ($wallet <= 0) {
+                $outcome['blocked'][] = $entry + ['reason' => 'wallet_empty'];
+
+                continue;
+            }
+
+            $recoverable = min($paid, $wallet);
+            $outcome['total_reversed'] += $recoverable;
+            $outcome['applied'][] = $entry + ['amount' => $recoverable, 'reason' => 'reversed'];
+
+            if ($recoverable < $paid) {
+                $outcome['blocked'][] = $entry + [
+                    'amount' => round($paid - $recoverable, 2),
+                    'reason' => 'wallet_insufficient',
+                ];
+            }
+        }
+
+        $outcome['total_reversed'] = round($outcome['total_reversed'], 2);
+        $outcome['reversed'] = $outcome['total_reversed'] > 0;
+        $outcome['messages'] = $this->buildReversalMessages($outcome);
+
+        return $outcome;
+    }
+
+    /**
+     * How long ago this invoice was billed, and whether that is still inside the window.
+     *
+     * @return array{0: int|null, 1: bool}
+     */
+    private function reversalDeadlineState(Invoice $invoice): array
     {
         $billingDate = $invoice->billDate;
 
         // Carbon 3 returns a SIGNED difference, so `now()->diffInDays($past)` is NEGATIVE.
         // That made the old `<= 10` checks always true, which reversed a teacher's entire
         // paid-to-date balance whenever ANY old invoice was deleted. Measuring FORWARD from
-        // the billing date gives a positive number for past bills, which is what the rule
-        // is stated in. A negative value means a post-dated bill — comfortably inside the
+        // the billing date gives a positive number for past bills, which is what the rule is
+        // stated in. A negative value means a post-dated bill — comfortably inside the
         // window, and handled by the same comparison without a special case.
         $daysSinceBilling = $billingDate
             ? (int) \Carbon\Carbon::parse($billingDate)->startOfDay()->diffInDays(now()->startOfDay(), false)
@@ -1518,10 +1650,32 @@ class TeacherMembershipPaymentService
 
         // No billing date means the deadline cannot be measured. The safe answer is to leave
         // the teachers' money alone rather than guess, so it is treated as expired.
-        $withinDeadline = $daysSinceBilling !== null
-            && $daysSinceBilling <= self::REVERSAL_DEADLINE_DAYS;
+        return [
+            $daysSinceBilling,
+            $daysSinceBilling !== null && $daysSinceBilling <= self::REVERSAL_DEADLINE_DAYS,
+        ];
+    }
 
-        $outcome = [
+    /**
+     * Deliberately NOT gated on the membership existing, and keyed on invoice_id ALONE.
+     *
+     * The previous `where('membership_id', ...)` filter meant records whose membership_id had
+     * been nulled (the FK is ON DELETE SET NULL) were never found, silently leaving the
+     * teacher credited for a deleted invoice.
+     *
+     * @return \Illuminate\Database\Eloquent\Collection<int, TeacherMembershipPayment>
+     */
+    private function reversibleRecords(Invoice $invoice)
+    {
+        return TeacherMembershipPayment::active()
+            ->where('invoice_id', $invoice->id)
+            ->get();
+    }
+
+    /** @return array<string, mixed> */
+    private function emptyReversalOutcome(?int $daysSinceBilling, bool $withinDeadline): array
+    {
+        return [
             'reversed' => false,
             'total_reversed' => 0.0,
             'days_since_billing' => $daysSinceBilling,
@@ -1531,16 +1685,15 @@ class TeacherMembershipPaymentService
             'blocked' => [],
             'messages' => [],
         ];
+    }
 
-        // Deliberately NOT gated on the membership existing, and keyed on invoice_id ALONE.
-        // The previous `where('membership_id', ...)` filter meant records whose membership_id
-        // had been nulled (the FK is ON DELETE SET NULL) were never found, silently leaving
-        // the teacher credited for a deleted invoice.
-        $records = TeacherMembershipPayment::active()
-            ->where('invoice_id', $invoice->id)
-            ->get();
+    public function reverseInvoicePayments(Invoice $invoice, ?array $oldData = null): array
+    {
+        [$daysSinceBilling, $withinDeadline] = $this->reversalDeadlineState($invoice);
 
-        foreach ($records as $record) {
+        $outcome = $this->emptyReversalOutcome($daysSinceBilling, $withinDeadline);
+
+        foreach ($this->reversibleRecords($invoice) as $record) {
             $this->reverseTeacherPayment($record, $invoice, $withinDeadline, $outcome);
         }
 
@@ -1550,7 +1703,7 @@ class TeacherMembershipPaymentService
 
         Log::info('Invoice reversal completed', [
             'invoice_id' => $invoice->id,
-            'bill_date' => $billingDate?->format('Y-m-d'),
+            'bill_date' => $invoice->billDate?->format('Y-m-d'),
             'days_since_billing' => $daysSinceBilling,
             'within_deadline' => $withinDeadline,
             'total_reversed' => $outcome['total_reversed'],

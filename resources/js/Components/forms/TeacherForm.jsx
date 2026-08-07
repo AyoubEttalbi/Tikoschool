@@ -36,6 +36,7 @@ import { Badge } from "@/Components/ui/badge";
 import { Button } from "@/Components/ui/button";
 import UserForm from "./UserForm";
 import UpdateUser from "@/Pages/Auth/UpdateUser";
+import TeacherWalletPanel from "./TeacherWalletPanel";
 
 // Définir le schéma de validation
 const schema = z.object({
@@ -48,9 +49,6 @@ const schema = z.object({
     subjects: z
         .array(z.object({ id: z.number(), name: z.string() }))
         .optional(),
-    wallet: z.coerce
-        .number()
-        .nonnegative({ message: "Le solde doit être positif !" }),
     classes: z.array(z.object({ id: z.number(), name: z.string() })).optional(),
     schools: z.array(z.object({ id: z.number(), name: z.string() })).optional(),
     profile_image: z.any().optional(),
@@ -107,7 +105,6 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
             email: data?.email || "",
             status: data?.status || "active",
             subjects: data?.subjects || [],
-            wallet: data?.wallet || 0,
             classes: data?.classes?.map(({ id, name }) => ({ id, name })) || [],
             schools: data?.schools?.map(({ id, name }) => ({ id, name })) || [],
             profile_image: null,
@@ -119,7 +116,6 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
     const lastName = watch("lastName");
     const email = watch("email");
     const status = watch("status");
-    const wallet = watch("wallet");
     const subjectsVal = watch("subjects");
     const classesVal = watch("classes");
     const schoolsVal = watch("schools");
@@ -131,7 +127,6 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
         email?.trim() &&
         /^\S+@\S+\.\S+$/.test(email) &&
         status &&
-        wallet !== undefined && wallet !== null && wallet !== "" && !isNaN(wallet) && Number(wallet) >= 0 &&
         Array.isArray(subjectsVal) && subjectsVal.length > 0 &&
         Array.isArray(classesVal) && classesVal.length > 0 &&
         Array.isArray(schoolsVal) && schoolsVal.length > 0;
@@ -167,7 +162,6 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
         formDataObj.append("phone_number", formData.phoneNumber || "");
         formDataObj.append("email", formData.email);
         formDataObj.append("status", formData.status);
-        formDataObj.append("wallet", formData.wallet);
 
         // Append the file if it exists
         if (formData.profile_image) {
@@ -312,13 +306,23 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
                         register={register}
                         error={errors.email}
                     />
-                    <InputField
-                        label="Solde du portefeuille"
-                        name="wallet"
-                        type="number"
-                        register={register}
-                        error={errors.wallet}
-                    />
+                    {/* The wallet is no longer a form field. It is ledger-derived, and
+                        re-submitting a stale value alongside a phone-number edit wiped out
+                        earnings credited while the form was open. On create it starts at 0;
+                        on edit it is shown here with its own adjust action. */}
+                    {type === "update" && data?.id ? (
+                        <TeacherWalletPanel teacher={data} />
+                    ) : (
+                        <div className="flex w-full flex-col gap-1 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                            <span className="text-xs text-gray-500">
+                                Solde du portefeuille
+                            </span>
+                            <span className="text-sm text-slate-500">
+                                0,00 DH — le solde se construit à partir des paiements
+                                des étudiants.
+                            </span>
+                        </div>
+                    )}
                     {/* Import d'image de profil */}
                     <div className="flex flex-col gap-2 w-full">
                         <label className="text-xs text-gray-500">
@@ -800,7 +804,6 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
                                     formDataObj.append("teacher[phone_number]", teacherData.phoneNumber || "");
                                     formDataObj.append("teacher[email]", teacherData.email);
                                     formDataObj.append("teacher[status]", teacherData.status);
-                                    formDataObj.append("teacher[wallet]", teacherData.wallet);
                                     if (teacherData.profile_image) {
                                         formDataObj.append("teacher[profile_image]", teacherData.profile_image);
                                     }

@@ -10,6 +10,7 @@ use App\Models\Membership;
 use App\Models\School;
 use App\Models\Subject;
 use App\Models\Teacher;
+use App\Models\TeacherWalletEntry;
 use App\Models\User;
 use App\Support\OfferPercentages;
 use App\Support\SchoolScope;
@@ -1059,8 +1060,11 @@ class TeacherController extends Controller
             // round-tripped whatever value it loaded, so if a student paid an invoice
             // between the form being opened and submitted, saving an unrelated field
             // (a phone number, a school assignment) silently reverted the teacher's
-            // earnings — a classic lost update. Adjustments must go through a payout
-            // transaction so they are recorded.
+            // earnings — a classic lost update.
+            //
+            // To CHANGE a balance deliberately, use adjustWallet() below. It is a separate,
+            // admin-only action that records the movement in the ledger with a reason, which
+            // is exactly what saving a phone number must never be able to do by accident.
             unset($validatedData['wallet']);
 
             // Check for duplicate email in users table (except for the user with the old email)
@@ -1128,6 +1132,93 @@ class TeacherController extends Controller
 
             return redirect()->back()->with('error', 'Failed to update teacher. Please try again.');
         }
+    }
+
+    /**
+     * Set a teacher's wallet balance to a new figure, recording the difference.
+     *
+     * The replacement for editing `wallet` on the teacher form. That field was removed
+     * because saving ANY unrelated field re-submitted a stale balance and wiped out earnings
+     * credited in the meantime. The answer is not to allow the blind write again, but to
+     * make changing a balance its own deliberate action:
+     *
+     *   - the delta is computed from the balance read UNDER THE ROW LOCK, not from whatever
+     *     the browser had on screen, so a payment landing mid-edit is preserved rather than
+     *     overwritten;
+     *   - the movement is written to teacher_wallet_entries with a mandatory reason and the
+     *     user who made it, so `wallet:check` still reconciles and `payouts:audit` can see
+     *     where a hand-adjustment came from;
+     *   - admin only, because it moves money.
+     */
+    public function adjustWallet(Request $request, Teacher $teacher)
+    {
+        SchoolScope::authorizeRole(['admin']);
+
+        $validated = $request->validate([
+            'new_balance' => 'required|numeric|min:0|max:9999999.99',
+            'note' => 'required|string|min:3|max:255',
+        ], [
+            'new_balance.required' => 'Le nouveau solde est obligatoire.',
+            'new_balance.min' => 'Le solde ne peut pas être négatif.',
+            'note.required' => 'Indiquez la raison de cet ajustement.',
+            'note.min' => 'La raison doit être un peu plus explicite.',
+        ]);
+
+        $target = round((float) $validated['new_balance'], 2);
+        $applied = 0.0;
+        $before = 0.0;
+
+        DB::transaction(function () use ($teacher, $target, $validated, &$applied, &$before) {
+            $locked = Teacher::whereKey($teacher->id)->lockForUpdate()->firstOrFail();
+            $before = round((float) $locked->wallet, 2);
+            $delta = round($target - $before, 2);
+
+            if ($delta === 0.0) {
+                return;
+            }
+
+            $wallet = new \App\Services\TeacherWalletService;
+            $note = 'ajustement manuel : '.$validated['note'];
+
+            // No invoice id and no month, so this is deliberately EXEMPT from the ledger's
+            // idempotency key — two genuine adjustments of the same size on the same day are
+            // both real and must both be recorded. @see CLAUDE.md on NULL semantics.
+            $delta > 0
+                ? $wallet->credit($locked, $delta, TeacherWalletEntry::REASON_ADJUSTMENT, null, null, null, $note)
+                : $wallet->debit($locked, abs($delta), TeacherWalletEntry::REASON_ADJUSTMENT, null, null, null, $note);
+
+            $applied = round((float) $locked->fresh()->wallet, 2) - $before;
+        });
+
+        $after = round((float) $teacher->fresh()->wallet, 2);
+
+        Log::info('Teacher wallet adjusted by hand', [
+            'teacher_id' => $teacher->id,
+            'requested_balance' => $target,
+            'balance_before' => $before,
+            'balance_after' => $after,
+            'note' => $validated['note'],
+            'by' => auth()->id(),
+        ]);
+
+        if (round($applied, 2) === 0.0) {
+            return redirect()->back()->with('success', 'Le solde était déjà à cette valeur — rien n\'a changé.');
+        }
+
+        // The applied delta is reported rather than the requested one: debit() clamps at
+        // zero, and a balance that moved between opening the form and saving means the
+        // change is not the subtraction the user did in their head.
+        return redirect()->back()->with('payment_notice', \App\Support\PaymentNotice::success(
+            'Portefeuille ajusté',
+            ["Le solde de {$teacher->first_name} {$teacher->last_name} est passé de "
+                .number_format($before, 2, ',', ' ').' DH à '.number_format($after, 2, ',', ' ').' DH.',
+                'Ce mouvement est enregistré dans le journal du portefeuille.'],
+            [[
+                'label' => 'Ajustement',
+                'value' => ($applied > 0 ? '+' : '−').number_format(abs($applied), 2, ',', ' ').' DH',
+                'note' => $validated['note'],
+            ]],
+        )->toArray());
     }
 
     /**

@@ -169,6 +169,68 @@ test('an amount that does not divide evenly still delivers the exact total', fun
     expect($s->wallet('Math'))->toBe(1000.0, 'Rounding must not strand the remainder.');
 });
 
+test('settling a multi-month invoice early still releases the commission month by month', function () {
+    // The family pays the whole 3-month plan in September. The teacher must NOT receive all
+    // three months in September — a multi-month invoice releases month by month whatever the
+    // student does. Reconciliation used to hand over the full commission on any edit that
+    // moved the paid amount, quietly bypassing the schedule.
+    $s = PaymentScenario::make(['Math' => 30]);
+
+    $s->bill(months: ['2026-08', '2026-09', '2026-10'], total: 3000, paid: 1000);
+    expect($s->wallet('Math'))->toBe(100.0);
+
+    $s->advanceToMonth('2026-09');
+    expect($s->wallet('Math'))->toBe(200.0);
+
+    // Pays the balance. Commission becomes 900; two of the three months have come round.
+    $s->editInvoice(newTotal: 3000, newPaid: 3000);
+
+    expect($s->wallet('Math'))
+        ->toBe(600.0, 'Two months due out of three: 900 x 2/3. October is not payable yet.')
+        ->and($s->record('Math')->months_rest_not_paid_yet)
+        ->toBe(['2026-10'], 'The remaining month stays queued for the cron.');
+
+    $s->advanceToMonth('2026-10');
+
+    expect($s->wallet('Math'))->toBe(900.0, 'The last month completes the commission.');
+});
+
+test('a single-month invoice paid late is still settled immediately', function () {
+    // The month-by-month rule is about multi-month plans. One month means one payment, and
+    // topping it up must land in the wallet straight away rather than waiting for a cron.
+    $s = PaymentScenario::make(['Math' => 50]);
+
+    $s->bill(months: ['2026-08'], total: 1000, paid: 200);
+    expect($s->wallet('Math'))->toBe(100.0);
+
+    $s->editInvoice(newTotal: 1000, newPaid: 1000);
+
+    expect($s->wallet('Math'))->toBe(500.0, 'Nothing is left to schedule on a one-month invoice.')
+        ->and($s->record('Math')->months_rest_not_paid_yet)->toBe([]);
+});
+
+test('each remaining month pays an equal share after the total changes', function () {
+    // monthly_teacher_amount is set when the record is created and was never revisited, so
+    // after a raise the middle months stayed short and the balance arrived in one lump on
+    // the final month. The teacher should see an even release.
+    $s = PaymentScenario::make(['Math' => 30]);
+
+    $s->bill(months: ['2026-08', '2026-09', '2026-10', '2026-11'], total: 4000, paid: 1000);
+    $s->editInvoice(newTotal: 4000, newPaid: 4000);
+
+    // 30% of 4000 = 1200 over four months = 300 each; August is due, three months remain.
+    expect($s->wallet('Math'))->toBe(300.0);
+
+    $s->advanceToMonth('2026-09');
+    expect($s->wallet('Math'))->toBe(600.0, 'An even step, not a short month.');
+
+    $s->advanceToMonth('2026-10');
+    expect($s->wallet('Math'))->toBe(900.0);
+
+    $s->advanceToMonth('2026-11');
+    expect($s->wallet('Math'))->toBe(1200.0);
+});
+
 test('the wallet column never drifts from the ledger across a full multi-month life', function () {
     $s = PaymentScenario::make(['Math' => 35]);
 

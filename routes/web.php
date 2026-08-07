@@ -154,6 +154,19 @@ Route::middleware('auth')->group(function () {
         Route::delete('/teachers/{teacher}', [TeacherController::class, 'destroy'])->name('teachers.destroy');
     });
 
+    // Changing a wallet balance is its own action, not a field on the edit form — see
+    // TeacherController::adjustWallet().
+    //
+    // Deliberately OUTSIDE the AdminMiddleware group above. AdminMiddleware *redirects* to
+    // /dashboard on denial, and it runs first, so wrapping this route in both would return
+    // a 302 that the frontend reads as success — the caller would think the adjustment had
+    // been applied. RequireRole aborts 403, which is the only answer a money endpoint can
+    // give. @see CLAUDE.md on the two authorization layers.
+    Route::post('/teachers/{teacher}/wallet', [TeacherController::class, 'adjustWallet'])
+        ->middleware(RequireRole::class.':admin')
+        ->name('teachers.wallet.adjust')
+        ->where('teacher', '[0-9]+');
+
     // Invoice specific routes
     Route::controller(InvoiceController::class)->prefix('invoices')->group(function () {
         Route::get('/{id}/pdf', 'generateInvoicePdf')->name('invoices.pdf');

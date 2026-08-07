@@ -827,11 +827,35 @@ class InvoiceController extends Controller
 
     /**
      * Remove the specified invoice from the database.
+     *
+     * Two shapes, depending on the claw-back deadline:
+     *
+     *  - INSIDE the window, deleting is fully reversible in the sense that matters — the
+     *    money comes back out of the teachers' wallets — so it happens straight away.
+     *
+     *  - PAST the window, it is not: the invoice disappears and the teachers keep what they
+     *    were paid, whatever anyone does next. So the first request does NOT delete. It
+     *    returns a dialog saying what will happen and offering the choice; only a request
+     *    carrying `confirm_keep_wallet` goes through with it.
      */
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
         // Before the transaction: deleting an invoice debits teacher wallets.
-        $this->authorizeInvoice(Invoice::findOrFail($id));
+        $invoice = Invoice::findOrFail($id);
+        $this->authorizeInvoice($invoice);
+
+        $paymentService = new \App\Services\TeacherMembershipPaymentService;
+        $preview = $paymentService->previewInvoiceReversal($invoice);
+
+        $needsConfirmation = ! $preview['within_deadline'] && $preview['blocked'] !== [];
+
+        if ($needsConfirmation && ! $request->boolean('confirm_keep_wallet')) {
+            // Nothing has been written. The invoice is untouched and still listed.
+            return redirect()->back()->with(
+                'payment_notice',
+                \App\Support\PaymentNotice::confirmDeletion($preview, $invoice->id)->toArray()
+            );
+        }
 
         try {
             // Captured from inside the transaction so the notice describes what was actually
