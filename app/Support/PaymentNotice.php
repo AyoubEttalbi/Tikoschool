@@ -25,8 +25,16 @@ class PaymentNotice
 
     public const TONE_ERROR = 'error';
 
-    /** Shown in place of the per-teacher table when the viewer is not an admin. */
-    public const RESTRICTED_NOTE = 'Le détail par enseignant (montants et pourcentages) est visible uniquement par l\'administrateur.';
+    /**
+     * Shown to the ADMIN, under the per-teacher table.
+     *
+     * Addressed to the person who can see the payroll, not the person who cannot. Telling an
+     * assistant that a detail exists but is hidden from them is noise: it is not something
+     * they can act on, and it invites them to go asking for it. Telling the admin that the
+     * figures on their screen are theirs alone is a fact they need before they read them out
+     * to somebody standing next to them.
+     */
+    public const ADMIN_ONLY_NOTE = 'Ce détail n\'est visible que par vous.';
 
     /**
      * @param  array<int, string>  $messages
@@ -39,7 +47,7 @@ class PaymentNotice
         private readonly array $messages,
         private readonly array $details = [],
         private readonly array $actions = [],
-        private readonly ?string $restrictedNote = null,
+        private readonly ?string $adminOnlyNote = null,
     ) {}
 
     /**
@@ -94,14 +102,52 @@ class PaymentNotice
         $tone = $blocked === [] ? self::TONE_SUCCESS : self::TONE_WARNING;
         $admin = self::canSeeTeacherAmounts();
 
+        $details = $admin ? self::breakdown($applied, $blocked) : [];
+
         return new self(
             $tone,
             $blocked === [] ? 'Facture supprimée' : 'Facture supprimée — action requise',
-            $admin ? ($outcome['messages'] ?? []) : self::redactedMessages($outcome),
-            $admin ? self::breakdown($applied, $blocked) : [],
+            self::reversalSummary($outcome),
+            $details,
             [],
-            $admin ? null : self::RESTRICTED_NOTE,
+            $details === [] ? null : self::ADMIN_ONLY_NOTE,
         );
+    }
+
+    /**
+     * The outcome in at most three short lines.
+     *
+     * Carries no per-teacher figures at any role — those live in the table, which only
+     * admins receive. Two separate versions of this prose used to exist, one splicing names
+     * and amounts mid-sentence and one without, and the detailed one restated in words every
+     * figure the table underneath it was already showing.
+     *
+     * @param  array<string, mixed>  $outcome
+     * @return array<int, string>
+     */
+    private static function reversalSummary(array $outcome): array
+    {
+        $messages = [];
+        $blocked = $outcome['blocked'] ?? [];
+
+        if (array_filter($blocked, fn ($r) => ($r['reason'] ?? '') === 'deadline_passed') !== []) {
+            $messages[] = 'Facture de plus de '.($outcome['deadline_days'] ?? 7)
+                .' jours : les enseignants gardent ce qui leur a été versé.';
+        }
+
+        if (array_filter($blocked, fn ($r) => in_array($r['reason'] ?? '', ['wallet_empty', 'wallet_insufficient'], true)) !== []) {
+            $messages[] = 'Un solde n\'a pas permis de tout reprendre.';
+        }
+
+        if (($outcome['total_reversed'] ?? 0) > 0) {
+            // The figure is withheld from non-admins on purpose. It is a total, but on a
+            // single-teacher invoice a total IS that teacher's commission.
+            $messages[] = self::canSeeTeacherAmounts()
+                ? number_format((float) $outcome['total_reversed'], 2, ',', ' ').' DH repris des portefeuilles.'
+                : 'Les montants ont été repris des portefeuilles.';
+        }
+
+        return $messages;
     }
 
     /**
@@ -115,26 +161,17 @@ class PaymentNotice
      */
     public static function confirmDeletion(array $preview, int $invoiceId): self
     {
-        $blocked = $preview['blocked'] ?? [];
-        $admin = self::canSeeTeacherAmounts();
         $deadline = $preview['deadline_days'] ?? 7;
-
-        $messages = [
-            "Cette facture date de plus de {$deadline} jours. Le montant déjà versé aux enseignants "
-                .'ne peut plus être retiré de leur portefeuille.',
-            'Vous pouvez fermer cette fenêtre et conserver la facture, ou la supprimer quand même. '
-                .'Dans les deux cas, les portefeuilles des enseignants ne changent pas.',
-        ];
-
-        if (! $admin) {
-            $messages[] = 'Le détail par enseignant est réservé à l\'administrateur.';
-        }
+        $details = self::canSeeTeacherAmounts() ? self::breakdown([], $preview['blocked'] ?? []) : [];
 
         return new self(
             self::TONE_WARNING,
             'Supprimer cette facture ?',
-            $messages,
-            $admin ? self::breakdown([], $blocked) : [],
+            [
+                "Facture de plus de {$deadline} jours : les enseignants gardent ce qui leur a été versé.",
+                'Aucun portefeuille ne change, que vous supprimiez ou non.',
+            ],
+            $details,
             [[
                 'label' => 'Supprimer quand même',
                 'url' => "/invoices/{$invoiceId}",
@@ -144,7 +181,7 @@ class PaymentNotice
                 // it the same request would just re-open this dialog for ever.
                 'data' => ['confirm_keep_wallet' => true],
             ]],
-            $admin ? null : self::RESTRICTED_NOTE,
+            $details === [] ? null : self::ADMIN_ONLY_NOTE,
         );
     }
 
@@ -184,45 +221,6 @@ class PaymentNotice
     }
 
     /**
-     * The same facts without the payroll.
-     *
-     * Deliberately rebuilt from the structured outcome rather than filtered out of
-     * $outcome['messages'], which embed names and amounts mid-sentence. Stripping those with
-     * a regex would eventually leak one; not generating them cannot.
-     *
-     * @param  array<string, mixed>  $outcome
-     * @return array<int, string>
-     */
-    private static function redactedMessages(array $outcome): array
-    {
-        $messages = [];
-        $blocked = $outcome['blocked'] ?? [];
-
-        $expired = array_filter($blocked, fn ($r) => ($r['reason'] ?? '') === 'deadline_passed');
-        if ($expired !== []) {
-            $count = count($expired);
-            $messages[] = 'Cette facture date de plus de '.($outcome['deadline_days'] ?? 7)
-                .' jours : le montant déjà versé ne peut plus être retiré du portefeuille des enseignants. '
-                .$count.' enseignant'.($count > 1 ? 's' : '').' concerné'.($count > 1 ? 's' : '').'.';
-        }
-
-        $short = array_filter(
-            $blocked,
-            fn ($r) => in_array($r['reason'] ?? '', ['wallet_empty', 'wallet_insufficient'], true)
-        );
-        if ($short !== []) {
-            $messages[] = 'Le solde d\'un ou plusieurs enseignants n\'a pas permis de reprendre '
-                .'la totalité du montant. Signalez-le à l\'administrateur.';
-        }
-
-        if (($outcome['total_reversed'] ?? 0) > 0) {
-            $messages[] = 'Les montants versés aux enseignants pour cette facture ont été repris.';
-        }
-
-        return $messages;
-    }
-
-    /**
      * Build the notice for an invoice that could not be processed.
      *
      * @param  array<int, string>  $errors
@@ -250,7 +248,7 @@ class PaymentNotice
             'messages' => array_values($this->messages),
             'details' => array_values($this->details),
             'actions' => array_values($this->actions),
-            'restricted_note' => $this->restrictedNote,
+            'admin_note' => $this->adminOnlyNote,
         ];
     }
 }

@@ -164,12 +164,13 @@ export default function PaymentNoticeDialog() {
                     </div>
                 )}
 
-                {notice.restricted_note && (
-                    /* Shown instead of the per-teacher table. Saying the detail exists but is
-                       restricted is better than an unexplained gap, which reads as a bug. */
-                    <div className="flex items-start gap-2 border-t border-slate-100 bg-slate-50/60 px-6 py-3 text-xs text-slate-500">
-                        <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                        <span>{notice.restricted_note}</span>
+                {notice.admin_note && (
+                    /* Sits UNDER the table, addressed to the admin reading it. Nobody else
+                       receives this — telling a user that a detail exists but is hidden from
+                       them is noise they cannot act on. */
+                    <div className="flex items-center gap-1.5 bg-slate-50/60 px-6 pb-3 text-xs text-slate-400">
+                        <Lock className="h-3 w-3 shrink-0" aria-hidden="true" />
+                        <span>{notice.admin_note}</span>
                     </div>
                 )}
 

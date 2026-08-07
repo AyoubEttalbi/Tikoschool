@@ -1210,11 +1210,9 @@ class TeacherController extends Controller
         // change is not the subtraction the user did in their head.
         return redirect()->back()->with('payment_notice', \App\Support\PaymentNotice::success(
             'Portefeuille ajusté',
-            ["Le solde de {$teacher->first_name} {$teacher->last_name} est passé de "
-                .number_format($before, 2, ',', ' ').' DH à '.number_format($after, 2, ',', ' ').' DH.',
-                'Ce mouvement est enregistré dans le journal du portefeuille.'],
+            [number_format($before, 2, ',', ' ').' DH → '.number_format($after, 2, ',', ' ').' DH.'],
             [[
-                'label' => 'Ajustement',
+                'label' => trim($teacher->first_name.' '.$teacher->last_name),
                 'value' => ($applied > 0 ? '+' : '−').number_format(abs($applied), 2, ',', ' ').' DH',
                 'note' => $validated['note'],
             ]],

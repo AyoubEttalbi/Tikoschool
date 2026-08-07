@@ -253,7 +253,9 @@ test('an assistant is told what happened but not who earns what', function () {
     $notice = session('payment_notice');
 
     expect($notice['details'])->toBe([], 'The per-teacher table is admin-only.')
-        ->and($notice['restricted_note'])->not->toBeNull()
+        // No "this is hidden from you" line either. It is not something an assistant can act
+        // on, and it only invites them to go asking for the figures.
+        ->and($notice['admin_note'])->toBeNull()
         ->and(implode(' ', $notice['messages']))
         ->not->toContain($s->teachers['Math']->last_name)
         ->and(implode(' ', $notice['messages']))
@@ -269,9 +271,9 @@ test('the assistant still learns the money could not be taken back', function ()
     // Redaction must remove the payroll, not the warning.
     $text = implode(' ', session('payment_notice')['messages']);
 
-    expect($text)->toContain('ne peut plus')
-        ->and($text)->toContain('portefeuille')
-        ->and($text)->toContain('7 jours');
+    expect($text)->toContain('7 jours')
+        ->and($text)->toContain('gardent')
+        ->and($text)->toContain('portefeuille');
 });
 
 test('an admin still sees the full breakdown', function () {
@@ -284,7 +286,8 @@ test('an admin still sees the full breakdown', function () {
     expect($notice['details'])->toHaveCount(1)
         ->and($notice['details'][0]['label'])->toContain($s->teachers['Math']->last_name)
         ->and($notice['details'][0]['value'])->toContain('500')
-        ->and($notice['restricted_note'])->toBeNull();
+        // The note is addressed to the admin: these figures are theirs alone.
+        ->and($notice['admin_note'])->toBe('Ce détail n\'est visible que par vous.');
 });
 
 test('a rejected invoice explains every problem at once, not one per attempt', function () {

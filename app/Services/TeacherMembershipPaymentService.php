@@ -1714,39 +1714,33 @@ class TeacherMembershipPaymentService
     }
 
     /**
-     * Turn the outcome into sentences a school secretary can act on.
+     * A one-line-per-fact summary of the outcome.
      *
-     * French, because every user-facing string in this application is French.
+     * These land in the log and in the returned array. What the USER reads is built by
+     * App\Support\PaymentNotice, which knows the viewer's role and can withhold payroll —
+     * so nothing here should splice a teacher's name or commission into a sentence. It used
+     * to, and those sentences were then rendered above a table repeating the same figures.
      */
     private function buildReversalMessages(array $outcome): array
     {
         $messages = [];
 
-        $names = static fn (array $rows) => implode(', ', array_map(
-            fn ($r) => trim(($r['teacher_name'] ?? '').' ('.($r['subject'] ?? '—').') : '
-                .number_format((float) ($r['amount'] ?? 0), 2, ',', ' ').' DH'),
-            $rows
-        ));
+        $hasReason = fn (array $reasons) => array_filter(
+            $outcome['blocked'],
+            fn ($r) => in_array($r['reason'], $reasons, true)
+        ) !== [];
 
-        $expired = array_values(array_filter($outcome['blocked'], fn ($r) => $r['reason'] === 'deadline_passed'));
-        if ($expired !== []) {
-            $messages[] = 'Cette facture date de plus de '.$outcome['deadline_days']
-                .' jours : le montant déjà versé ne peut plus être retiré du portefeuille des enseignants. '
-                .'Concernés — '.$names($expired).'.';
+        if ($hasReason(['deadline_passed'])) {
+            $messages[] = 'Facture de plus de '.$outcome['deadline_days']
+                .' jours : les enseignants gardent ce qui leur a été versé.';
         }
 
-        $short = array_values(array_filter(
-            $outcome['blocked'],
-            fn ($r) => in_array($r['reason'], ['wallet_empty', 'wallet_insufficient'], true)
-        ));
-        if ($short !== []) {
-            $messages[] = 'Solde insuffisant : le montant n\'a pas pu être repris intégralement, '
-                .'le portefeuille aurait été négatif. Restant dû — '.$names($short).'.';
+        if ($hasReason(['wallet_empty', 'wallet_insufficient'])) {
+            $messages[] = 'Un solde n\'a pas permis de tout reprendre.';
         }
 
         if ($outcome['total_reversed'] > 0) {
-            $messages[] = number_format($outcome['total_reversed'], 2, ',', ' ')
-                .' DH ont été repris du portefeuille des enseignants.';
+            $messages[] = number_format($outcome['total_reversed'], 2, ',', ' ').' DH repris des portefeuilles.';
         }
 
         return $messages;
