@@ -928,6 +928,57 @@ class TeacherMembershipPaymentService
                 $teacher = $record->teacher;
                 $monthlyAmount = round((float) $record->monthly_teacher_amount, 2);
 
+                // STOP if this record is already settled.
+                //
+                // The selection above matches on withUnpaidCurrentMonth() alone — whether a
+                // month is still listed in months_rest_not_paid_yet. It never asked whether
+                // the teacher had ALREADY been paid in full. A record can end up fully paid
+                // with months still queued (an invoice edit that recalculated the total, a
+                // reconcile that paid everything up front), and then the cron pays it again
+                // when one of those months comes round.
+                //
+                // The ledger does NOT catch this. Its key is
+                // (teacher, invoice, month, reason, subject), and a credit for a month that
+                // was never previously paid is a genuinely NEW row, not a duplicate.
+                //
+                // Found live: invoice 842, three teachers, each owed 270 and paid 270, each
+                // still carrying 2026-09 and 2026-10 at 90/month. That was 540 about to be
+                // paid twice over the following two cron runs.
+                //
+                // Clearing the month as well as skipping the credit means the stale queue
+                // drains itself instead of re-presenting every month.
+                $alreadyPaid = round((float) $record->total_paid_to_teacher, 2);
+                $owed = round((float) $record->total_teacher_amount, 2);
+
+                if ($owed > 0 && $alreadyPaid >= $owed - 0.01) {
+                    Log::warning('Monthly payout skipped: record is already paid in full', [
+                        'record_id' => $record->id,
+                        'teacher_id' => $record->teacher_id,
+                        'invoice_id' => $record->invoice_id,
+                        'month' => $currentMonth,
+                        'total_teacher_amount' => $owed,
+                        'total_paid_to_teacher' => $alreadyPaid,
+                        'would_have_paid' => $monthlyAmount,
+                    ]);
+
+                    $record->markMonthAsPaid($currentMonth);
+                    DB::commit();
+
+                    continue;
+                }
+
+                // Never pay more than the outstanding balance. Without this a rounding
+                // remainder or an edited total could let the final month overshoot.
+                $outstanding = round($owed - $alreadyPaid, 2);
+                if ($owed > 0 && $monthlyAmount > $outstanding) {
+                    Log::info('Monthly payout capped at the outstanding balance', [
+                        'record_id' => $record->id,
+                        'monthly_amount' => $monthlyAmount,
+                        'outstanding' => $outstanding,
+                    ]);
+                    $monthlyAmount = $outstanding;
+                }
+
                 // Idempotent on (teacher, invoice, month, 'schedule.monthly'): if the cron
                 // runs twice for the same month — a retry, an overlapping run, or a manual
                 // trigger racing the schedule — the second credit is refused by the database.
