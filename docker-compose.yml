@@ -23,7 +23,10 @@ services:
         # nginx therefore started before PHP-FPM was listening and served 502s on every deploy.
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "--no-check-certificate", "https://localhost/up"]
+      # 127.0.0.1, not localhost: the vhost is `listen 443 ssl http2` (IPv4 only, 0.0.0.0),
+      # but busybox wget resolves localhost to ::1 first and gets ECONNREFUSED — so the
+      # container reported unhealthy forever while serving 200s to the outside world.
+      test: ["CMD", "wget", "-q", "--spider", "--no-check-certificate", "https://127.0.0.1/up"]
       interval: 30s
       timeout: 5s
       retries: 3
