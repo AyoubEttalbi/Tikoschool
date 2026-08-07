@@ -11,6 +11,7 @@ use App\Models\School;
 use App\Models\Subject;
 use App\Models\Teacher;
 use App\Models\User;
+use App\Support\OfferPercentages;
 use App\Support\SchoolScope;
 use Carbon\Carbon;
 use Cloudinary\Cloudinary;
@@ -594,10 +595,9 @@ class TeacherController extends Controller
                     $teacherSubject = $subject;
 
                     // Get teacher percentage from offer when available; otherwise default to 0 but keep the row
-                    $teacherPercentage = 0;
-                    if ($offer && $teacherSubject && is_array($offer->percentage)) {
-                        $teacherPercentage = $offer->percentage[$teacherSubject] ?? 0;
-                    }
+                    // Same lookup rule as the payout path, or this report shows 0% for a
+                    // teacher the wallet actually paid. @see \App\Support\OfferPercentages
+                    $teacherPercentage = OfferPercentages::forSubject($offer, $teacherSubject) ?? 0;
 
                     // Calculate total teacher earnings from amountPaid (whole invoice)
                     $totalTeacherAmount = $invoice->amountPaid * ($teacherPercentage / 100);

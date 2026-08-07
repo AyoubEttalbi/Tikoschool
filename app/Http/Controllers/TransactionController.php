@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Transaction;
 use App\Models\User;
+use App\Support\OfferPercentages;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -2242,11 +2243,10 @@ class TransactionController extends Controller
                 $offer = $invoice->offer;
                 $teacherSubject = $teacherData['subject'] ?? ($teacher->subjects->first()->name ?? 'Unknown');
 
-                // Use 0% when offer/subject mapping is missing
-                $teacherPercentage = 0;
-                if ($offer && is_array($offer->percentage) && $teacherSubject) {
-                    $teacherPercentage = $offer->percentage[$teacherSubject] ?? 0;
-                }
+                // Use 0% when offer/subject mapping is missing. Lookup is case-insensitive
+                // so this report agrees with what the wallet was actually credited.
+                // @see \App\Support\OfferPercentages
+                $teacherPercentage = OfferPercentages::forSubject($offer, $teacherSubject) ?? 0;
 
                 // Calculate teacher earnings per month (respect partial-month logic like TeacherController)
                 $totalTeacherAmount = $invoice->amountPaid * ($teacherPercentage / 100);
@@ -2443,8 +2443,9 @@ class TransactionController extends Controller
                         // Use 0% when offer/subject mapping is missing
                         $teacherPercentage = 0;
                         if ($offer && $teacherSubject && is_array($offer->percentage)) {
-                            // Get teacher percentage from offer
-                            $teacherPercentage = $offer->percentage[$teacherSubject] ?? 0;
+                            // Case-insensitive, matching the payout path.
+                            // @see \App\Support\OfferPercentages
+                            $teacherPercentage = OfferPercentages::forSubject($offer, $teacherSubject) ?? 0;
 
                             // Calculate teacher earnings per month (respect partial-month logic like TeacherController)
                             $totalTeacherAmount = $invoice->amountPaid * ($teacherPercentage / 100);

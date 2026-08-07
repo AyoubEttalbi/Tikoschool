@@ -7,6 +7,7 @@ use App\Models\Membership;
 use App\Models\Offer;
 use App\Models\Teacher;
 use App\Models\TeacherMembershipPayment;
+use App\Support\OfferPercentages;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -53,7 +54,12 @@ class TeacherMembershipPaymentService
     protected function resolveTeacherPercentage(Offer $offer, Membership $membership, ?string $teacherSubject): float
     {
         $percentages = is_array($offer->percentage) ? $offer->percentage : [];
-        $teacherPercentage = round((float) ($percentages[$teacherSubject] ?? 0), 2);
+
+        // Case- and whitespace-insensitive: subject names are typed by hand in two
+        // different forms, and a membership storing "math" against an offer that says
+        // "Math" used to resolve to 0%. @see \App\Support\OfferPercentages
+        $declared = OfferPercentages::forSubject($offer, $teacherSubject);
+        $teacherPercentage = round((float) ($declared ?? 0), 2);
 
         if ($teacherPercentage > 0) {
             return $teacherPercentage;
@@ -108,9 +114,11 @@ class TeacherMembershipPaymentService
             $membership->teachers
         )));
 
+        // Same lookup rule as resolveTeacherPercentage(), or this 100% ceiling check would
+        // read 0 for a subject the payout path values at 60 and never fire.
         $total = 0.0;
         foreach (array_unique($subjects) as $subject) {
-            $total += (float) ($offer->percentage[$subject] ?? 0);
+            $total += (float) (OfferPercentages::forSubject($offer, $subject) ?? 0);
         }
 
         return round($total, 2);
