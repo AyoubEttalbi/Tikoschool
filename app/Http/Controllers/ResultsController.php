@@ -11,66 +11,85 @@ use App\Models\Subject;
 use App\Models\Teacher;
 use App\Support\SchoolScope;
 use Illuminate\Http\Request;
-use Inertia\Inertia;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Inertia\Inertia;
 
 class ResultsController extends Controller
 {
+    /** Scope an existing grade record by its student and class. */
+    private function authorizeResult(Result $result): void
+    {
+        if ($result->student) {
+            SchoolScope::authorizeStudent($result->student);
+        }
+
+        if ($result->class) {
+            SchoolScope::authorizeClass($result->class);
+        }
+    }
+
+    /** Scope a submitted grade payload before it is written. */
+    private function authorizeResultPayload(array $validated): void
+    {
+        SchoolScope::authorizeStudent(Student::findOrFail($validated['student_id']));
+        SchoolScope::authorizeClass(Classes::findOrFail($validated['class_id']));
+    }
+
     /**
      * Display a listing of the resource.
      */
     public function index(Request $request)
-    {   
+    {
         $user = $request->user();
         $role = $user->role;
-        
+
         // Get the selected school from session
         $selectedSchoolId = session('school_id');
-        
+
         $levels = Level::all();
         $subjects = Subject::all();
         $schools = School::all();
-        
+
         // Base queries for classes and teachers
         $classesQuery = Classes::query();
         $teachersQuery = Teacher::query();
-        
+
         // Filter by selected school if available
         if ($selectedSchoolId) {
             $classesQuery->where('school_id', $selectedSchoolId);
-            
-            $teachersQuery->whereHas('schools', function($query) use ($selectedSchoolId) {
+
+            $teachersQuery->whereHas('schools', function ($query) use ($selectedSchoolId) {
                 $query->where('schools.id', $selectedSchoolId);
             });
-            
+
             // Log the filtering
             Log::info('Results filtered by school', [
                 'school_id' => $selectedSchoolId,
-                'user_role' => $role
+                'user_role' => $role,
             ]);
         }
-        
+
         // Get teachers based on role
         if ($role === 'teacher') {
             $teacher = Teacher::where('email', $user->email)->first();
-            
+
             // Debug log to see if teacher is found
             Log::info('Teacher lookup by email', [
                 'user_email' => $user->email,
                 'teacher_found' => $teacher ? 'yes' : 'no',
-                'teacher_id' => $teacher ? $teacher->id : null
+                'teacher_id' => $teacher ? $teacher->id : null,
             ]);
-            
+
             if ($teacher) {
                 // For teachers, get their classes directly
                 $teacherClassIds = $teacher->classes->pluck('id')->toArray();
                 $classesQuery->whereIn('id', $teacherClassIds);
-                
+
                 // Get the subject IDs that this teacher teaches
                 $teacherSubjectIds = $teacher->subjects->pluck('id')->toArray();
             } else {
                 $teacherSubjectIds = [];
+
                 // If teacher not found, return empty results
                 return Inertia::render('Menu/ResultsPage', [
                     'classes' => [],
@@ -80,8 +99,8 @@ class ResultsController extends Controller
                     'schools' => $schools,
                     'selectedSchool' => $selectedSchoolId ? [
                         'id' => $selectedSchoolId,
-                        'name' => session('school_name')
-                    ] : null
+                        'name' => session('school_name'),
+                    ] : null,
                 ]);
             }
         } elseif ($role === 'assistant') {
@@ -95,11 +114,11 @@ class ResultsController extends Controller
                         $assistantSchoolIds = [$selectedSchoolId];
                     }
                 }
-                
-                $teachersQuery->whereHas('schools', function($query) use ($assistantSchoolIds) {
+
+                $teachersQuery->whereHas('schools', function ($query) use ($assistantSchoolIds) {
                     $query->whereIn('schools.id', $assistantSchoolIds);
                 });
-                
+
                 $teacherSubjectIds = [];
             } else {
                 $teacherSubjectIds = [];
@@ -108,23 +127,23 @@ class ResultsController extends Controller
             // For admin, no additional filtering beyond the selected school
             $teacherSubjectIds = [];
         }
-        
+
         // Execute queries
         $classes = $classesQuery->with('level')->get();
         $teachers = $teachersQuery->with(['subjects', 'classes'])->get();
-        
+
         // If user is a teacher, pass their ID directly for auto-selection
         $loggedInTeacherId = null;
         if ($role === 'teacher' && isset($teacher)) {
             $loggedInTeacherId = $teacher->id;
-            
+
             // Log that we're sending the teacher ID to the frontend
             Log::info('Sending teacher ID to frontend', [
                 'teacher_id' => $loggedInTeacherId,
-                'user_email' => $user->email
+                'user_email' => $user->email,
             ]);
         }
-        
+
         return Inertia::render('Menu/ResultsPage', [
             'classes' => $classes,
             'teachers' => $teachers,
@@ -136,8 +155,8 @@ class ResultsController extends Controller
             'role' => $role, // Make sure role is properly passed
             'selectedSchool' => $selectedSchoolId ? [
                 'id' => $selectedSchoolId,
-                'name' => session('school_name')
-            ] : null
+                'name' => session('school_name'),
+            ] : null,
         ]);
     }
 
@@ -150,12 +169,12 @@ class ResultsController extends Controller
         $classes = Classes::with('level')->get();
         $subjects = Subject::all();
         $schools = School::all();
-        
+
         return Inertia::render('Menu/ResultsPage', [
             'levels' => $levels,
             'classes' => $classes,
             'subjects' => $subjects,
-            'schools' => $schools
+            'schools' => $schools,
         ]);
     }
 
@@ -176,12 +195,17 @@ class ResultsController extends Controller
             'exam_date' => 'required|date',
         ]);
 
+        // updateGrade() (line ~457) already scoped its student and class. store(), update()
+        // and destroy() touch the same grade data and had none — the fix was applied to one
+        // endpoint and never to its siblings. `exists:` only proves the ids are real.
+        $this->authorizeResultPayload($validatedData);
+
         // Create a new result
         $result = new Result($validatedData);
-        
+
         // Calculate final grade based on the entered grades
         $result->calculateFinal();
-        
+
         // Save the result
         $result->save();
 
@@ -193,21 +217,21 @@ class ResultsController extends Controller
      * Display the specified resource.
      */
     public function show(Result $result)
-    {   
+    {
         $levels = Level::all();
         $classes = Classes::with('level')->get();
         $subjects = Subject::all();
         $schools = School::all();
-        
+
         // Load the result with related data
         $result->load(['student', 'subject', 'class']);
-        
+
         return Inertia::render('Menu/SingleResultPage', [
             'result' => $result,
             'levels' => $levels,
             'classes' => $classes,
             'subjects' => $subjects,
-            'schools' => $schools
+            'schools' => $schools,
         ]);
     }
 
@@ -220,16 +244,16 @@ class ResultsController extends Controller
         $classes = Classes::with('level')->get();
         $subjects = Subject::all();
         $schools = School::all();
-        
+
         // Load the result with related data
         $result->load(['student', 'subject', 'class']);
-        
+
         return Inertia::render('Menu/ResultsPage', [
             'result' => $result,
             'levels' => $levels,
             'classes' => $classes,
             'subjects' => $subjects,
-            'schools' => $schools
+            'schools' => $schools,
         ]);
     }
 
@@ -250,12 +274,17 @@ class ResultsController extends Controller
             'exam_date' => 'required|date',
         ]);
 
+        // Both the record being edited and the record it would become — checking only the
+        // payload would let a caller move an out-of-scope result into scope and back.
+        $this->authorizeResult($result);
+        $this->authorizeResultPayload($validatedData);
+
         // Update the result with the validated data
         $result->fill($validatedData);
-        
+
         // Calculate final grade based on the entered grades
         $result->calculateFinal();
-        
+
         // Save the updated result
         $result->save();
 
@@ -268,48 +297,51 @@ class ResultsController extends Controller
      */
     public function destroy(Result $result)
     {
+        $this->authorizeResult($result);
+
         // Delete the result
         $result->delete();
 
         // Redirect to the results index page with a success message
         return redirect()->route('results.index')->with('success', 'Result deleted successfully.');
     }
-    
+
     /**
      * Get classes by teacher.
      */
     public function getClassesByTeacher($teacher_id)
     {
         $teacher = Teacher::with(['classes.level', 'schools'])->find($teacher_id);
-        
-        if (!$teacher) {
+
+        if (! $teacher) {
             return response()->json([]);
         }
-        
-        $classes = $teacher->classes->map(function($class) use ($teacher) {
+
+        $classes = $teacher->classes->map(function ($class) use ($teacher) {
             $school = $teacher->schools->firstWhere('id', $class->school_id);
+
             return [
                 'id' => $class->id,
-                'name' => $class->name . ' - ' . ($school ? $school->name : ''),
-                'level' => $class->level->name
+                'name' => $class->name.' - '.($school ? $school->name : ''),
+                'level' => $class->level->name,
             ];
         });
-            
+
         return response()->json($classes);
     }
-    
+
     /**
      * Get students by class.
      */
     public function getStudentsByClass($class_id)
     {
-        if (!$class_id) {
+        if (! $class_id) {
             return response()->json([]);
         }
 
         $class = Classes::with('students')->find($class_id);
 
-        if (!$class) {
+        if (! $class) {
             return response()->json([]);
         }
 
@@ -326,18 +358,18 @@ class ResultsController extends Controller
             ];
         }));
     }
-    
+
     /**
      * Get results by class.
      */
     public function getResultsByClass($class_id)
     {
-        if (!$class_id) {
+        if (! $class_id) {
             return response()->json([]);
         }
 
         $class = Classes::find($class_id);
-        if (!$class) {
+        if (! $class) {
             return response()->json([]);
         }
         SchoolScope::authorizeClass($class);
@@ -361,7 +393,7 @@ class ResultsController extends Controller
         $studentSubjects = [];
         foreach ($memberships as $membership) {
             $studentId = $membership->student_id;
-            if (!isset($studentSubjects[$studentId])) {
+            if (! isset($studentSubjects[$studentId])) {
                 $studentSubjects[$studentId] = [];
             }
 
@@ -385,7 +417,7 @@ class ResultsController extends Controller
             $studentId = $result->student_id;
 
             // If we don't have membership data for this student, include all results
-            if (!isset($studentSubjects[$studentId]) || empty($studentSubjects[$studentId])) {
+            if (! isset($studentSubjects[$studentId]) || empty($studentSubjects[$studentId])) {
                 return true;
             }
 
@@ -395,34 +427,34 @@ class ResultsController extends Controller
 
         // Group filtered results by student ID
         $groupedResults = $filteredResults->groupBy('student_id');
-        
-        Log::info('Returning results for ' . $groupedResults->count() . ' students');
-            
+
+        Log::info('Returning results for '.$groupedResults->count().' students');
+
         return response()->json($groupedResults);
     }
-    
+
     /**
      * Get results by subject.
      */
     public function getResultsBySubject(Request $request)
     {
         $subjectId = $request->input('subject_id');
-        
+
         $results = Result::with(['student', 'class'])
             ->where('subject_id', $subjectId)
             ->orderBy('exam_date', 'desc')
             ->get();
-            
+
         return response()->json($results);
     }
-    
+
     /**
      * Calculate grade based on score.
      */
     public function calculateGrade(Request $request)
     {
         $score = $request->input('score');
-        
+
         $grade = 'F';
         if ($score >= 90) {
             $grade = 'A+';
@@ -447,7 +479,7 @@ class ResultsController extends Controller
         } elseif ($score >= 40) {
             $grade = 'D';
         }
-        
+
         return response()->json(['grade' => $grade]);
     }
 
@@ -478,79 +510,79 @@ class ResultsController extends Controller
                 'subject_id' => $validatedData['subject_id'],
                 'class_id' => $validatedData['class_id'],
             ]);
-            
+
             Log::info('Result found or created:', [
                 'exists' => $result->exists,
                 'id' => $result->id,
                 'current_values' => [
                     'grade1' => $result->grade1,
-                    'grade2' => $result->grade2, 
+                    'grade2' => $result->grade2,
                     'grade3' => $result->grade3,
                     'final_grade' => $result->final_grade,
-                    'notes' => $result->notes
-                ]
+                    'notes' => $result->notes,
+                ],
             ]);
-            
-            if (!$result->exists) {
+
+            if (! $result->exists) {
                 $result->exam_date = now();
                 Log::info('Setting exam_date for new result:', ['exam_date' => $result->exam_date]);
             }
-            
+
             // Update the specified field
             $field = $validatedData['grade_field'];
             $value = $validatedData['value'];
-            
+
             $oldValue = $result->$field;
             $result->$field = $value;
-            
+
             Log::info('Updated field value:', [
                 'field' => $field,
                 'old_value' => $oldValue,
-                'new_value' => $value
+                'new_value' => $value,
             ]);
-            
+
             // Recalculate final grade if a grade field was updated
             if ($field !== 'notes') {
                 $oldFinalGrade = $result->final_grade;
                 $result->calculateFinal();
                 Log::info('Recalculated final grade:', [
                     'old_final_grade' => $oldFinalGrade,
-                    'new_final_grade' => $result->final_grade
+                    'new_final_grade' => $result->final_grade,
                 ]);
             }
-            
+
             // Save the result
             try {
                 $saveResult = $result->save();
                 Log::info('Result saved:', [
-                    'success' => $saveResult, 
-                    'id' => $result->id, 
+                    'success' => $saveResult,
+                    'id' => $result->id,
                     'updated_values' => [
                         'grade1' => $result->grade1,
-                        'grade2' => $result->grade2, 
+                        'grade2' => $result->grade2,
                         'grade3' => $result->grade3,
                         'final_grade' => $result->final_grade,
-                        'notes' => $result->notes
-                    ]
+                        'notes' => $result->notes,
+                    ],
                 ]);
-                
+
                 // Return the updated result data
                 return response()->json([
                     'success' => true,
                     'result' => $result,
                     'final_grade' => $result->final_grade,
-                    'message' => 'Grade updated successfully'
+                    'message' => 'Grade updated successfully',
                 ]);
-                
+
             } catch (\Exception $e) {
                 Log::error('Error saving result:', [
                     'message' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString()
+                    'trace' => $e->getTraceAsString(),
                 ]);
-                
+
                 return response()->json([
                     'success' => false,
-                    'message' => 'Failed to save grade: ' . $e->getMessage()
+                    'message' => 'Failed to save grade: '.$e->getMessage(),
                 ], 500);
             }
         } catch (\Symfony\Component\HttpKernel\Exception\HttpExceptionInterface $e) {
@@ -562,17 +594,17 @@ class ResultsController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed',
-                'errors' => $e->errors()
+                'errors' => $e->errors(),
             ], 422);
         } catch (\Exception $e) {
             Log::error('Unexpected error in updateGrade:', [
                 'message' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'An unexpected error occurred: ' . $e->getMessage()
+                'message' => 'An unexpected error occurred: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -583,9 +615,10 @@ class ResultsController extends Controller
     public function getSubjectsByTeacher($teacher_id, $class_id = null)
     {
         $teacher = Teacher::with('subjects')->find($teacher_id);
-        if (!$teacher) {
+        if (! $teacher) {
             return response()->json([]);
         }
+
         // Always return all subjects assigned to the teacher (from subject_teacher pivot)
         return response()->json($teacher->subjects);
     }
@@ -597,53 +630,54 @@ class ResultsController extends Controller
     {
         $user = $request->user();
         $role = $user->role;
-        
+
         // Get the selected school from session
         $selectedSchoolId = session('school_id');
-        
+
         $levels = Level::all();
         $subjects = Subject::all();
         $schools = School::all();
-        
+
         // Base queries for classes and teachers
         $classesQuery = Classes::query();
         $teachersQuery = Teacher::query();
-        
+
         // Filter by selected school if available
         if ($selectedSchoolId) {
             $classesQuery->where('school_id', $selectedSchoolId);
-            
-            $teachersQuery->whereHas('schools', function($query) use ($selectedSchoolId) {
+
+            $teachersQuery->whereHas('schools', function ($query) use ($selectedSchoolId) {
                 $query->where('schools.id', $selectedSchoolId);
             });
-            
+
             // Log the filtering
             Log::info('Results filtered by school', [
                 'school_id' => $selectedSchoolId,
-                'user_role' => $role
+                'user_role' => $role,
             ]);
         }
-        
+
         // Get teachers based on role
         if ($role === 'teacher') {
             $teacher = Teacher::where('email', $user->email)->first();
-            
+
             // Debug log to see if teacher is found
             Log::info('Teacher lookup by email', [
                 'user_email' => $user->email,
                 'teacher_found' => $teacher ? 'yes' : 'no',
-                'teacher_id' => $teacher ? $teacher->id : null
+                'teacher_id' => $teacher ? $teacher->id : null,
             ]);
-            
+
             if ($teacher) {
                 // For teachers, get their classes directly
                 $teacherClassIds = $teacher->classes->pluck('id')->toArray();
                 $classesQuery->whereIn('id', $teacherClassIds);
-                
+
                 // Get the subject IDs that this teacher teaches
                 $teacherSubjectIds = $teacher->subjects->pluck('id')->toArray();
             } else {
                 $teacherSubjectIds = [];
+
                 // If teacher not found, return empty results
                 return Inertia::render('Menu/ResultsPage', [
                     'classes' => [],
@@ -653,8 +687,8 @@ class ResultsController extends Controller
                     'schools' => $schools,
                     'selectedSchool' => $selectedSchoolId ? [
                         'id' => $selectedSchoolId,
-                        'name' => session('school_name')
-                    ] : null
+                        'name' => session('school_name'),
+                    ] : null,
                 ]);
             }
         } elseif ($role === 'assistant') {
@@ -668,11 +702,11 @@ class ResultsController extends Controller
                         $assistantSchoolIds = [$selectedSchoolId];
                     }
                 }
-                
-                $teachersQuery->whereHas('schools', function($query) use ($assistantSchoolIds) {
+
+                $teachersQuery->whereHas('schools', function ($query) use ($assistantSchoolIds) {
                     $query->whereIn('schools.id', $assistantSchoolIds);
                 });
-                
+
                 $teacherSubjectIds = [];
             } else {
                 $teacherSubjectIds = [];
@@ -681,11 +715,11 @@ class ResultsController extends Controller
             // For admin, no additional filtering beyond the selected school
             $teacherSubjectIds = [];
         }
-        
+
         // Execute queries
         $classes = $classesQuery->with('level')->get();
         $teachers = $teachersQuery->with(['subjects', 'classes'])->get();
-        
+
         $resultsData = [
             'classes' => $classes,
             'teachers' => $teachers,
@@ -695,8 +729,8 @@ class ResultsController extends Controller
             'teacherSubjectIds' => $teacherSubjectIds,
             'selectedSchool' => $selectedSchoolId ? [
                 'id' => $selectedSchoolId,
-                'name' => session('school_name')
-            ] : null
+                'name' => session('school_name'),
+            ] : null,
         ];
 
         // Return Inertia page with data
@@ -724,53 +758,54 @@ class ResultsController extends Controller
 
         $user = $request->user();
         $role = $user->role;
-        
+
         // Get the selected school from session
         $selectedSchoolId = session('school_id');
-        
+
         $levels = Level::all();
         $subjects = Subject::all();
         $schools = School::all();
-        
+
         // Base queries for classes and teachers
         $classesQuery = Classes::query();
         $teachersQuery = Teacher::query();
-        
+
         // Filter by selected school if available
         if ($selectedSchoolId) {
             $classesQuery->where('school_id', $selectedSchoolId);
-            
-            $teachersQuery->whereHas('schools', function($query) use ($selectedSchoolId) {
+
+            $teachersQuery->whereHas('schools', function ($query) use ($selectedSchoolId) {
                 $query->where('schools.id', $selectedSchoolId);
             });
-            
+
             // Log the filtering
             Log::info('Results filtered by school', [
                 'school_id' => $selectedSchoolId,
-                'user_role' => $role
+                'user_role' => $role,
             ]);
         }
-        
+
         // Get teachers based on role
         if ($role === 'teacher') {
             $teacher = Teacher::where('email', $user->email)->first();
-            
+
             // Debug log to see if teacher is found
             Log::info('Teacher lookup by email', [
                 'user_email' => $user->email,
                 'teacher_found' => $teacher ? 'yes' : 'no',
-                'teacher_id' => $teacher ? $teacher->id : null
+                'teacher_id' => $teacher ? $teacher->id : null,
             ]);
-            
+
             if ($teacher) {
                 // For teachers, get their classes directly
                 $teacherClassIds = $teacher->classes->pluck('id')->toArray();
                 $classesQuery->whereIn('id', $teacherClassIds);
-                
+
                 // Get the subject IDs that this teacher teaches
                 $teacherSubjectIds = $teacher->subjects->pluck('id')->toArray();
             } else {
                 $teacherSubjectIds = [];
+
                 // If teacher not found, return empty results
                 return Inertia::render('Menu/ResultsPage', [
                     'classes' => [],
@@ -780,8 +815,8 @@ class ResultsController extends Controller
                     'schools' => $schools,
                     'selectedSchool' => $selectedSchoolId ? [
                         'id' => $selectedSchoolId,
-                        'name' => session('school_name')
-                    ] : null
+                        'name' => session('school_name'),
+                    ] : null,
                 ]);
             }
         } elseif ($role === 'assistant') {
@@ -795,11 +830,11 @@ class ResultsController extends Controller
                         $assistantSchoolIds = [$selectedSchoolId];
                     }
                 }
-                
-                $teachersQuery->whereHas('schools', function($query) use ($assistantSchoolIds) {
+
+                $teachersQuery->whereHas('schools', function ($query) use ($assistantSchoolIds) {
                     $query->whereIn('schools.id', $assistantSchoolIds);
                 });
-                
+
                 $teacherSubjectIds = [];
             } else {
                 $teacherSubjectIds = [];
@@ -808,11 +843,11 @@ class ResultsController extends Controller
             // For admin, no additional filtering beyond the selected school
             $teacherSubjectIds = [];
         }
-        
+
         // Execute queries
         $classes = $classesQuery->with('level')->get();
         $teachers = $teachersQuery->with(['subjects', 'classes'])->get();
-        
+
         $data = [
             'classes' => $classes,
             'teachers' => $teachers,
@@ -822,8 +857,8 @@ class ResultsController extends Controller
             'teacherSubjectIds' => $teacherSubjectIds,
             'selectedSchool' => $selectedSchoolId ? [
                 'id' => $selectedSchoolId,
-                'name' => session('school_name')
-            ] : null
+                'name' => session('school_name'),
+            ] : null,
         ];
 
         // Return Inertia view with results data
@@ -839,4 +874,4 @@ class ResultsController extends Controller
             ],
         ]);
     }
-} 
+}

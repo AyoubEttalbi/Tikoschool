@@ -26,6 +26,12 @@ fi
 
 chown -R www-data:www-data /app/storage /app/bootstrap/cache
 
-echo "* * * * * php /app/artisan schedule:run >> /dev/null 2>&1" > /etc/crontabs/www-data
+# Scheduler output goes to a real file, not /dev/null.
+#
+# This used to be `>> /dev/null 2>&1`, which discarded stdout AND stderr — so
+# `wallet:check` could report ledger drift every night, exit non-zero, and reach nobody.
+# The commands now also log and fire ->onFailure() hooks (bootstrap/app.php), but keeping
+# the raw output means a failed run can still be read after the fact.
+echo "* * * * * php /app/artisan schedule:run >> /app/storage/logs/cron.log 2>&1" > /etc/crontabs/www-data
 
 exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf

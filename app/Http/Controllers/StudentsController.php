@@ -1,28 +1,26 @@
 <?php
+
 namespace App\Http\Controllers;
 
-use App\Models\Student;
-use Illuminate\Http\Request;
-use Inertia\Inertia;
-use Illuminate\Support\Facades\URL;
-use Illuminate\Support\Facades\Storage;
-use App\Models\Level;
-use App\Models\Classes;
-use App\Models\School;
-use App\Models\Subject;
-use App\Models\Offer;
-use App\Models\Teacher;
-use App\Models\Membership;
-use App\Models\Invoice;
 use App\Models\Attendance;
+use App\Models\Classes;
+use App\Models\Invoice;
+use App\Models\Level;
+use App\Models\Membership;
+use App\Models\Offer;
 use App\Models\Result;
+use App\Models\School;
+use App\Models\Student;
 use App\Models\StudentMovement;
+use App\Models\Teacher;
+use App\Support\SchoolScope;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Cloudinary\Cloudinary;
 use Cloudinary\Configuration\Configuration;
-use Cloudinary\Api\Upload\UploadApi;
-use Illuminate\Support\Facades\DB;
-use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Inertia\Inertia;
 
 class StudentsController extends Controller
 {
@@ -33,13 +31,20 @@ class StudentsController extends Controller
     {
         $student = Student::with(['level', 'class', 'school', 'memberships.offer'])
             ->findOrFail($id);
-        
+
+        // This method had no check of any kind: an assistant scoped to one school could
+        // walk /students/1..N/download-pdf and export every student in the product,
+        // including guardian phone numbers and medical fields.
+        SchoolScope::authorizeStudent($student);
+
         $pdf = Pdf::loadView('students_pdf', [
-            'student' => $student
+            'student' => $student,
         ]);
-        $fileName = 'student_' . $student->id . '_' . now()->format('Ymd_His') . '.pdf';
+        $fileName = 'student_'.$student->id.'_'.now()->format('Ymd_His').'.pdf';
+
         return $pdf->download($fileName);
     }
+
     // Helper function to get Cloudinary
     private function getCloudinary()
     {
@@ -51,41 +56,41 @@ class StudentsController extends Controller
                     'api_secret' => env('CLOUDINARY_API_SECRET'),
                 ],
                 'url' => [
-                    'secure' => true
-                ]
+                    'secure' => true,
+                ],
             ])
         );
     }
 
     /**
-    * @param \Illuminate\Http\UploadedFile $file
-    * @param string $folder
-    * @param int $width
-    * @param int $height
-    * @return array
-    */
+     * @param  \Illuminate\Http\UploadedFile  $file
+     * @param  string  $folder
+     * @param  int  $width
+     * @param  int  $height
+     * @return array
+     */
     private function uploadToCloudinary($file, $folder = 'students', $width = 300, $height = 300)
     {
         $cloudinary = $this->getCloudinary();
         $uploadApi = $cloudinary->uploadApi();
-        
+
         // Get file info
         $fileSize = $file->getSize();
         $fileExtension = $file->extension();
-        
+
         // Set quality based on file size
         $quality = 'auto';
         if ($fileSize > 1000000) {
             $quality = 'auto:low';
         }
-        
+
         // Upload parameters
         $options = [
             'folder' => $folder,
             'transformation' => [
                 [
-                    'width' => $width, 
-                    'height' => $height, 
+                    'width' => $width,
+                    'height' => $height,
                     'crop' => 'fill',
                     'gravity' => 'auto',
                 ],
@@ -94,15 +99,15 @@ class StudentsController extends Controller
                     'fetch_format' => 'auto',
                 ],
             ],
-            'public_id' => 'student_' . time() . '_' . random_int(1000, 9999),
+            'public_id' => 'student_'.time().'_'.random_int(1000, 9999),
             'resource_type' => 'image',
             'flags' => 'lossy',
             'context' => 'source=laravel-app|user=student',
         ];
-        
+
         // Upload to Cloudinary
         $result = $uploadApi->upload($file->getRealPath(), $options);
-        
+
         return [
             'secure_url' => $result['secure_url'],
             'public_id' => $result['public_id'],
@@ -114,276 +119,277 @@ class StudentsController extends Controller
             'created_at' => $result['created_at'],
         ];
     }
+
     /**
      * Display a listing of the resource.
      */
- 
-     public function index(Request $request)
-     {
-         // Initialize the query with eager loading for relationships
-         $query = Student::with(['class', 'school', 'level', 'memberships.offer', 'memberships.invoices']);
-         
-         // Get the current user and their role
-         $user = $request->user();
-         $userRole = $user ? $user->role : null;
-         
-         // If user is a teacher, only show students they teach
-         if ($userRole === 'teacher') {
-             $teacher = \App\Models\Teacher::where('email', $user->email)->first();
-             if ($teacher) {
-                 // NOTE: a "debug" block used to sit here that ran the SAME unindexable
-                 // JSON_CONTAINS scan over the whole memberships table and ->get() every
-                 // matching row, purely to feed a Log::info — then threw the result away and
-                 // ran the real filter below. It executed on every student-list page load.
-                 $query->whereHas('memberships', function($membershipQuery) use ($teacher) {
-                     // Try both string and integer versions of teacher ID
-                     $membershipQuery->where(function($q) use ($teacher) {
-                         $q->whereRaw("JSON_CONTAINS(teachers, JSON_OBJECT('teacherId', ?))", [$teacher->id])
-                           ->orWhereRaw("JSON_CONTAINS(teachers, JSON_OBJECT('teacherId', ?))", [(string)$teacher->id]);
-                     });
-                 });
-             }
-         }
-         
-         // Get the selected school from session and apply filter
-         $selectedSchoolId = session('school_id');
-         if ($selectedSchoolId) {
-             // Show students for the selected school OR students with no school assigned
-             $query->where(function($q) use ($selectedSchoolId) {
-                 $q->where('schoolId', $selectedSchoolId)
-                   ->orWhereNull('schoolId');
-             });
-         }
-     
-         // Apply search filter if search term is provided
-         if ($request->has('search') && !empty($request->search)) {
-             $this->applySearchFilter($query, $request->search);
-         }
-     
-         // Apply additional filters (e.g., school, class, level)
-         $this->applyFilters($query, $request->only(['school', 'class', 'level']));
-     
-         // Membership status filter
-         $membershipStatus = $request->input('membership_status');
-         $studentsCollection = $query->orderBy('created_at', 'desc')->get();
+    public function index(Request $request)
+    {
+        // Initialize the query with eager loading for relationships
+        $query = Student::with(['class', 'school', 'level', 'memberships.offer', 'memberships.invoices']);
 
-         // NOTE: a Log::info here dumped the student count, the raw SQL and every bound
-         // parameter (school ids, search terms) on each page load. Removed.
-         if ($membershipStatus && $membershipStatus !== 'all') {
-             $studentsCollection = $studentsCollection->filter(function ($student) use ($membershipStatus) {
-                 $allMemberships = $student->memberships;
-                 if ($allMemberships->isEmpty()) {
-                     // If no memberships, only show for unpaid/rest
-                     return $membershipStatus === 'unpaid' || $membershipStatus === 'rest';
-                 }
-                 $paidCount = $allMemberships->where('payment_status', 'paid')->count();
-                 $totalCount = $allMemberships->count();
-                 if ($membershipStatus === 'paid') {
-                     return $paidCount === $totalCount;
-                 }
-                 if ($membershipStatus === 'unpaid') {
-                     return $paidCount === 0;
-                 }
-                 if ($membershipStatus === 'rest') {
-                     return $paidCount > 0 && $paidCount < $totalCount;
-                 }
-                 return false;
-             });
-         }
-         // Paginate the filtered collection manually
-         $perPage = 10;
-         $currentPage = $request->input('page', 1);
-         $students = new \Illuminate\Pagination\LengthAwarePaginator(
-             $studentsCollection->slice(($currentPage - 1) * $perPage, $perPage)->values(),
-             $studentsCollection->count(),
-             $perPage,
-             $currentPage,
-             ['path' => $request->url(), 'query' => $request->query()]
-         );
-         // Transform for frontend
-         $students = $students->through(function ($student) {
+        // Get the current user and their role
+        $user = $request->user();
+        $userRole = $user ? $user->role : null;
+
+        // If user is a teacher, only show students they teach
+        if ($userRole === 'teacher') {
+            $teacher = \App\Models\Teacher::where('email', $user->email)->first();
+            if ($teacher) {
+                // NOTE: a "debug" block used to sit here that ran the SAME unindexable
+                // JSON_CONTAINS scan over the whole memberships table and ->get() every
+                // matching row, purely to feed a Log::info — then threw the result away and
+                // ran the real filter below. It executed on every student-list page load.
+                $query->whereHas('memberships', function ($membershipQuery) use ($teacher) {
+                    // Try both string and integer versions of teacher ID
+                    $membershipQuery->where(function ($q) use ($teacher) {
+                        $q->whereRaw("JSON_CONTAINS(teachers, JSON_OBJECT('teacherId', ?))", [$teacher->id])
+                            ->orWhereRaw("JSON_CONTAINS(teachers, JSON_OBJECT('teacherId', ?))", [(string) $teacher->id]);
+                    });
+                });
+            }
+        }
+
+        // Get the selected school from session and apply filter
+        $selectedSchoolId = session('school_id');
+        if ($selectedSchoolId) {
+            // Show students for the selected school OR students with no school assigned
+            $query->where(function ($q) use ($selectedSchoolId) {
+                $q->where('schoolId', $selectedSchoolId)
+                    ->orWhereNull('schoolId');
+            });
+        }
+
+        // Apply search filter if search term is provided
+        if ($request->has('search') && ! empty($request->search)) {
+            $this->applySearchFilter($query, $request->search);
+        }
+
+        // Apply additional filters (e.g., school, class, level)
+        $this->applyFilters($query, $request->only(['school', 'class', 'level']));
+
+        // Membership status filter — now expressed in SQL.
+        //
+        // This used to ->get() every matching student (no LIMIT) with class, school,
+        // level, every membership, every offer and every invoice eager-loaded, filter in
+        // PHP, then hand the collection to a LengthAwarePaginator that only SLICED it.
+        // The paginator made it look paginated; the database was doing a full read on
+        // every listing view, every search keystroke and every filter change.
+        //
+        // The three cases below reproduce the old PHP predicate exactly, including its
+        // treatment of a student with NO memberships: shown under 'unpaid' and 'rest',
+        // hidden under 'paid'.
+        $membershipStatus = $request->input('membership_status');
+
+        if ($membershipStatus && $membershipStatus !== 'all') {
+            $paid = fn ($q) => $q->where('payment_status', 'paid');
+            $notPaid = fn ($q) => $q->where('payment_status', '!=', 'paid');
+
+            match ($membershipStatus) {
+                // every membership paid, and at least one exists
+                'paid' => $query->has('memberships')->whereDoesntHave('memberships', $notPaid),
+                // no paid membership at all (a student with none qualifies)
+                'unpaid' => $query->whereDoesntHave('memberships', $paid),
+                // a mix of paid and unpaid, or no memberships at all
+                'rest' => $query->where(function ($q) use ($paid, $notPaid) {
+                    $q->where(fn ($inner) => $inner
+                        ->whereHas('memberships', $paid)
+                        ->whereHas('memberships', $notPaid))
+                        ->orWhereDoesntHave('memberships');
+                }),
+                default => null,
+            };
+        }
+
+        $students = $query->orderBy('created_at', 'desc')
+            ->paginate(10)
+            ->withQueryString();
+
+        // Transform for frontend
+        $students = $students->through(function ($student) {
             return $this->transformStudentData($student);
         });
-         
-         // Get all classes for filters, but filter them by selected school if applicable
-         $classesQuery = Classes::query();
-         if ($selectedSchoolId) {
-             $classesQuery->where('school_id', $selectedSchoolId);
-         }
-         $classes = $classesQuery->get();
-     
-         return Inertia::render('Menu/StudentListPage', [
-             'students' => $students,
-             'Alllevels' => Level::all(),
-             'Allclasses' => $classes,
-             'Allschools' => School::all(),
-             'search' => $request->search,
-             'filters' => $request->only(['school', 'class', 'level', 'membership_status']),
-             // NOTE: an 'Allmemberships' prop used to be shared here — EVERY membership row
-             // in the database, serialized into the page on every load. StudentListPage
-             // destructured it and never used it. It was also a scoping bypass: the query
-             // above restricts a teacher to their own students, then this handed them the
-             // whole memberships table anyway.
-             'selectedSchool' => $selectedSchoolId ? [
-                 'id' => $selectedSchoolId,
-                 'name' => session('school_name')
-             ] : null
-         ]);
-     }
 
-/**
- * Apply search filter to the query.
- */
-protected function applySearchFilter($query, $searchTerm)
-{
-    $query->where(function ($q) use ($searchTerm) {
-        // Search by student fields, including parent phone and parent name
-        $q->where('firstName', 'LIKE', "%{$searchTerm}%")
-          ->orWhere('lastName', 'LIKE', "%{$searchTerm}%")
-          ->orWhere('massarCode', 'LIKE', "%{$searchTerm}%")
-          ->orWhere('phoneNumber', 'LIKE', "%{$searchTerm}%")
-          ->orWhere('email', 'LIKE', "%{$searchTerm}%")
-          ->orWhere('address', 'LIKE', "%{$searchTerm}%")
-          ->orWhere('guardianNumber', 'LIKE', "%{$searchTerm}%")
-          ->orWhere('guardianName', 'LIKE', "%{$searchTerm}%")
-          // Search by full name (firstName + lastName combined)
-          ->orWhereRaw("CONCAT(firstName, ' ', lastName) LIKE ?", ["%{$searchTerm}%"])
-          // Search by full name in reverse order (lastName + firstName)
-          ->orWhereRaw("CONCAT(lastName, ' ', firstName) LIKE ?", ["%{$searchTerm}%"]);
-
-        // Search by class, school, and level names
-        $this->applyRelationshipSearch($q, $searchTerm);
-    });
-}
-
-/**
- * Apply search filter to relationships (class, school, level).
- */
-protected function applyRelationshipSearch($query, $searchTerm)
-{
-    $query->orWhereHas('class', function ($classQuery) use ($searchTerm) {
-        $classQuery->where('name', 'LIKE', "%{$searchTerm}%");
-    })
-    ->orWhereHas('school', function ($schoolQuery) use ($searchTerm) {
-        $schoolQuery->where('name', 'LIKE', "%{$searchTerm}%");
-    })
-    ->orWhereHas('level', function ($levelQuery) use ($searchTerm) {
-        $levelQuery->where('name', 'LIKE', "%{$searchTerm}%");
-    });
-}
-
-/**
- * Apply additional filters (school, class, level).
- */
-protected function applyFilters($query, $filters)
-{
-    if (!empty($filters['school'])) {
-        $query->where('schoolId', $filters['school']);
-    }
-
-    if (!empty($filters['class'])) {
-        $query->where('classId', $filters['class']);
-    }
-
-    if (!empty($filters['level'])) {
-        $query->where('levelId', $filters['level']);
-    }
-}
-
-/**
- * Calculate payment status counts for memberships
- */
-protected function calculateMembershipPaymentStatus($memberships)
-{
-    $counts = [
-        'paid' => 0,
-        'partial' => 0,
-        'unpaid' => 0,
-        'total' => 0
-    ];
-
-    foreach ($memberships as $membership) {
-        // Skip soft-deleted memberships
-        if ($membership->deleted_at) {
-            continue;
+        // Get all classes for filters, but filter them by selected school if applicable
+        $classesQuery = Classes::query();
+        if ($selectedSchoolId) {
+            $classesQuery->where('school_id', $selectedSchoolId);
         }
+        $classes = $classesQuery->get();
 
-        $counts['total']++;
-
-        // Get all invoices for this membership
-        $invoices = $membership->invoices ?? collect();
-        
-        if ($invoices->isEmpty()) {
-            $counts['unpaid']++;
-            continue;
-        }
-
-        // Calculate total amounts
-        $totalAmount = $invoices->sum('totalAmount');
-        $amountPaid = $invoices->sum('amountPaid');
-
-        if ($amountPaid == 0) {
-            $counts['unpaid']++;
-        } elseif ($amountPaid < $totalAmount) {
-            $counts['partial']++;
-        } else {
-            $counts['paid']++;
-        }
+        return Inertia::render('Menu/StudentListPage', [
+            'students' => $students,
+            'Alllevels' => Level::all(),
+            'Allclasses' => $classes,
+            'Allschools' => School::all(),
+            'search' => $request->search,
+            'filters' => $request->only(['school', 'class', 'level', 'membership_status']),
+            // NOTE: an 'Allmemberships' prop used to be shared here — EVERY membership row
+            // in the database, serialized into the page on every load. StudentListPage
+            // destructured it and never used it. It was also a scoping bypass: the query
+            // above restricts a teacher to their own students, then this handed them the
+            // whole memberships table anyway.
+            'selectedSchool' => $selectedSchoolId ? [
+                'id' => $selectedSchoolId,
+                'name' => session('school_name'),
+            ] : null,
+        ]);
     }
 
-    return $counts;
-}
+    /**
+     * Apply search filter to the query.
+     */
+    protected function applySearchFilter($query, $searchTerm)
+    {
+        $query->where(function ($q) use ($searchTerm) {
+            // Search by student fields, including parent phone and parent name
+            $q->where('firstName', 'LIKE', "%{$searchTerm}%")
+                ->orWhere('lastName', 'LIKE', "%{$searchTerm}%")
+                ->orWhere('massarCode', 'LIKE', "%{$searchTerm}%")
+                ->orWhere('phoneNumber', 'LIKE', "%{$searchTerm}%")
+                ->orWhere('email', 'LIKE', "%{$searchTerm}%")
+                ->orWhere('address', 'LIKE', "%{$searchTerm}%")
+                ->orWhere('guardianNumber', 'LIKE', "%{$searchTerm}%")
+                ->orWhere('guardianName', 'LIKE', "%{$searchTerm}%")
+              // Search by full name (firstName + lastName combined)
+                ->orWhereRaw("CONCAT(firstName, ' ', lastName) LIKE ?", ["%{$searchTerm}%"])
+              // Search by full name in reverse order (lastName + firstName)
+                ->orWhereRaw("CONCAT(lastName, ' ', firstName) LIKE ?", ["%{$searchTerm}%"]);
 
-/**
- * Transform student data for the frontend.
- */
-protected function transformStudentData($student)
-{
-    // Get offer names from active memberships (excluding assurance-only invoices)
-    $offerNames = $student->memberships
-        ->filter(function ($membership) {
-            return $membership->offer && $membership->offer->offer_name;
+            // Search by class, school, and level names
+            $this->applyRelationshipSearch($q, $searchTerm);
+        });
+    }
+
+    /**
+     * Apply search filter to relationships (class, school, level).
+     */
+    protected function applyRelationshipSearch($query, $searchTerm)
+    {
+        $query->orWhereHas('class', function ($classQuery) use ($searchTerm) {
+            $classQuery->where('name', 'LIKE', "%{$searchTerm}%");
         })
-        ->map(function ($membership) {
-            return $membership->offer->offer_name;
-        })
-        ->unique()
-        ->values()
-        ->implode(', ');
+            ->orWhereHas('school', function ($schoolQuery) use ($searchTerm) {
+                $schoolQuery->where('name', 'LIKE', "%{$searchTerm}%");
+            })
+            ->orWhereHas('level', function ($levelQuery) use ($searchTerm) {
+                $levelQuery->where('name', 'LIKE', "%{$searchTerm}%");
+            });
+    }
 
-    // Calculate payment status for memberships
-    $paymentStatusCounts = $this->calculateMembershipPaymentStatus($student->memberships);
+    /**
+     * Apply additional filters (school, class, level).
+     */
+    protected function applyFilters($query, $filters)
+    {
+        if (! empty($filters['school'])) {
+            $query->where('schoolId', $filters['school']);
+        }
 
-    return [
-        'id' => $student->id,
-        'name' => $student->firstName . ' ' . $student->lastName,
-        'studentId' => $student->massarCode,
-        'phone' => $student->phoneNumber,
-        'address' => $student->address,
-        'offerNames' => $offerNames ?: '', // Add offer names, empty string if none
-        'paymentStatus' => $paymentStatusCounts, // Add payment status breakdown
-        'classId' => $student->classId,
-        'schoolId' => $student->schoolId,
-        'firstName' => $student->firstName,
-        'lastName' => $student->lastName,
-        'dateOfBirth' => $student->dateOfBirth,
-        'billingDate' => $student->billingDate,
-        'CIN' => $student->CIN,
-        'email' => $student->email,
-        'massarCode' => $student->massarCode,
-        'levelId' => $student->levelId,
-        'status' => $student->status,
-        'assurance' => $student->assurance,
-        'assuranceAmount' => $student->assuranceAmount,
-        'guardianNumber' => $student->guardianNumber,
-        'guardianName' => $student->guardianName,
-        'profile_image' => $student->profile_image ?? null,
-        'phoneNumber' => $student->phoneNumber,
-        'hasDisease' => $student->hasDisease,
-        'diseaseName' => $student->diseaseName,
-        'medication' => $student->medication,
-    ];
-}
+        if (! empty($filters['class'])) {
+            $query->where('classId', $filters['class']);
+        }
+
+        if (! empty($filters['level'])) {
+            $query->where('levelId', $filters['level']);
+        }
+    }
+
+    /**
+     * Calculate payment status counts for memberships
+     */
+    protected function calculateMembershipPaymentStatus($memberships)
+    {
+        $counts = [
+            'paid' => 0,
+            'partial' => 0,
+            'unpaid' => 0,
+            'total' => 0,
+        ];
+
+        foreach ($memberships as $membership) {
+            // Skip soft-deleted memberships
+            if ($membership->deleted_at) {
+                continue;
+            }
+
+            $counts['total']++;
+
+            // Get all invoices for this membership
+            $invoices = $membership->invoices ?? collect();
+
+            if ($invoices->isEmpty()) {
+                $counts['unpaid']++;
+
+                continue;
+            }
+
+            // Calculate total amounts
+            $totalAmount = $invoices->sum('totalAmount');
+            $amountPaid = $invoices->sum('amountPaid');
+
+            if ($amountPaid == 0) {
+                $counts['unpaid']++;
+            } elseif ($amountPaid < $totalAmount) {
+                $counts['partial']++;
+            } else {
+                $counts['paid']++;
+            }
+        }
+
+        return $counts;
+    }
+
+    /**
+     * Transform student data for the frontend.
+     */
+    protected function transformStudentData($student)
+    {
+        // Get offer names from active memberships (excluding assurance-only invoices)
+        $offerNames = $student->memberships
+            ->filter(function ($membership) {
+                return $membership->offer && $membership->offer->offer_name;
+            })
+            ->map(function ($membership) {
+                return $membership->offer->offer_name;
+            })
+            ->unique()
+            ->values()
+            ->implode(', ');
+
+        // Calculate payment status for memberships
+        $paymentStatusCounts = $this->calculateMembershipPaymentStatus($student->memberships);
+
+        return [
+            'id' => $student->id,
+            'name' => $student->firstName.' '.$student->lastName,
+            'studentId' => $student->massarCode,
+            'phone' => $student->phoneNumber,
+            'address' => $student->address,
+            'offerNames' => $offerNames ?: '', // Add offer names, empty string if none
+            'paymentStatus' => $paymentStatusCounts, // Add payment status breakdown
+            'classId' => $student->classId,
+            'schoolId' => $student->schoolId,
+            'firstName' => $student->firstName,
+            'lastName' => $student->lastName,
+            'dateOfBirth' => $student->dateOfBirth,
+            'billingDate' => $student->billingDate,
+            'CIN' => $student->CIN,
+            'email' => $student->email,
+            'massarCode' => $student->massarCode,
+            'levelId' => $student->levelId,
+            'status' => $student->status,
+            'assurance' => $student->assurance,
+            'assuranceAmount' => $student->assuranceAmount,
+            'guardianNumber' => $student->guardianNumber,
+            'guardianName' => $student->guardianName,
+            'profile_image' => $student->profile_image ?? null,
+            'phoneNumber' => $student->phoneNumber,
+            'hasDisease' => $student->hasDisease,
+            'diseaseName' => $student->diseaseName,
+            'medication' => $student->medication,
+        ];
+    }
 
     /**
      * Show the form for creating a new resource.
@@ -421,25 +427,30 @@ protected function transformStudentData($student)
                 'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120', // Added for image upload
             ]);
 
+            // `exists:schools,id` proves the school is real, not that the caller may write
+            // to it. Without this an assistant could create students inside another
+            // school by posting its id.
+            SchoolScope::authorizeSchool((int) $validatedData['schoolId']);
+
             // Process hasDisease field - use simple integer conversion
             if (isset($validatedData['hasDisease'])) {
                 // Convert to integer 1 or 0 explicitly, avoiding boolean conversion that might cause issues
-                $hasDiseaseValue = (is_string($validatedData['hasDisease']) && strtolower($validatedData['hasDisease']) === 'true') || 
-                                   $validatedData['hasDisease'] === 1 || 
+                $hasDiseaseValue = (is_string($validatedData['hasDisease']) && strtolower($validatedData['hasDisease']) === 'true') ||
+                                   $validatedData['hasDisease'] === 1 ||
                                    $validatedData['hasDisease'] === '1' ? 1 : 0;
-                                   
+
                 // Update the validated data with the integer value
                 $validatedData['hasDisease'] = $hasDiseaseValue;
             } else {
                 $validatedData['hasDisease'] = 0;
             }
-            
+
             // Process assurance field in the same way
             if (isset($validatedData['assurance'])) {
-                $assuranceValue = (is_string($validatedData['assurance']) && strtolower($validatedData['assurance']) === 'true') || 
-                                  $validatedData['assurance'] === 1 || 
+                $assuranceValue = (is_string($validatedData['assurance']) && strtolower($validatedData['assurance']) === 'true') ||
+                                  $validatedData['assurance'] === 1 ||
                                   $validatedData['assurance'] === '1' ? 1 : 0;
-                                  
+
                 $validatedData['assurance'] = $assuranceValue;
             } else {
                 $validatedData['assurance'] = 0;
@@ -462,11 +473,11 @@ protected function transformStudentData($student)
             $student = Student::create($validatedData);
 
             // Update class student count if assigned to a class
-            if (!empty($validatedData['classId'])) {
+            if (! empty($validatedData['classId'])) {
                 $class = Classes::find($validatedData['classId']);
                 if ($class) {
                     $class->updateStudentCount();
-                    
+
                     // Log the updated class count
                 }
             }
@@ -497,12 +508,13 @@ protected function transformStudentData($student)
             return redirect()->back()->with('error', 'Failed to create student. Please try again.');
         }
     }
+
     /**
      * Display the specified resource.
      */
-   /**
- * Display the specified resource.
- */
+    /**
+     * Display the specified resource.
+     */
     public function show($id)
     {
         // Block teachers from accessing student profiles
@@ -513,9 +525,15 @@ protected function transformStudentData($student)
         $student = Student::find($id);
 
         // If the student doesn't exist, return a 404 error
-        if (!$student) {
+        if (! $student) {
             abort(404);
         }
+
+        // The teacher block above was the ONLY guard in this controller. It says nothing
+        // about which school the caller belongs to, so an assistant scoped to one school
+        // could read any student in the product — hasDisease, diseaseName, medication,
+        // guardianNumber, CIN, plus full invoice, attendance and result history below.
+        SchoolScope::authorizeStudent($student);
 
         // Fetch all levels, and teachers with their subjects
         $levels = Level::all();
@@ -543,7 +561,7 @@ protected function transformStudentData($student)
                             $selectedMonths = $invoice->selected_months;
                         }
                     }
-                    
+
                     return [
                         'id' => $invoice->id,
                         'membership_id' => $invoice->membership_id,
@@ -597,6 +615,7 @@ protected function transformStudentData($student)
                         $selectedMonths = $invoice->selected_months;
                     }
                 }
+
                 return [
                     'id' => $invoice->id,
                     'membership_id' => $invoice->membership_id,
@@ -636,10 +655,10 @@ protected function transformStudentData($student)
                     'class' => $attendance->class ? $attendance->class->name : null,
                     'recordedBy' => $attendance->recordedBy ? $attendance->recordedBy->name : null,
                     'created_at' => $attendance->created_at,
-                    'reason' => $attendance->reason
+                    'reason' => $attendance->reason,
                 ];
             });
-            
+
         // Fetch results/grades for the student
         $results = Result::with(['subject', 'class.level'])
             ->where('student_id', $student->id)
@@ -658,7 +677,7 @@ protected function transformStudentData($student)
                     'exam_date' => $result->exam_date,
                 ];
             });
-            
+
         // Fetch promotion status for the student
         $promotion = $student->getCurrentPromotion();
         $promotionData = $promotion ? [
@@ -674,7 +693,7 @@ protected function transformStudentData($student)
         // Format the student data with new disease fields
         $studentData = [
             'id' => $student->id,
-            'name' => $student->firstName . ' ' . $student->lastName,
+            'name' => $student->firstName.' '.$student->lastName,
             'studentId' => $student->massarCode,
             'phone' => $student->phoneNumber,
             'phoneNumber' => $student->phoneNumber,
@@ -756,11 +775,14 @@ protected function transformStudentData($student)
             }),
         ]);
     }
+
     /**
      * Show the form for editing the specified resource.
      */
     public function edit(Student $student)
     {
+        SchoolScope::authorizeStudent($student);
+
         return Inertia::render('Students/Edit', [
             'student' => $student,
         ]);
@@ -771,10 +793,16 @@ protected function transformStudentData($student)
      */
     public function update(Request $request, Student $student)
     {
+        // BEFORE the try, not inside it: this method's `catch (\Exception $e)` would
+        // otherwise turn the denial into a redirect. (SchoolScope throws an \Error
+        // subclass so it survives even a generic catch — see AccessDeniedException —
+        // but placing the check outside the try keeps that from being load-bearing.)
+        SchoolScope::authorizeStudent($student);
+
         try {
             $oldData = $student->toArray();
             $oldClassId = $student->classId;
-            
+
             // Log the raw request data for debugging
             $validatedData = $request->validate([
                 'firstName' => 'required|string|max:100',
@@ -784,10 +812,10 @@ protected function transformStudentData($student)
                 'address' => 'nullable|string',
                 'guardianNumber' => 'nullable|string|max:255',
                 'guardianName' => 'nullable|string|max:255',
-                'CIN' => 'nullable|string|max:50|unique:students,CIN,' . $student->id,
+                'CIN' => 'nullable|string|max:50|unique:students,CIN,'.$student->id,
                 'phoneNumber' => 'nullable|string|max:20',
-                'email' => 'nullable|string|email|max:255|unique:students,email,' . $student->id,
-                'massarCode' => 'nullable|string|max:50|unique:students,massarCode,' . $student->id,
+                'email' => 'nullable|string|email|max:255|unique:students,email,'.$student->id,
+                'massarCode' => 'nullable|string|max:50|unique:students,massarCode,'.$student->id,
                 'levelId' => 'nullable',
                 'classId' => 'nullable',
                 'schoolId' => 'nullable',
@@ -799,7 +827,7 @@ protected function transformStudentData($student)
                 'medication' => 'nullable|string',
                 'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120',
             ]);
-            
+
             // Process hasDisease field - ensure it's always an integer 0 or 1
             $hasDiseaseValue = 0; // Default to 0
             if (isset($validatedData['hasDisease'])) {
@@ -809,7 +837,7 @@ protected function transformStudentData($student)
                 }
             }
             $validatedData['hasDisease'] = $hasDiseaseValue;
-            
+
             // Process assurance field
             $assuranceValue = 0; // Default to 0
             if (isset($validatedData['assurance'])) {
@@ -819,7 +847,7 @@ protected function transformStudentData($student)
                 }
             }
             $validatedData['assurance'] = $assuranceValue;
-            
+
             // Handle disease fields based on hasDisease value
             if ($hasDiseaseValue === 0) {
                 // When hasDisease is false, always set diseaseName and medication to NULL
@@ -830,7 +858,7 @@ protected function transformStudentData($student)
                 if (empty($validatedData['diseaseName'])) {
                     return redirect()->back()->withErrors(['diseaseName' => 'The disease name field is required when has disease is true.'])->withInput();
                 }
-                
+
                 // Convert empty strings to null
                 if ($validatedData['diseaseName'] === '') {
                     $validatedData['diseaseName'] = null;
@@ -839,20 +867,20 @@ protected function transformStudentData($student)
                     $validatedData['medication'] = null;
                 }
             }
-            
+
             // Convert other empty strings to null for nullable fields
             foreach (['CIN', 'phoneNumber', 'email', 'massarCode'] as $field) {
                 if (isset($validatedData[$field]) && $validatedData[$field] === '') {
                     $validatedData[$field] = null;
                 }
             }
-            
+
             // Handle profile image upload to Cloudinary
             if ($request->hasFile('profile_image')) {
                 $uploadedFile = $request->file('profile_image');
                 $uploadResult = $this->uploadToCloudinary($uploadedFile);
                 $validatedData['profile_image'] = $uploadResult['secure_url'];
-                
+
                 // Delete old image if it exists
                 if ($student->profile_image) {
                     $publicId = $student->profile_image_public_id ?? null;
@@ -876,7 +904,7 @@ protected function transformStudentData($student)
                         $oldClass->updateStudentCount();
                     }
                 }
-                
+
                 // Update new class count if there is a new class
                 if ($newClassId) {
                     $newClass = Classes::find($newClassId);
@@ -930,19 +958,21 @@ protected function transformStudentData($student)
 
             return redirect()->route('students.show', $student->id)->with('success', 'Student updated successfully.');
         } catch (\Exception $e) {
-            return redirect()->back()->with('error', 'Failed to update student: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Failed to update student: '.$e->getMessage());
         }
     }
 
-     /**
+    /**
      * Remove the specified resource from storage.
      */
     public function destroy(Student $student)
     {
+        SchoolScope::authorizeStudent($student);
+
         try {
             // Save class ID before deleting student
             $classId = $student->classId;
-            
+
             // Delete the profile image from Cloudinary if it exists
             if ($student->profile_image) {
                 $publicId = $student->profile_image_public_id ?? null;
@@ -960,7 +990,7 @@ protected function transformStudentData($student)
                 $class = Classes::find($classId);
                 if ($class) {
                     $class->updateStudentCount();
-                    
+
                     // Log the updated class count
                 }
             }
@@ -970,59 +1000,59 @@ protected function transformStudentData($student)
             return redirect()->back()->with('error', 'Failed to delete student. Please try again.');
         }
     }
+
     protected function logActivity($action, $model, $oldData = null, $newData = null)
-{
-    $description = ucfirst($action) . ' ' . class_basename($model) . ' (' . $model->id . ')';
-    $tableName = $model->getTable();
+    {
+        $description = ucfirst($action).' '.class_basename($model).' ('.$model->id.')';
+        $tableName = $model->getTable();
 
-    // Define the properties to log
-    $properties = [
-        'TargetName' => $model->firstName . ' ' . $model->lastName, // Name of the target entity
-        'action' => $action, // Type of action (created, updated, deleted)
-        'table' => $tableName, // Table where the action occurred
-        'user' => auth()->user()->name, // User who performed the action
-    ];
+        // Define the properties to log
+        $properties = [
+            'TargetName' => $model->firstName.' '.$model->lastName, // Name of the target entity
+            'action' => $action, // Type of action (created, updated, deleted)
+            'table' => $tableName, // Table where the action occurred
+            'user' => auth()->user()->name, // User who performed the action
+        ];
 
-    // For updates, show only the changed fields
-    if ($action === 'updated' && $oldData && $newData) {
-        $changedFields = [];
-        foreach ($newData as $key => $value) {
-            if ($oldData[$key] !== $value) {
-                $changedFields[$key] = [
-                    'old' => $oldData[$key],
-                    'new' => $value,
-                ];
+        // For updates, show only the changed fields
+        if ($action === 'updated' && $oldData && $newData) {
+            $changedFields = [];
+            foreach ($newData as $key => $value) {
+                if ($oldData[$key] !== $value) {
+                    $changedFields[$key] = [
+                        'old' => $oldData[$key],
+                        'new' => $value,
+                    ];
+                }
             }
+            $properties['changed_fields'] = $changedFields;
         }
-        $properties['changed_fields'] = $changedFields;
+
+        // For creations, show only the 4 most important columns
+        if ($action === 'created') {
+            $properties['new_data'] = [
+                'firstName' => $model->firstName,
+                'lastName' => $model->lastName,
+                'email' => $model->email,
+                'phoneNumber' => $model->phoneNumber,
+            ];
+        }
+
+        // For deletions, show the key fields of the deleted entity
+        if ($action === 'deleted') {
+            $properties['deleted_data'] = [
+                'firstName' => $oldData['firstName'],
+                'lastName' => $oldData['lastName'],
+                'email' => $oldData['email'],
+                'phoneNumber' => $oldData['phoneNumber'],
+            ];
+        }
+
+        // Log the activity
+        activity()
+            ->causedBy(auth()->user())
+            ->performedOn($model)
+            ->withProperties($properties)
+            ->log($description);
     }
-
-    // For creations, show only the 4 most important columns
-    if ($action === 'created') {
-        $properties['new_data'] = [
-            'firstName' => $model->firstName,
-            'lastName' => $model->lastName,
-            'email' => $model->email,
-            'phoneNumber' => $model->phoneNumber,
-        ];
-    }
-
-    // For deletions, show the key fields of the deleted entity
-    if ($action === 'deleted') {
-        $properties['deleted_data'] = [
-            'firstName' => $oldData['firstName'],
-            'lastName' => $oldData['lastName'],
-            'email' => $oldData['email'],
-            'phoneNumber' => $oldData['phoneNumber'],
-        ];
-    }
-
-    // Log the activity
-    activity()
-        ->causedBy(auth()->user())
-        ->performedOn($model)
-        ->withProperties($properties)
-        ->log($description);
-}
-
 }

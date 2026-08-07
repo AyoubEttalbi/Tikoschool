@@ -1,10 +1,14 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, Suspense } from "react";
 import { Tab } from "@headlessui/react";
 import EmployeeSummaryTable from "./EmployeeSummaryTable";
 import AllTransactionsTable from "./AllTransactionsTable";
 import Pagination from "@/Components/Pagination";
 import AdminEarningsSection from "./AdminEarningsSection";
-import TeacherEarningsTable from "./TeacherEarningsTable";
+
+// Lazy: TeacherEarningsTable pulls in recharts (~329 KB raw / 89 KB gzip) and sits behind
+// a tab that is not the default one. Eagerly importing it made PaymentsPage the heaviest
+// page in the app at 126 KB gzip — most of it for a chart nobody had asked to see yet.
+const TeacherEarningsTable = React.lazy(() => import("./TeacherEarningsTable"));
 
 const PaymentsList = ({
     transactions = [],
@@ -177,7 +181,15 @@ const PaymentsList = ({
                         />
                     </Tab.Panel>
                     <Tab.Panel>
-                        <TeacherEarningsTable />
+                        <Suspense
+                            fallback={
+                                <div className="p-8 text-center text-gray-500">
+                                    Chargement des gains enseignants...
+                                </div>
+                            }
+                        >
+                            <TeacherEarningsTable />
+                        </Suspense>
                     </Tab.Panel>
                     <Tab.Panel>
                         <AdminEarningsSection adminEarnings={adminEarnings} />

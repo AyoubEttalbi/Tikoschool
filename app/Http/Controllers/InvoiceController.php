@@ -2,27 +2,55 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Classes;
 use App\Models\Invoice;
 use App\Models\Membership;
-use App\Models\Teacher;
-use App\Models\Classes;
 use App\Models\School;
+use App\Models\Teacher;
+use App\Support\SchoolScope;
+use Barryvdh\DomPDF\Facade\Pdf;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
-use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Barryvdh\DomPDF\Facade\Pdf;
+use Inertia\Inertia;
 use Spatie\Activitylog\Models\Activity;
-use Carbon\Carbon;
 
 class InvoiceController extends Controller
 {
+    /**
+     * Object-level scope for a single invoice.
+     *
+     * This controller previously contained no SchoolScope call, no role check and no
+     * abort(403) anywhere in the file — every method took an id from the route and
+     * findOrFail()ed it. Invoices carry amounts, and destroy() reverses teacher wallet
+     * credits, so an unscoped id was a money-destroying primitive, not just a data leak.
+     *
+     * An invoice belongs to a student (student_id), falling back to its membership's
+     * student for the rows written before student_id was populated. Scoping the student
+     * scopes the invoice.
+     */
+    private function authorizeInvoice(Invoice $invoice): void
+    {
+        $student = $invoice->student ?: $invoice->membership?->student;
+
+        if (! $student) {
+            // An invoice with no reachable student cannot be scoped, so it is
+            // admin-only rather than open to everyone.
+            SchoolScope::authorizeRole(['admin']);
+
+            return;
+        }
+
+        SchoolScope::authorizeStudent($student);
+    }
+
     /**
      * Display a listing of invoices.
      */
     public function index()
     {
-        $invoices = Invoice::with(['membership' => function($membershipQuery) {
+        $invoices = Invoice::with(['membership' => function ($membershipQuery) {
             $membershipQuery->withTrashed()->with(['student', 'offer']);
         }])->paginate(10);
 
@@ -45,6 +73,7 @@ class InvoiceController extends Controller
             } else {
                 $invoice->selectedMonths = [];
             }
+
             return $invoice;
         });
 
@@ -71,9 +100,9 @@ class InvoiceController extends Controller
             ->map(function ($membership) {
                 return [
                     'id' => $membership->id,
-                    'offer_name' => $membership->student->name . ' - ' . $membership->offer->name,
+                    'offer_name' => $membership->student->name.' - '.$membership->offer->name,
                     'price' => $membership->offer->price,
-                    'offer_id' => $membership->offer_id
+                    'offer_id' => $membership->offer_id,
                 ];
             });
 
@@ -101,7 +130,7 @@ class InvoiceController extends Controller
             }
 
             // If student_id is missing but membership_id is provided, infer student_id from membership
-            if (!$request->filled('student_id') && $request->filled('membership_id')) {
+            if (! $request->filled('student_id') && $request->filled('membership_id')) {
                 $membershipForStudent = Membership::withTrashed()->find($request->input('membership_id'));
                 if ($membershipForStudent) {
                     $request->merge(['student_id' => $membershipForStudent->student_id]);
@@ -109,7 +138,6 @@ class InvoiceController extends Controller
             }
 
             // Validate the incoming request
-
 
             $validated = $request->validate([
                 // `exists:` matters — these ids drive teacher payouts. Without it an invoice
@@ -122,10 +150,10 @@ class InvoiceController extends Controller
                     'min:0',
                     'max:24',
                     function ($attribute, $value, $fail) use ($request) {
-                        if ($value === 0 && !$request->input('includePartialMonth')) {
+                        if ($value === 0 && ! $request->input('includePartialMonth')) {
                             $fail('Le champ mois doit être supérieur à 0 si le mois partiel n\'est pas sélectionné.');
                         }
-                    }
+                    },
                 ],
                 'selected_months' => 'nullable', // Accept array or stringified JSON
                 'billDate' => 'required|date',
@@ -156,7 +184,12 @@ class InvoiceController extends Controller
                 'partialMonthAmount.lte' => 'Le montant du mois partiel ne peut pas dépasser le montant payé.',
             ]);
 
-
+            // `exists:` proves the student is real, not that this staff member may bill
+            // them. Creating an invoice credits teacher wallets, so an unscoped
+            // student_id lets one school's assistant move money against another's student.
+            SchoolScope::authorizeStudent(
+                \App\Models\Student::findOrFail($validated['student_id'])
+            );
 
             // Always accept both selectedMonths and selected_months from frontend
             $selectedMonths = $request->input('selectedMonths');
@@ -171,7 +204,7 @@ class InvoiceController extends Controller
                     $selectedMonths = [];
                 }
             }
-            if (!is_array($selectedMonths)) {
+            if (! is_array($selectedMonths)) {
                 $selectedMonths = [];
             }
 
@@ -183,13 +216,13 @@ class InvoiceController extends Controller
             $membership = Membership::withTrashed()->findOrFail($validated['membership_id']);
 
             // Pré-vérifications bloquantes pour éviter des factures invalides
-            if (!$membership->offer) {
+            if (! $membership->offer) {
                 throw new \Exception('Offre introuvable pour cette adhésion. Veuillez vérifier l\'offre.');
             }
-            if (!is_array($membership->teachers) || count($membership->teachers) === 0) {
+            if (! is_array($membership->teachers) || count($membership->teachers) === 0) {
                 throw new \Exception('Aucun enseignant n\'est associé à cette adhésion. Veuillez ajouter au moins un enseignant.');
             }
-            if (!is_array($membership->offer->percentage)) {
+            if (! is_array($membership->offer->percentage)) {
                 throw new \Exception('L\'offre sélectionnée n\'a pas de pourcentages valides.');
             }
             // Always set offer_id from membership
@@ -200,7 +233,7 @@ class InvoiceController extends Controller
             // request could set any price, and (because teacher commission is a percentage of
             // the invoice) mint arbitrary teacher wallet credit.
             // A client total BELOW the computed price is still honoured as a discount.
-            $pricing = new \App\Services\InvoicePricingService();
+            $pricing = new \App\Services\InvoicePricingService;
             $priced = $pricing->reconcile($membership, $validated + [
                 'selected_months' => $selectedMonths,
                 'billDate' => $validated['billDate'] ?? null,
@@ -227,38 +260,38 @@ class InvoiceController extends Controller
             $this->logActivity('created', $invoice, null, $invoice->toArray());
 
             // Process teacher membership payments using the new service with validation
-            $paymentService = new \App\Services\TeacherMembershipPaymentService();
+            $paymentService = new \App\Services\TeacherMembershipPaymentService;
             $paymentResult = $paymentService->processInvoicePayment($invoice, $validated);
-            
+
             // Validate that payment records were created successfully
-            if (!$paymentResult || !$paymentResult['success'] || (($paymentResult['created_records'] ?? 0) + ($paymentResult['updated_records'] ?? 0)) === 0) {
+            if (! $paymentResult || ! $paymentResult['success'] || (($paymentResult['created_records'] ?? 0) + ($paymentResult['updated_records'] ?? 0)) === 0) {
                 Log::error('No payment records created', ['invoice_id' => $invoice->id, 'result' => $paymentResult]);
-                
+
                 // NEW: Create user-friendly error messages
                 $userFriendlyErrors = $this->convertToUserFriendlyErrors($paymentResult['errors'] ?? ['Unknown error occurred']);
-                
+
                 throw new \Exception($userFriendlyErrors[0]); // Show first error to user
             }
-            
+
             Log::info('Payment records created successfully', [
                 'invoice_id' => $invoice->id,
                 'created_records' => $paymentResult['created_records'] ?? 0,
-                'updated_records' => $paymentResult['updated_records'] ?? 0
+                'updated_records' => $paymentResult['updated_records'] ?? 0,
             ]);
 
             // NEW: Reconcile teacher payouts for initial invoice creation
             if ($validated['amountPaid'] > 0) {
                 $reconcileResult = $paymentService->reconcilePaidMonthsForInvoice($invoice);
-                if (!$reconcileResult['success']) {
+                if (! $reconcileResult['success']) {
                     Log::warning('Initial reconciliation reported issues', [
                         'invoice_id' => $invoice->id,
-                        'errors' => $reconcileResult['errors']
+                        'errors' => $reconcileResult['errors'],
                     ]);
                 } else {
                     Log::info('Initial reconciliation completed', [
                         'invoice_id' => $invoice->id,
                         'adjusted_records' => $reconcileResult['adjusted_records'],
-                        'total_delta' => $reconcileResult['total_delta']
+                        'total_delta' => $reconcileResult['total_delta'],
                     ]);
                 }
             }
@@ -269,7 +302,7 @@ class InvoiceController extends Controller
                 'payment_status' => ($validated['amountPaid'] >= $validated['totalAmount']) ? 'paid' : 'pending',
                 'is_active' => ($validated['amountPaid'] >= $validated['totalAmount']),
             ];
-            
+
             // Update end_date: use invoice end_date if it's more recent than current membership end_date
             // This ensures the membership reflects the actual paid period
             if (empty($membership->end_date) || (isset($validated['endDate']) && $validated['endDate'] > $membership->end_date)) {
@@ -278,21 +311,26 @@ class InvoiceController extends Controller
             $membership->update($updateData);
 
             DB::commit();
+
             return redirect()->back()->with('success', 'Facture créée avec succès.');
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error creating invoice:', ['error' => $e->getMessage()]);
-            
+
             // NEW: Return proper error response
             if (request()->expectsJson() || request()->header('Accept') === 'application/json') {
+                // Only the ids needed to correlate the failure. This used to echo
+                // $request->except(['_token']) — the whole submitted body — straight back
+                // to the caller, which turns any failed request into a reflection
+                // primitive and leaks whatever the client sent.
                 return $this->createErrorResponse([$e->getMessage()], [
-                    'invoice_data' => $request->except(['_token']),
-                    'validation_data' => $validated ?? []
+                    'membership_id' => $request->input('membership_id'),
+                    'student_id' => $request->input('student_id'),
                 ]);
             }
-            
+
             return redirect()->back()->withErrors([
-                'error' => $this->convertSingleError($e->getMessage()) ?: 'Création de facture annulée: ' . $e->getMessage()
+                'error' => $this->convertSingleError($e->getMessage()) ?: 'Création de facture annulée: '.$e->getMessage(),
             ])->withInput();
         }
     }
@@ -303,14 +341,16 @@ class InvoiceController extends Controller
     public function show($id)
     {
         $invoice = Invoice::with([
-            'membership' => function($membershipQuery) {
+            'membership' => function ($membershipQuery) {
                 $membershipQuery->withTrashed()->with(['student', 'student.class', 'student.school', 'offer']);
             },
             'student',
             'student.class',
             'student.school',
-            'offer'
+            'offer',
         ])->findOrFail($id);
+
+        $this->authorizeInvoice($invoice);
 
         $invoiceData = $invoice->toArray();
         // Always send selectedMonths as array if present
@@ -333,7 +373,7 @@ class InvoiceController extends Controller
         }
 
         return Inertia::render('Invoices/InvoiceViewer', [
-            'invoice' => $invoiceData
+            'invoice' => $invoiceData,
         ]);
     }
 
@@ -343,18 +383,20 @@ class InvoiceController extends Controller
     public function apiShow($id)
     {
         $invoice = Invoice::with([
-            'membership' => function($membershipQuery) {
+            'membership' => function ($membershipQuery) {
                 $membershipQuery->withTrashed()->with(['student', 'student.class', 'student.school', 'offer']);
             },
             'student',
             'student.class',
             'student.school',
-            'offer'
+            'offer',
         ])->findOrFail($id);
+
+        $this->authorizeInvoice($invoice);
 
         // Prefer membership.student, fallback to invoice.student
         $student = $invoice->membership && $invoice->membership->student ? $invoice->membership->student : $invoice->student;
-        $student_name = $student ? trim(($student->firstName ?? '') . ' ' . ($student->lastName ?? '')) : null;
+        $student_name = $student ? trim(($student->firstName ?? '').' '.($student->lastName ?? '')) : null;
         $student_class = $student && $student->class ? $student->class->name : null;
         $student_school = $student && $student->school ? $student->school->name : null;
         $student_id = $student ? $student->id : null;
@@ -442,14 +484,16 @@ class InvoiceController extends Controller
     public function edit($id)
     {
         $invoice = Invoice::findOrFail($id);
+        $this->authorizeInvoice($invoice);
+
         $studentMemberships = Membership::withTrashed()->with(['student', 'offer'])
             ->get()
             ->map(function ($membership) {
                 return [
                     'id' => $membership->id,
-                    'offer_name' => $membership->student->name . ' - ' . $membership->offer->name,
+                    'offer_name' => $membership->student->name.' - '.$membership->offer->name,
                     'price' => $membership->offer->price,
-                    'offer_id' => $membership->offer_id
+                    'offer_id' => $membership->offer_id,
                 ];
             });
 
@@ -484,6 +528,12 @@ class InvoiceController extends Controller
      */
     public function update(Request $request, $id)
     {
+        // Outside the transaction and outside the try: an update re-triggers
+        // processInvoicePayment, which credits teacher wallets. This is the second half
+        // of the wallet-fraud chain described in the audit (§5.1) — the first half being
+        // MembershipController::update accepting an arbitrary teachers array.
+        $this->authorizeInvoice(Invoice::findOrFail($id));
+
         DB::beginTransaction();
 
         try {
@@ -497,7 +547,7 @@ class InvoiceController extends Controller
             }
 
             // If student_id is missing but membership_id is provided, infer student_id from membership
-            if (!$request->filled('student_id') && $request->filled('membership_id')) {
+            if (! $request->filled('student_id') && $request->filled('membership_id')) {
                 $membershipForStudent = Membership::withTrashed()->find($request->input('membership_id'));
                 if ($membershipForStudent) {
                     $request->merge(['student_id' => $membershipForStudent->student_id]);
@@ -517,10 +567,10 @@ class InvoiceController extends Controller
                     'min:0',
                     'max:24',
                     function ($attribute, $value, $fail) use ($request) {
-                        if ($value === 0 && !$request->input('includePartialMonth')) {
+                        if ($value === 0 && ! $request->input('includePartialMonth')) {
                             $fail('Le champ mois doit être supérieur à 0 si le mois partiel n\'est pas sélectionné.');
                         }
-                    }
+                    },
                 ],
                 'selected_months' => 'nullable', // Accept array or stringified JSON
                 'billDate' => 'required|date',
@@ -553,7 +603,7 @@ class InvoiceController extends Controller
             $oldData = $invoice->toArray(); // Keep this for activity log if needed
 
             // Update last_payment_date only if amountPaid has changed
-            if (round((float)($validated['amountPaid']), 2) != round((float)($previousAmountPaid), 2)) {
+            if (round((float) ($validated['amountPaid']), 2) != round((float) ($previousAmountPaid), 2)) {
                 $validated['last_payment_date'] = now()->toDateTimeString();
             } else {
                 // Keep the existing last_payment_date if amountPaid hasn't changed
@@ -573,7 +623,7 @@ class InvoiceController extends Controller
                     $selectedMonths = [];
                 }
             }
-            if (!is_array($selectedMonths)) {
+            if (! is_array($selectedMonths)) {
                 $selectedMonths = [];
             }
             $validated['selected_months'] = json_encode($selectedMonths);
@@ -587,13 +637,13 @@ class InvoiceController extends Controller
             $membership = Membership::withTrashed()->findOrFail($validated['membership_id']);
 
             // Pré-vérifications bloquantes pour éviter des factures invalides
-            if (!$membership->offer) {
+            if (! $membership->offer) {
                 throw new \Exception('Offre introuvable pour cette adhésion. Veuillez vérifier l\'offre.');
             }
-            if (!is_array($membership->teachers) || count($membership->teachers) === 0) {
+            if (! is_array($membership->teachers) || count($membership->teachers) === 0) {
                 throw new \Exception('Aucun enseignant n\'est associé à cette adhésion. Veuillez ajouter au moins un enseignant.');
             }
-            if (!is_array($membership->offer->percentage)) {
+            if (! is_array($membership->offer->percentage)) {
                 throw new \Exception('L\'offre sélectionnée n\'a pas de pourcentages valides.');
             }
             // Always set offer_id from membership
@@ -603,7 +653,7 @@ class InvoiceController extends Controller
             // which was the more dangerous of the two: partialMonthAmount flows into the
             // teacher commission, and when amountPaid is unchanged the reconcile step below
             // never runs, so an inflated wallet credit was never corrected.
-            $pricing = new \App\Services\InvoicePricingService();
+            $pricing = new \App\Services\InvoicePricingService;
             $priced = $pricing->reconcile($membership, $validated + [
                 'selected_months' => $selectedMonths,
                 'billDate' => $validated['billDate'] ?? null,
@@ -637,31 +687,31 @@ class InvoiceController extends Controller
 
             // --- TEACHER MEMBERSHIP PAYMENT LOGIC ---
             // The payment service now handles updates incrementally without full reversal
-            $paymentService = new \App\Services\TeacherMembershipPaymentService();
+            $paymentService = new \App\Services\TeacherMembershipPaymentService;
             $paymentResult = $paymentService->processInvoicePayment($invoice, $validated);
-            
+
             // Log warning if payment processing has issues but don't fail the update
-            if (!$paymentResult || !$paymentResult['success'] || (($paymentResult['created_records'] ?? 0) + ($paymentResult['updated_records'] ?? 0)) === 0) {
+            if (! $paymentResult || ! $paymentResult['success'] || (($paymentResult['created_records'] ?? 0) + ($paymentResult['updated_records'] ?? 0)) === 0) {
                 Log::error('Failed to process teacher payment records during invoice update', [
                     'invoice_id' => $invoice->id,
-                    'errors' => $paymentResult['errors'] ?? ['Unknown error']
+                    'errors' => $paymentResult['errors'] ?? ['Unknown error'],
                 ]);
                 throw new \Exception('Failed to process teacher payment records during invoice update');
             }
-            
+
             // NEW: Reconcile deltas whenever amountPaid changes (not only when fully paid)
-            if (round((float)($validated['amountPaid']), 2) != round((float)($previousAmountPaid), 2)) {
+            if (round((float) ($validated['amountPaid']), 2) != round((float) ($previousAmountPaid), 2)) {
                 $reconcileResultAny = $paymentService->reconcilePaidMonthsForInvoice($invoice);
-                if (!$reconcileResultAny['success']) {
+                if (! $reconcileResultAny['success']) {
                     Log::warning('Reconciliation (any change) reported issues', [
                         'invoice_id' => $invoice->id,
-                        'errors' => $reconcileResultAny['errors']
+                        'errors' => $reconcileResultAny['errors'],
                     ]);
                 } else {
                     Log::info('Reconciled teacher payouts after amount change', [
                         'invoice_id' => $invoice->id,
                         'adjusted_records' => $reconcileResultAny['adjusted_records'],
-                        'total_delta' => $reconcileResultAny['total_delta']
+                        'total_delta' => $reconcileResultAny['total_delta'],
                     ]);
                 }
             }
@@ -672,7 +722,7 @@ class InvoiceController extends Controller
                 if ($reactivationResult['success'] && $reactivationResult['reactivated_records'] > 0) {
                     Log::info('Reactivated payment records for fully paid invoice', [
                         'invoice_id' => $invoice->id,
-                        'reactivated_count' => $reactivationResult['reactivated_records']
+                        'reactivated_count' => $reactivationResult['reactivated_records'],
                     ]);
                 }
 
@@ -683,10 +733,10 @@ class InvoiceController extends Controller
             // Always update start_date. Update end_date based on actual paid period
             $updateData = [
                 'start_date' => $validated['billDate'],
-                'payment_status' => (round((float)($validated['amountPaid']), 2) >= round((float)($validated['totalAmount']), 2)) ? 'paid' : 'pending',
-                'is_active' => (round((float)($validated['amountPaid']), 2) >= round((float)($validated['totalAmount']), 2)),
+                'payment_status' => (round((float) ($validated['amountPaid']), 2) >= round((float) ($validated['totalAmount']), 2)) ? 'paid' : 'pending',
+                'is_active' => (round((float) ($validated['amountPaid']), 2) >= round((float) ($validated['totalAmount']), 2)),
             ];
-            
+
             // Update end_date: use invoice end_date if it's more recent than current membership end_date
             // This ensures the membership reflects the actual paid period
             if (empty($membership->end_date) || (isset($validated['endDate']) && Carbon::parse($validated['endDate']) > Carbon::parse($membership->end_date))) {
@@ -695,22 +745,24 @@ class InvoiceController extends Controller
             $membership->update($updateData);
 
             DB::commit();
+
             return redirect()->back()->with('success', 'Facture mise à jour avec succès.');
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error updating invoice:', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
-            
+
             // NEW: Return proper error response
             if (request()->expectsJson() || request()->header('Accept') === 'application/json') {
+                // See the note on the same pattern in store(): never echo the raw body.
                 return $this->createErrorResponse([$e->getMessage()], [
                     'invoice_id' => $id,
-                    'invoice_data' => $request->except(['_token', '_method']),
-                    'validation_data' => $validated ?? []
+                    'membership_id' => $request->input('membership_id'),
+                    'student_id' => $request->input('student_id'),
                 ]);
             }
-            
+
             return redirect()->back()->withErrors([
-                'error' => $this->convertSingleError($e->getMessage()) ?: 'Mise à jour de facture annulée: ' . $e->getMessage()
+                'error' => $this->convertSingleError($e->getMessage()) ?: 'Mise à jour de facture annulée: '.$e->getMessage(),
             ])->withInput();
         }
     }
@@ -737,7 +789,7 @@ class InvoiceController extends Controller
             return response()->json(['message' => 'Offre introuvable pour cette adhésion.'], 422);
         }
 
-        $pricing = new \App\Services\InvoicePricingService();
+        $pricing = new \App\Services\InvoicePricingService;
 
         return response()->json($pricing->price(
             $membership,
@@ -752,6 +804,9 @@ class InvoiceController extends Controller
      */
     public function destroy($id)
     {
+        // Before the transaction: deleting an invoice debits teacher wallets.
+        $this->authorizeInvoice(Invoice::findOrFail($id));
+
         try {
             // ALL of this must be atomic. It writes memberships, teachers.wallet,
             // teacher_membership_payments and invoices. Previously it ran with no
@@ -787,7 +842,7 @@ class InvoiceController extends Controller
                 // Reverse teacher payments REGARDLESS of membership state. This used to sit
                 // inside `if ($membership)`, so an invoice whose membership had been deleted
                 // was removed without ever reversing the teacher's wallet credit.
-                $paymentService = new \App\Services\TeacherMembershipPaymentService();
+                $paymentService = new \App\Services\TeacherMembershipPaymentService;
                 $paymentService->reverseInvoicePayments($invoice);
 
                 $invoice->delete();
@@ -796,6 +851,7 @@ class InvoiceController extends Controller
             return redirect()->back()->with('success', 'Invoice deleted successfully.');
         } catch (\Throwable $e) {
             Log::error('Error deleting invoice:', ['invoice_id' => $id, 'error' => $e->getMessage()]);
+
             return redirect()->back()->withErrors(['error' => 'An error occurred while deleting the invoice.']);
         }
     }
@@ -806,16 +862,20 @@ class InvoiceController extends Controller
      */
     public function validateInvoice($id)
     {
+        // reconcilePaidMonthsForInvoice() below writes payout records — this is not a
+        // read-only endpoint despite the name.
+        $this->authorizeInvoice(Invoice::findOrFail($id));
+
         try {
             $invoice = Invoice::findOrFail($id);
-            $paymentService = new \App\Services\TeacherMembershipPaymentService();
-            
+            $paymentService = new \App\Services\TeacherMembershipPaymentService;
+
             // Run comprehensive validation
             $validationResult = $paymentService->validateInvoicePaymentState($invoice);
-            
+
             // Run reconciliation to fix any issues
             $reconcileResult = $paymentService->reconcilePaidMonthsForInvoice($invoice);
-            
+
             $data = [
                 'invoice' => $invoice,
                 'validation' => $validationResult,
@@ -826,28 +886,28 @@ class InvoiceController extends Controller
                     'payment_percentage' => round(($invoice->amountPaid / $invoice->totalAmount) * 100, 2),
                     'bill_date' => $invoice->billDate,
                     'selected_months' => $invoice->selected_months,
-                ]
+                ],
             ];
-            
+
             Log::info('Invoice validation completed', [
                 'invoice_id' => $invoice->id,
                 'validation_valid' => $validationResult['valid'],
                 'validation_errors' => $validationResult['errors'],
                 'validation_warnings' => $validationResult['warnings'],
                 'reconciliation_success' => $reconcileResult['success'],
-                'reconciliation_adjusted_records' => $reconcileResult['adjusted_records']
+                'reconciliation_adjusted_records' => $reconcileResult['adjusted_records'],
             ]);
-            
+
             return response()->json($data);
-            
+
         } catch (\Exception $e) {
             Log::error('Error validating invoice', [
                 'invoice_id' => $id,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
-            
+
             return response()->json([
-                'error' => 'Failed to validate invoice: ' . $e->getMessage()
+                'error' => 'Failed to validate invoice: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -857,10 +917,12 @@ class InvoiceController extends Controller
      */
     public function generateInvoicePdf($id)
     {
-        $invoice = Invoice::with(['membership' => function($membershipQuery) {
+        $invoice = Invoice::with(['membership' => function ($membershipQuery) {
             $membershipQuery->withTrashed()->with('offer');
         }, 'student'])
             ->findOrFail($id);
+
+        $this->authorizeInvoice($invoice);
 
         // Extract membership, student, and offer details
         $membership = $invoice->membership;
@@ -876,7 +938,7 @@ class InvoiceController extends Controller
         ]);
 
         // Return the PDF as a downloadable file
-        return $pdf->download('invoice_' . $invoice->id . '.pdf');
+        return $pdf->download('invoice_'.$invoice->id.'.pdf');
     }
 
     /**
@@ -886,6 +948,8 @@ class InvoiceController extends Controller
     {
         // Fetch the invoice by ID
         $invoice = Invoice::with(['student.class', 'offer'])->findOrFail($id);
+        $this->authorizeInvoice($invoice);
+
         $className = $invoice->student->class->name;
 
         // Add the class name to the invoice object
@@ -930,9 +994,9 @@ class InvoiceController extends Controller
         $pdf = Pdf::loadView('invoices.teacher-bulk-invoices', compact('invoices'));
 
         // Make sure proper headers are set for download
-        return $pdf->download("teacher-bulk-invoices-" . date('Y-m-d') . ".pdf", [
+        return $pdf->download('teacher-bulk-invoices-'.date('Y-m-d').'.pdf', [
             'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'attachment; filename="teacher-bulk-invoices-' . date('Y-m-d') . '.pdf"'
+            'Content-Disposition' => 'attachment; filename="teacher-bulk-invoices-'.date('Y-m-d').'.pdf"',
         ]);
     }
 
@@ -943,7 +1007,7 @@ class InvoiceController extends Controller
     {
         // Get the selected invoice IDs and summary data from the request (works for both GET and POST)
         $invoiceIds = $request->input('invoiceIds', $request->query('invoiceIds', []));
-        
+
         // Handle JSON string if invoiceIds is passed as JSON
         if (is_string($invoiceIds)) {
             $invoiceIds = json_decode($invoiceIds, true) ?? [];
@@ -972,7 +1036,7 @@ class InvoiceController extends Controller
             'totalInvoices' => $totalInvoices,
             'teacherName' => $teacherName,
             'dateRange' => $dateRange,
-            'generatedDate' => now()->format('Y-m-d H:i:s')
+            'generatedDate' => now()->format('Y-m-d H:i:s'),
         ];
 
         // Generate the PDF
@@ -981,7 +1045,7 @@ class InvoiceController extends Controller
         // Return the PDF as a response with proper headers
         return response($pdf->output(), 200, [
             'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'attachment; filename="teacher-income-report-' . date('Y-m-d') . '.pdf"',
+            'Content-Disposition' => 'attachment; filename="teacher-income-report-'.date('Y-m-d').'.pdf"',
             'Content-Length' => strlen($pdf->output()),
         ]);
     }
@@ -991,7 +1055,7 @@ class InvoiceController extends Controller
      */
     protected function logActivity($action, $model, $oldData = null, $newData = null)
     {
-        $description = ucfirst($action) . ' ' . class_basename($model) . ' (' . $model->id . ')';
+        $description = ucfirst($action).' '.class_basename($model).' ('.$model->id.')';
         $tableName = $model->getTable();
 
         // Define the properties to log
@@ -1050,19 +1114,19 @@ class InvoiceController extends Controller
     private function convertToUserFriendlyErrors(array $technicalErrors): array
     {
         $userFriendlyMessages = [];
-        
+
         foreach ($technicalErrors as $error) {
             $message = $this->convertSingleError($error);
             if ($message) {
                 $userFriendlyMessages[] = $message;
             }
         }
-        
+
         // If no specific conversion found, return generic message
         if (empty($userFriendlyMessages)) {
             $userFriendlyMessages[] = 'Une erreur s\'est produite lors de la création de la facture. Veuillez réessayer.';
         }
-        
+
         return $userFriendlyMessages;
     }
 
@@ -1079,15 +1143,15 @@ class InvoiceController extends Controller
             'has invalid percentage configuration' => 'La configuration des pourcentages est invalide. Contactez l\'administrateur.',
             'has no teachers assigned' => 'Aucun enseignant n\'est assigné à cette adhésion. Veuillez sélectionner des enseignants.',
             'has no associated offer' => 'Aucune offre associée à cette adhésion. Veuillez sélectionner une offre valide.',
-            
+
             // Membership errors
             'No membership or teachers found' => 'Impossible de créer la facture: aucune information d\'adhésion trouvée.',
             'has no teachers assigned' => 'Cette adhésion n\'a pas d\'enseignants assignés. Veuillez ajouter des enseignants.',
-            
+
             // Data validation errors
             'Math validation failed' => 'Les montants ne sont pas cohérents. Vérifiez le montant total, payé et le reste.',
             'no selected months' => 'Aucun mois sélectionné pour cette facture. Veuillez sélectionner au moins un mois.',
-            
+
             // Generic patterns
             'Offer' => 'Problème avec la configuration de l\'offre. Vérifiez les paramètres de l\'offre.',
             'Membership' => 'Problème avec la configuration de l\'adhésion. Vérifiez les paramètres de l\'adhésion.',
@@ -1096,16 +1160,16 @@ class InvoiceController extends Controller
             'permission denied' => 'Vous n\'avez pas les permissions pour effectuer cette action.',
             'not found' => 'La ressource demandée est introuvable.',
         ];
-        
+
         // Check for exact matches first
         foreach ($errorMappings as $technicalPattern => $userMessage) {
             if (strpos($error, $technicalPattern) !== false) {
                 return $userMessage;
             }
         }
-        
+
         // If no mapping found, return a default message
-        return 'Erreur lors du traitement: ' . substr($error, 0, 100) . (strlen($error) > 100 ? '...' : '');
+        return 'Erreur lors du traitement: '.substr($error, 0, 100).(strlen($error) > 100 ? '...' : '');
     }
 
     /**
@@ -1114,14 +1178,14 @@ class InvoiceController extends Controller
     private function createErrorResponse(array $errors, array $additionalData = [])
     {
         $userFriendlyErrors = $this->convertToUserFriendlyErrors($errors);
-        
+
         return response()->json([
             'success' => false,
             'message' => 'Erreur lors de la création de la facture',
             'errors' => $userFriendlyErrors,
             'technical_errors' => $errors, // Keep technical errors for debugging
             'data' => $additionalData,
-            'suggestions' => $this->getErrorSuggestions($errors)
+            'suggestions' => $this->getErrorSuggestions($errors),
         ], 422);
     }
 
@@ -1131,7 +1195,7 @@ class InvoiceController extends Controller
     private function getErrorSuggestions(array $errors): array
     {
         $suggestions = [];
-        
+
         foreach ($errors as $error) {
             if (strpos($error, 'percentages') !== false) {
                 $suggestions[] = 'Allez dans Gestion des Offres pour vérifier les pourcentages enseignants';
@@ -1143,7 +1207,7 @@ class InvoiceController extends Controller
                 $suggestions[] = 'Vérifiez que tous les champs obligatoires sont remplis';
             }
         }
-        
+
         return array_unique($suggestions);
     }
 }

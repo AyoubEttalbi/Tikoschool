@@ -1,5 +1,5 @@
 import { router, usePage, Link } from "@inertiajs/react";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import useFilterNavigation from "@/Hooks/useFilterNavigation";
 import TableSearch from "../../Components/TableSearch";
 import Table from "../../Components/Table";
@@ -222,6 +222,21 @@ const StudentListPage = ({
     };
 
     // Render table rows
+    // O(1) lookups instead of Array.find() per row per render.
+    //
+    // renderRow ran `Alllevels.find(...)` and `Allclasses.find(...)` for every row, on
+    // every render, against arrays that are already fully in memory — O(rows x levels).
+    // The table is server-paginated so the practical cost is small, but a Map is both
+    // faster and clearer, and these lists grow with the number of schools.
+    const levelsById = useMemo(
+        () => new Map((Alllevels ?? []).map((level) => [level.id, level])),
+        [Alllevels]
+    );
+    const classesById = useMemo(
+        () => new Map((Allclasses ?? []).map((group) => [group.id, group])),
+        [Allclasses]
+    );
+
     const renderRow = (item) => {
 
         return (
@@ -248,16 +263,13 @@ const StudentListPage = ({
                 <div className="flex flex-col">
                     <h3 className="font-semibold">{item.name}</h3>
                     <p className="text-xs text-gray-500">
-                        {
-                            Alllevels.find((level) => level.id === item.levelId)
-                                ?.name
-                        }
+                        {levelsById.get(item.levelId)?.name}
                     </p>
                 </div>
             </td>
             <td className="hidden md:table-cell">{item.id}</td>
             <td className="hidden md:table-cell">
-                {Allclasses.find((group) => group.id === item.classId)?.name}
+                {classesById.get(item.classId)?.name}
             </td>
             <td className="hidden md:table-cell">{item.guardianNumber}</td>
             <td className="hidden lg:table-cell">{item.offerNames || '-'}</td>

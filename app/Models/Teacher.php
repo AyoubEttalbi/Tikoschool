@@ -2,9 +2,9 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\DB;
 
@@ -12,6 +12,14 @@ class Teacher extends Model
 {
     use HasFactory, SoftDeletes;
 
+    // `wallet` is deliberately NOT fillable.
+    //
+    // It is a cached projection of the append-only teacher_wallet_entries ledger and may
+    // only move through TeacherWalletService::credit()/debit(), which row-locks and writes
+    // a ledger row. Leaving it here meant one `update($request->all())` anywhere would
+    // silently desynchronise the wallet from the ledger. TeacherController already strips
+    // it by hand in two places (see the explicit unset()s there) — this makes that
+    // enforcement rather than discipline. ArchitectureTest asserts it stays out.
     protected $fillable = [
         'first_name',
         'last_name',
@@ -19,8 +27,14 @@ class Teacher extends Model
         'phone_number',
         'email',
         'status',
-        'wallet',
         'profile_image',
+    ];
+
+    protected $casts = [
+        // decimal(10,2) in the schema. Transaction and TeacherMembershipPayment already
+        // cast their money columns; this one did not, so wallet comparisons mixed floats
+        // and strings across the payout code.
+        'wallet' => 'decimal:2',
     ];
 
     protected static function boot()
@@ -52,7 +66,7 @@ class Teacher extends Model
     /**
      * Update the number_of_teachers field for a specific class.
      *
-     * @param int $classId
+     * @param  int  $classId
      */
     protected static function updateClassTeacherCount($classId)
     {
@@ -75,7 +89,7 @@ class Teacher extends Model
     public function classes(): BelongsToMany
     {
         return $this->belongsToMany(Classes::class, 'classes_teacher', 'teacher_id', 'classes_id')
-        ->withTimestamps();
+            ->withTimestamps();
     }
 
     public function schools(): BelongsToMany

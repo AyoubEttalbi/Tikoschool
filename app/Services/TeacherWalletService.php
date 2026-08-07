@@ -32,9 +32,10 @@ class TeacherWalletService
         ?int $paymentRecordId = null,
         ?string $month = null,
         ?int $invoiceId = null,
-        ?string $note = null
+        ?string $note = null,
+        ?string $teacherSubject = null
     ): bool {
-        return $this->move($teacher, abs($amount), $reason, $paymentRecordId, $month, $invoiceId, $note);
+        return $this->move($teacher, abs($amount), $reason, $paymentRecordId, $month, $invoiceId, $note, $teacherSubject);
     }
 
     /**
@@ -48,9 +49,10 @@ class TeacherWalletService
         ?int $paymentRecordId = null,
         ?string $month = null,
         ?int $invoiceId = null,
-        ?string $note = null
+        ?string $note = null,
+        ?string $teacherSubject = null
     ): bool {
-        return $this->move($teacher, -abs($amount), $reason, $paymentRecordId, $month, $invoiceId, $note);
+        return $this->move($teacher, -abs($amount), $reason, $paymentRecordId, $month, $invoiceId, $note, $teacherSubject);
     }
 
     private function move(
@@ -60,7 +62,8 @@ class TeacherWalletService
         ?int $paymentRecordId,
         ?string $month,
         ?int $invoiceId,
-        ?string $note
+        ?string $note,
+        ?string $teacherSubject = null
     ): bool {
         $signedAmount = round($signedAmount, 2);
 
@@ -68,7 +71,13 @@ class TeacherWalletService
             return false;
         }
 
-        return DB::transaction(function () use ($teacher, $signedAmount, $reason, $paymentRecordId, $month, $invoiceId, $note) {
+        // '' rather than null: teacher_subject is part of the unique idempotency key, and
+        // MySQL treats NULLs as distinct — a null here would exempt the row from the
+        // constraint entirely, which is the opposite of what the key is for.
+        // See 2026_08_07_120000_add_teacher_subject_to_wallet_ledger_idempotency.
+        $teacherSubject = (string) ($teacherSubject ?? '');
+
+        return DB::transaction(function () use ($teacher, $signedAmount, $reason, $paymentRecordId, $month, $invoiceId, $note, $teacherSubject) {
             // Lock the row so two concurrent payments cannot both read the same balance.
             $locked = Teacher::whereKey($teacher->id)->lockForUpdate()->first();
             if (! $locked) {
@@ -95,6 +104,7 @@ class TeacherWalletService
                     'invoice_id' => $invoiceId,
                     'payment_record_id' => $paymentRecordId,
                     'month' => $month,
+                    'teacher_subject' => $teacherSubject,
                     'amount' => $applied,
                     'balance_after' => $after,
                     'reason' => $reason,
@@ -113,7 +123,10 @@ class TeacherWalletService
                 return false;
             }
 
-            $locked->update(['wallet' => $after]);
+            // forceFill, not update(): `wallet` was removed from Teacher::$fillable so that
+            // no stray update($request->all()) can move it behind the ledger's back. This
+            // service is the one place allowed to write it, and says so explicitly.
+            $locked->forceFill(['wallet' => $after])->save();
             $teacher->setAttribute('wallet', $after);
 
             return true;

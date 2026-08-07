@@ -1,6 +1,8 @@
 import React, { useState, useEffect, Suspense } from "react";
 import Announcements from "@/Pages/Menu/Announcements/Announcements";
-import BigCalendar from "@/Components/BigCalender";
+// BigCalendar was imported here but never rendered anywhere in this file — a dead import
+// that still pulled react-big-calendar + moment (~202 KB raw / 64 KB gzip) into this
+// page's chunk. SingleTeacherPage, which does render it, lazy-loads it.
 import FormModal from "@/Components/FormModal";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Link, usePage, router } from "@inertiajs/react";

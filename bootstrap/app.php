@@ -36,6 +36,37 @@ return Application::configure(basePath: dirname(__DIR__))
         //
     })
     ->withSchedule(function (\Illuminate\Console\Scheduling\Schedule $schedule) {
+        // Carries a scheduled task's failure out of the process.
+        //
+        // Cron invokes `schedule:run >> /dev/null 2>&1`, so a command's exit code and
+        // output are both thrown away. Without this hook a money-touching task could
+        // fail every night and no human or system would ever be told. Logging always
+        // works; the heartbeat ping is optional and only fires when configured, so this
+        // needs no mail transport (MAIL_MAILER is still `log`).
+        $reportScheduledFailure = function (string $command): void {
+            \Illuminate\Support\Facades\Log::error("Scheduled task failed: {$command}", [
+                'command' => $command,
+                'hint' => 'See storage/logs/schedule.log for the command output.',
+            ]);
+
+            $heartbeat = config('monitoring.heartbeat_url');
+
+            if (! $heartbeat) {
+                return;
+            }
+
+            // Never let a monitoring outage break the scheduler itself.
+            try {
+                \Illuminate\Support\Facades\Http::timeout(5)
+                    ->post($heartbeat, ['command' => $command, 'status' => 'failed']);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('Heartbeat ping failed', [
+                    'command' => $command,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        };
+
         // NOTE: every task below carries ->withoutOverlapping(). These commands mutate
         // teacher wallets and membership state; a slow run overlapping the next tick, or a
         // manual run racing the scheduled one, would credit the same month twice.
@@ -53,13 +84,6 @@ return Application::configure(basePath: dirname(__DIR__))
             ->withoutOverlapping()
             ->onOneServer();
 
-        // Schedule teacher monthly payments to run on the 1st of each month at 2 AM.
-        // This is the one that pays real money — the guards matter most here.
-        $schedule->command('teachers:process-monthly-payments')
-            ->monthlyOn(1, '02:00')
-            ->withoutOverlapping()
-            ->onOneServer();
-
         // Weekly monitoring: Fix any membership inconsistencies every Sunday at 2 AM
         $schedule->command('memberships:fix-end-dates')
             ->weekly()->sundays()->at('02:00')
@@ -67,11 +91,20 @@ return Application::configure(basePath: dirname(__DIR__))
             ->onOneServer();
 
         // Nightly assertion that every wallet still reconciles against the ledger.
-        // Exits non-zero on drift so a monitored scheduler surfaces it.
+        //
+        // The non-zero exit code alone reached NOBODY: cron runs `schedule:run` with
+        // `>> /dev/null 2>&1`, so both the exit status and everything the command printed
+        // were discarded, and nothing hooked the failure. A wallet could drift from the
+        // ledger every night for a year in silence. Three channels now carry it out:
+        //   1. the command itself Log::error()s the drift (see CheckWalletLedger),
+        //   2. ->appendOutputTo() keeps the human-readable table on disk,
+        //   3. ->onFailure() logs and, if SCHEDULE_HEARTBEAT_URL is set, pings a monitor.
         $schedule->command('wallet:check')
             ->dailyAt('04:30')
             ->withoutOverlapping()
-            ->onOneServer();
+            ->onOneServer()
+            ->appendOutputTo(storage_path('logs/schedule.log'))
+            ->onFailure(fn () => $reportScheduledFailure('wallet:check'));
 
         // Read-only payout audit, kept as a daily signal. It never writes.
         // (`payments:check-consistency --fix` remains deliberately DISABLED: it repairs
@@ -80,13 +113,24 @@ return Application::configure(basePath: dirname(__DIR__))
         $schedule->command('payouts:audit')
             ->dailyAt('05:00')
             ->withoutOverlapping()
-            ->onOneServer();
+            ->onOneServer()
+            ->appendOutputTo(storage_path('logs/schedule.log'))
+            ->onFailure(fn () => $reportScheduledFailure('payouts:audit'));
+
+        // The monthly payout run moves real money — a silent failure there is the most
+        // expensive one in the system.
+        $schedule->command('teachers:process-monthly-payments')
+            ->monthlyOn(1, '02:00')
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->appendOutputTo(storage_path('logs/schedule.log'))
+            ->onFailure(fn () => $reportScheduledFailure('teachers:process-monthly-payments'));
 
         // Clean up old stats monthly on the 1st at 3 AM.
         // ->name() is REQUIRED before ->withoutOverlapping() on a closure task; Laravel has
         // no other way to derive the mutex key and throws a LogicException at boot without it.
         $schedule->call(function () {
-            $service = new \App\Services\MembershipStatsService();
+            $service = new \App\Services\MembershipStatsService;
             $service->cleanupOldStats(5); // Keep 5 years of stats
         })->name('memberships:cleanup-old-stats')
             ->monthlyOn(1, '03:00')

@@ -36,17 +36,43 @@ test('teacher wallets are only mutated through TeacherWalletService', function (
         // Strip comments so the explanatory notes about the old code do not trip this.
         $code = preg_replace('#(//.*$)|(/\*.*?\*/)#ms', '', $contents);
 
-        if (preg_match("/(increment|decrement)\(\s*'wallet'/", $code)) {
-            $offenders[] = str_replace(base_path() . DIRECTORY_SEPARATOR, '', $path);
+        // Three shapes, because the first version of this test only caught the first one
+        // and the real bug was written in the second. TransactionController::updateEmployeeBalance
+        // did `$teacher->wallet += $transaction->amount; $teacher->save();` and walked
+        // straight past a regex that only looked for increment()/decrement() — the guard
+        // rail had a hole exactly the shape of the bug it existed to prevent.
+        //
+        //   1. ->increment('wallet') / ->decrement('wallet')
+        //   2. ->wallet = / += / -= / *= / /=          (direct property assignment)
+        //   3. update(['wallet' => ...]) / fill(['wallet' => ...])   (mass assignment)
+        $patterns = [
+            "/(increment|decrement)\(\s*'wallet'/",
+            '/->wallet\s*(=|\+=|-=|\*=|\/=)[^=]/',
+            "/(update|fill|forceFill)\(\s*\[\s*'wallet'\s*=>/",
+        ];
+
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $code)) {
+                $offenders[] = str_replace(base_path().DIRECTORY_SEPARATOR, '', $path);
+                break;
+            }
         }
     }
 
     expect($offenders)->toBe(
         [],
         "Direct wallet mutation bypasses the append-only ledger, the row lock and the\n"
-        . "idempotency constraint. Use TeacherWalletService::credit()/debit() instead.\n"
-        . "Offending files:\n  " . implode("\n  ", $offenders)
+        ."idempotency constraint. Use TeacherWalletService::credit()/debit() instead.\n"
+        ."Offending files:\n  ".implode("\n  ", $offenders)
     );
+});
+
+test('the teacher wallet column is not mass assignable', function () {
+    // `wallet` in Teacher::$fillable meant a single update($request->all()) anywhere could
+    // move the cached balance without writing a ledger row. TeacherController stripped it
+    // by hand in two places; this makes it structural rather than a habit two call sites
+    // happened to keep.
+    expect((new App\Models\Teacher)->getFillable())->not->toContain('wallet');
 });
 
 test('no double-quoted column identifiers are passed to DB::raw', function () {
@@ -58,7 +84,7 @@ test('no double-quoted column identifiers are passed to DB::raw', function () {
         $code = preg_replace('#(//.*$)|(/\*.*?\*/)#ms', '', $contents);
 
         if (preg_match('/DB::raw\(\s*\'"/', $code)) {
-            $offenders[] = str_replace(base_path() . DIRECTORY_SEPARATOR, '', $path);
+            $offenders[] = str_replace(base_path().DIRECTORY_SEPARATOR, '', $path);
         }
     }
 
@@ -75,7 +101,7 @@ test('query logging is never left enabled in application code', function () {
         $code = preg_replace('#(//.*$)|(/\*.*?\*/)#ms', '', $contents);
 
         if (str_contains($code, 'enableQueryLog') || str_contains($code, 'getQueryLog')) {
-            $offenders[] = str_replace(base_path() . DIRECTORY_SEPARATOR, '', $path);
+            $offenders[] = str_replace(base_path().DIRECTORY_SEPARATOR, '', $path);
         }
     }
 

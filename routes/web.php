@@ -1,21 +1,19 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
-use Inertia\Inertia;
-use Illuminate\Support\Facades\Auth;
-use Carbon\Carbon;
-// Controllers
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AnnouncementController;
 use App\Http\Controllers\AssistantController;
 use App\Http\Controllers\AttendanceController;
+// Controllers
 use App\Http\Controllers\Auth\RegisteredUserController;
+use App\Http\Controllers\CashierController;
 use App\Http\Controllers\ClassesController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\LevelController;
 use App\Http\Controllers\MembershipController;
 use App\Http\Controllers\MessageController;
 use App\Http\Controllers\OfferController;
+use App\Http\Controllers\PerformanceController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ResultsController;
 use App\Http\Controllers\SchoolController;
@@ -23,20 +21,21 @@ use App\Http\Controllers\SchoolYearController;
 use App\Http\Controllers\StatsController;
 use App\Http\Controllers\StudentsController;
 use App\Http\Controllers\SubjectController;
-use App\Http\Controllers\TeacherController;
 use App\Http\Controllers\TeacherClassController;
+use App\Http\Controllers\TeacherController;
+use App\Http\Controllers\TeacherMembershipPaymentController;
 use App\Http\Controllers\TransactionController;
 use App\Http\Controllers\UserController;
-use App\Http\Controllers\CashierController;
-use App\Http\Controllers\PerformanceController;
-use App\Http\Controllers\AbsenceController;
-use App\Http\Controllers\TeacherMembershipPaymentController;
-
-// Middleware
 use App\Http\Middleware\AdminMiddleware;
-use App\Http\Middleware\CheckImpersonation;
-use App\Http\Middleware\RoleRedirect;
 use App\Http\Middleware\CanViewTeacherProfile;
+use App\Http\Middleware\CheckImpersonation;
+use App\Http\Middleware\RequireRole;
+// Middleware
+use App\Http\Middleware\RoleRedirect;
+use Carbon\Carbon;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Route;
+use Inertia\Inertia;
 
 /*
 |--------------------------------------------------------------------------
@@ -89,12 +88,35 @@ Route::middleware('auth')->group(function () {
     Route::get('/schools/{school}', [SchoolController::class, 'show'])->name('schools.show')->where('school', '[0-9]+');
     Route::get('/results', [ResultsController::class, 'index'])->name('results.index');
     Route::get('/attendances', [AttendanceController::class, 'index'])->name('attendances.index');
-    
-    // Methods that need authentication but aren't specific to admin
+
+    // These five resources used to sit here with NO guard beyond `auth` — while the
+    // `schools` resource on the very next line correctly chained AdminMiddleware. That
+    // omission meant any authenticated teacher could DELETE any school's invoices, and
+    // invoice deletion reverses teacher wallet credits, so it destroyed money, not just rows.
+    //
+    // RequireRole rather than AdminMiddleware on purpose: AdminMiddleware *redirects* to
+    // /dashboard, so a denied XHR looks like a success to the frontend. RequireRole aborts
+    // 403, which Inertia surfaces as an error.
+    //
+    // Role gating here is coarse. Object-level scoping (can THIS user touch THIS record)
+    // lives in the controllers via App\Support\SchoolScope — both layers are required.
+
+    // Students, invoices and memberships are managed from the student profile, which
+    // teachers cannot open at all (StudentsController::show rejects the teacher role) and
+    // which Menu.jsx does not offer them. Admin and assistant only.
+    Route::middleware(RequireRole::class.':admin,assistant')->group(function () {
+        Route::resources([
+            'students' => StudentsController::class,
+            'invoices' => InvoiceController::class,
+            'memberships' => MembershipController::class,
+        ], ['except' => ['show', 'index']]);
+    });
+
+    // Results and attendance ARE teacher surfaces — teachers enter grades and take the
+    // register (Menu.jsx: visible to all three roles). They stay open to every role, and
+    // SchoolScope inside the controllers is what stops a teacher touching a class or
+    // student that is not theirs.
     Route::resources([
-        'students' => StudentsController::class,
-        'invoices' => InvoiceController::class,
-        'memberships' => MembershipController::class,
         'results' => ResultsController::class,
         'attendances' => AttendanceController::class,
     ], ['except' => ['show', 'index']]);
@@ -103,10 +125,10 @@ Route::middleware('auth')->group(function () {
     // and membership_monthly_stats. Route names are unchanged (schools.store/update/destroy).
     Route::resource('schools', SchoolController::class, ['except' => ['show', 'index']])
         ->middleware(AdminMiddleware::class);
-    
+
     // Attendance stats route
     Route::get('/attendance/stats', [AttendanceController::class, 'getStats'])->name('attendance.stats');
-    
+
     // Student promotion management routes - accessible to all authenticated users
     Route::get('/schoolyear/setup-promotions', [SchoolYearController::class, 'setupPromotions'])
         ->name('schoolyear.setup-promotions');
@@ -122,7 +144,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/classes/{class}/edit', [ClassesController::class, 'edit'])->name('classes.edit');
         Route::put('/classes/{class}', [ClassesController::class, 'update'])->name('classes.update');
         Route::delete('/classes/{class}', [ClassesController::class, 'destroy'])->name('classes.destroy');
-        
+
         // Teachers routes
         Route::get('/teachers/create', [TeacherController::class, 'create'])->name('teachers.create');
         Route::post('/teachers', [TeacherController::class, 'store'])->name('teachers.store');
@@ -141,16 +163,20 @@ Route::middleware('auth')->group(function () {
         // Server-side price quote for the invoice form (see InvoicePricingService).
         Route::post('/price', 'priceQuote')->name('invoices.price');
     });
-    
+
     // Teacher invoices bulk download route
     Route::post('/teacher-invoices/bulk-download', [InvoiceController::class, 'teacherBulkDownload'])->name('teacher-invoices.bulk-download');
-    
+
     // Direct PDF download route (GET request, no CSRF needed)
     Route::get('/teacher-invoices/download-pdf', [InvoiceController::class, 'teacherBulkDownload'])
         ->name('teacher-invoices.download-pdf');
-    // Custom route for deleting an invoice from the student context
-    Route::delete('/students/invoices/{id}', [InvoiceController::class, 'destroy'])->name('students.invoices.destroy');
-    
+    // Custom route for deleting an invoice from the student context. Same guard as the
+    // `invoices` resource above — otherwise this is a second, unguarded door to the same
+    // destroy() method, which reverses teacher wallet credits.
+    Route::delete('/students/invoices/{id}', [InvoiceController::class, 'destroy'])
+        ->middleware(RequireRole::class.':admin,assistant')
+        ->name('students.invoices.destroy');
+
     // Results API routes
     Route::controller(ResultsController::class)->prefix('results')->group(function () {
         Route::get('/classes-by-teacher/{teacher_id}', 'getClassesByTeacher')->name('results.classes-by-teacher');
@@ -170,7 +196,7 @@ Route::middleware('auth')->group(function () {
             ->middleware(AdminMiddleware::class)
             ->name('classes.fix-counts');
     });
-    
+
     // Message routes
     Route::controller(MessageController::class)->group(function () {
         Route::get('/inbox', 'inbox')->name('inbox');
@@ -189,11 +215,11 @@ Route::middleware('auth')->group(function () {
 
     // Announcements view all - accessible by all authenticated users
     Route::get('/ViewAllAnnouncements', [AnnouncementController::class, 'viewAllAnnouncements'])
-    ->name('ViewAllAnnouncements');
-    
+        ->name('ViewAllAnnouncements');
+
     // Mark all announcements as read
     Route::post('/announcements/mark-all-read', [AnnouncementController::class, 'markAllRead'])->name('announcements.markAllRead');
-    
+
     // ADMIN ONLY routes based on Menu.jsx
     Route::middleware(AdminMiddleware::class)->group(function () {
         // Admin-only index routes based on Menu.jsx visibility
@@ -202,7 +228,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/transactions', [TransactionController::class, 'index'])->name('transactions.index');
         Route::get('/announcements', [AnnouncementController::class, 'index'])->name('announcements.index');
         Route::get('/othersettings', [LevelController::class, 'index'])->name('othersettings.index');
-        
+
         // Teacher-Class management routes - security is handled in the controller
         Route::controller(TeacherClassController::class)->prefix('teacher-classes')->group(function () {
             Route::get('/', 'index')->name('teacher-classes.index');
@@ -213,13 +239,13 @@ Route::middleware('auth')->group(function () {
             Route::get('/classes-by-teacher/{teacherId}', 'getClassesByTeacher')->name('teacher-classes.classes-by-teacher');
             Route::get('/teachers-by-class/{classId}', 'getTeachersByClass')->name('teacher-classes.teachers-by-class');
         });
-        
+
         // Admin resource methods (create, store, update, destroy)
         Route::resource('assistants', AssistantController::class, ['except' => ['show', 'index']]);
         Route::resource('offers', OfferController::class, ['except' => ['index']]);
         Route::resource('transactions', TransactionController::class, ['except' => ['index']]);
         Route::resource('announcements', AnnouncementController::class, ['except' => ['index']]);
-        
+
         // Transaction routes - admin only
         Route::controller(TransactionController::class)->group(function () {
             Route::get('/batch-payment', 'batchPaymentForm')->name('transactions.batch-payment-form');
@@ -251,25 +277,25 @@ Route::middleware('auth')->group(function () {
             Route::get('/levels', [LevelController::class, 'index'])->name('othersettings.levels');
             Route::get('/subjects', [SubjectController::class, 'index'])->name('othersettings.subjects');
             Route::get('/schools', [SchoolController::class, 'index'])->name('othersettings.schools');
-            
+
             // School year transition route
             Route::post('/schoolyear/transition', [SchoolYearController::class, 'transition'])
                 ->name('schoolyear.transition');
-                
+
             // Level routes
             Route::controller(LevelController::class)->group(function () {
                 Route::post('/levels', 'store')->name('othersettings.levels.store');
                 Route::put('/levels/{level}', 'update')->name('othersettings.levels.update');
                 Route::delete('/levels/{level}', 'destroy')->name('othersettings.levels.destroy');
             });
-            
+
             // Subject routes
             Route::controller(SubjectController::class)->group(function () {
                 Route::post('/subjects', 'store')->name('othersettings.subjects.store');
                 Route::put('/subjects/{subject}', 'update')->name('othersettings.subjects.update');
                 Route::delete('/subjects/{subject}', 'destroy')->name('othersettings.subjects.destroy');
             });
-            
+
             // School settings routes
             Route::controller(SchoolController::class)->group(function () {
                 Route::post('/schools', 'store')->name('othersettings.schools.store');
@@ -277,7 +303,7 @@ Route::middleware('auth')->group(function () {
                 Route::delete('/schools/{school}', 'destroy')->name('othersettings.schools.destroy');
             });
         });
-        
+
         // Setting route - admin only
         Route::get('/setting', [RegisteredUserController::class, 'show'])->name('register');
         Route::post('/setting', [RegisteredUserController::class, 'store'])->name('register.store');
@@ -287,7 +313,7 @@ Route::middleware('auth')->group(function () {
         // Add after other teacher routes, inside the admin middleware group if possible
         Route::post('/teachers-with-user', [TeacherController::class, 'storeWithUser'])->name('teachers.storeWithUser');
         Route::post('/assistants-with-user', [AssistantController::class, 'storeWithUser'])->name('assistants.storeWithUser');
-        
+
         // Teacher Membership Payments (API routes for testing)
         Route::prefix('api/teacher-payments')->group(function () {
             Route::get('/', [TeacherMembershipPaymentController::class, 'index'])->name('teacher-payments.index');
@@ -307,18 +333,28 @@ Route::middleware('auth')->group(function () {
         ->name('performance.student')
         ->middleware('auth');
 
-    // New route for UserController@index
-    Route::get('/users', [\App\Http\Controllers\UserController::class, 'index'])->name('users.index');
+    // Full staff directory with every user's name, email and role. Admin only — it is
+    // reached from /setting, which is already admin-gated, and was the one route that
+    // let any logged-in teacher enumerate every account in the system.
+    Route::get('/users', [\App\Http\Controllers\UserController::class, 'index'])
+        ->middleware(RequireRole::class.':admin')
+        ->name('users.index');
 
-    // Absence Log routes (admin and assistant only)
-    Route::get('/absence-log', [AttendanceController::class, 'absenceLogPage'])->name('absence.log.page');
-    Route::get('/api/absence-log', [AttendanceController::class, 'absenceLogData'])->name('absence.log.data');
-    Route::post('/absence/{student}/notify', [AttendanceController::class, 'notifyParent'])->name('absence.notify');
+    // Absence Log routes. The two absenceLog* methods already role-check internally; the
+    // middleware makes that a route-table fact rather than something you have to read the
+    // controller to discover, and covers the sibling routes that had no check at all.
+    // `notify` sends a WhatsApp message to a real parent's phone — it was reachable by any
+    // authenticated user for ANY student id.
+    Route::middleware(RequireRole::class.':admin,assistant')->group(function () {
+        Route::get('/absence-log', [AttendanceController::class, 'absenceLogPage'])->name('absence.log.page');
+        Route::get('/api/absence-log', [AttendanceController::class, 'absenceLogData'])->name('absence.log.data');
+        Route::post('/absence/{student}/notify', [AttendanceController::class, 'notifyParent'])->name('absence.notify');
 
-    // Absence List page (frontend selection)
-    Route::get('/absence-list', [AttendanceController::class, 'absenceListPage'])->name('absence-list')->middleware('auth');
-    // Absence List PDF download (GET, not POST)
-    Route::get('/absence-list/download', [AttendanceController::class, 'downloadAbsenceList'])->name('absence-list.download')->middleware('auth');
+        // Absence List page (frontend selection)
+        Route::get('/absence-list', [AttendanceController::class, 'absenceListPage'])->name('absence-list');
+        // Absence List PDF download (GET, not POST)
+        Route::get('/absence-list/download', [AttendanceController::class, 'downloadAbsenceList'])->name('absence-list.download');
+    });
 
     // Cashier — daily cash register. MUST stay inside the auth group: the role check
     // below is null-safe, so an unauthenticated caller would otherwise skip it entirely.
@@ -326,6 +362,7 @@ Route::middleware('auth')->group(function () {
         if (Auth::user()->role === 'teacher') {
             return redirect('/dashboard')->with('error', 'Accès refusé.');
         }
+
         return app(CashierController::class)->daily($request);
     })->name('cashier.daily');
 
@@ -334,6 +371,7 @@ Route::middleware('auth')->group(function () {
         if (Auth::user()->role === 'teacher') {
             return redirect('/dashboard')->with('error', 'Accès refusé.');
         }
+
         return redirect()->route('cashier.daily', ['date' => Carbon::today()->toDateString()]);
     })->name('cashier');
 });
@@ -342,53 +380,53 @@ Route::middleware('auth')->group(function () {
 // The guarded copy inside the auth group above (name: students.invoices.destroy) is the only one now.
 
 // Authentication routes
-require __DIR__ . '/auth.php';
+require __DIR__.'/auth.php';
 
 // For debugging/development only - should be removed in production
 if (app()->environment('local')) {
-Route::get('/debug-assistant/{id}', function($id) {
-    $assistant = App\Models\Assistant::with('schools')->find($id);
-    
-    if (!$assistant) {
-        return response()->json(['error' => 'Assistant not found'], 404);
-    }
-    
-    $schoolIds = $assistant->schools->pluck('id')->toArray();
-    $today = \Carbon\Carbon::now();
-    
-    // Recent absences
-    $recentAbsences = \App\Models\Attendance::with(['student', 'class'])
-        ->whereIn('status', ['absent', 'late'])
-        ->where(function($query) use ($schoolIds) {
-            $query->whereHas('class', function($classQuery) use ($schoolIds) {
-                $classQuery->whereIn('school_id', $schoolIds);
-            });
-            
-            $query->orWhereHas('student', function($studentQuery) use ($schoolIds) {
-                $studentQuery->whereIn('schoolId', $schoolIds);
-            });
-        })
-        ->where('date', '>=', $today->copy()->subDays(7))
-        ->orderBy('date', 'desc')
-        ->limit(10)
-        ->get();
-    
-    return response()->json([
-        'assistant' => $assistant->only(['id', 'first_name', 'last_name', 'email']),
-        'schools' => $schoolIds,
-        'recent_absences' => $recentAbsences->map(function($attendance) {
-            return [
-                'id' => $attendance->id,
-                'student_id' => $attendance->student ? $attendance->student->id : null,
-                'student_name' => $attendance->student ? $attendance->student->firstName . ' ' . $attendance->student->lastName : 'Unknown',
-                'class_name' => $attendance->class ? $attendance->class->name : 'Unknown',
-                'date' => $attendance->date,
-                'status' => $attendance->status,
-                'reason' => $attendance->reason
-            ];
-        })
-    ]);
-});
+    Route::get('/debug-assistant/{id}', function ($id) {
+        $assistant = App\Models\Assistant::with('schools')->find($id);
+
+        if (! $assistant) {
+            return response()->json(['error' => 'Assistant not found'], 404);
+        }
+
+        $schoolIds = $assistant->schools->pluck('id')->toArray();
+        $today = \Carbon\Carbon::now();
+
+        // Recent absences
+        $recentAbsences = \App\Models\Attendance::with(['student', 'class'])
+            ->whereIn('status', ['absent', 'late'])
+            ->where(function ($query) use ($schoolIds) {
+                $query->whereHas('class', function ($classQuery) use ($schoolIds) {
+                    $classQuery->whereIn('school_id', $schoolIds);
+                });
+
+                $query->orWhereHas('student', function ($studentQuery) use ($schoolIds) {
+                    $studentQuery->whereIn('schoolId', $schoolIds);
+                });
+            })
+            ->where('date', '>=', $today->copy()->subDays(7))
+            ->orderBy('date', 'desc')
+            ->limit(10)
+            ->get();
+
+        return response()->json([
+            'assistant' => $assistant->only(['id', 'first_name', 'last_name', 'email']),
+            'schools' => $schoolIds,
+            'recent_absences' => $recentAbsences->map(function ($attendance) {
+                return [
+                    'id' => $attendance->id,
+                    'student_id' => $attendance->student ? $attendance->student->id : null,
+                    'student_name' => $attendance->student ? $attendance->student->firstName.' '.$attendance->student->lastName : 'Unknown',
+                    'class_name' => $attendance->class ? $attendance->class->name : 'Unknown',
+                    'date' => $attendance->date,
+                    'status' => $attendance->status,
+                    'reason' => $attendance->reason,
+                ];
+            }),
+        ]);
+    });
 }
 
 // REMOVED (unauthenticated information disclosure):
@@ -425,13 +463,14 @@ Route::middleware('auth')->get('/api/upcoming-announcements', function () {
     $query = \App\Models\Announcement::query();
     $query->where('date_announcement', '>', $now);
     if ($userRole !== 'admin') {
-        $query->where(function($q) use ($userRole) {
+        $query->where(function ($q) use ($userRole) {
             $q->where('visibility', 'all')
-              ->orWhere('visibility', $userRole);
+                ->orWhere('visibility', $userRole);
         });
     }
     $query->orderBy('date_announcement');
     $announcements = $query->get();
+
     return response()->json(['announcements' => $announcements]);
 });
 

@@ -37,6 +37,21 @@ class CheckWalletLedger extends Command
             return self::SUCCESS;
         }
 
+        // Log BEFORE printing. The scheduler runs from cron as
+        // `schedule:run >> /dev/null 2>&1`, so $this->error() and the non-zero exit code
+        // are both discarded — for a long time this command could report drift every
+        // night and reach nobody. The log is the channel that actually leaves the process.
+        \Illuminate\Support\Facades\Log::error('wallet:check — teacher wallets disagree with the ledger', [
+            'drifted_teachers' => $drift->count(),
+            'total_drift' => round((float) $drift->sum('drift'), 2),
+            'detail' => $drift->map(fn ($d) => [
+                'teacher_id' => $d->teacher_id,
+                'wallet' => round((float) $d->wallet, 2),
+                'ledger' => round((float) $d->ledger, 2),
+                'drift' => round((float) $d->drift, 2),
+            ])->all(),
+        ]);
+
         $this->error("{$drift->count()} teacher wallet(s) disagree with the ledger:");
         $this->table(
             ['Teacher', 'Cached wallet', 'Ledger sum', 'Drift'],
@@ -82,7 +97,7 @@ class CheckWalletLedger extends Command
             }
         });
 
-        $this->info("Recorded {$seeded} opening-balance entr" . ($seeded === 1 ? 'y' : 'ies') . '.');
+        $this->info("Recorded {$seeded} opening-balance entr".($seeded === 1 ? 'y' : 'ies').'.');
         $this->line('Re-run `php artisan wallet:check` — it should now report no drift.');
 
         return self::SUCCESS;

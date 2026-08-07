@@ -1,11 +1,13 @@
 <?php
+
 namespace App\Http\Middleware;
 
-use Illuminate\Http\Request;
-use Inertia\Middleware;
-use Illuminate\Support\Facades\Session;
-use Illuminate\Support\Facades\DB;
 use App\Models\User;
+use App\Support\SchoolScope;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Session;
+use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
 {
@@ -18,7 +20,9 @@ class HandleInertiaRequests extends Middleware
 
     protected function getUserProfileImage($user)
     {
-        if (!$user) return null;
+        if (! $user) {
+            return null;
+        }
 
         $table = match ($user->role) {
             'assistant' => 'assistants',
@@ -26,7 +30,7 @@ class HandleInertiaRequests extends Middleware
             default => null
         };
 
-        return $table 
+        return $table
             ? DB::table($table)->where('email', $user->email)->value('profile_image')
             : null;
     }
@@ -39,14 +43,62 @@ class HandleInertiaRequests extends Middleware
      * returned every user in the entire installation regardless of school, which leaked
      * the full staff directory across tenants.
      *
-     * Now: two queries total, joined in PHP.
+     * Now: a small number of queries, joined in PHP, and scoped to the caller's schools.
+     *
+     * The comment above described the cross-tenant leak but only the N+1 half was fixed —
+     * the query still returned every user in the installation. It is now restricted to
+     * staff who share a school with the caller, plus admins (who must always be
+     * reachable, or a teacher at a school with no other staff could message nobody).
      */
     protected function getUsersList($currentUser)
     {
-        if (!$currentUser) return [];
+        if (! $currentUser) {
+            return [];
+        }
+
+        $schoolIds = SchoolScope::schoolIdsFor($currentUser);
 
         $users = User::query()
             ->where('id', '!=', $currentUser->id)
+            ->when($schoolIds !== null, function ($q) use ($schoolIds) {
+                // Staff identity joins users to teachers/assistants BY EMAIL, not by a
+                // foreign key (see User::teacher()), so the school filter has to go
+                // through those tables' emails rather than a user_id.
+                $emails = collect();
+
+                if (! empty($schoolIds)) {
+                    // Both pivots and both staff tables carry softDeletes(), and a raw
+                    // DB::table() join does not apply Eloquent's global scope — without
+                    // these whereNulls a teacher detached from a school would still show up.
+                    $emails = $emails
+                        ->merge(
+                            DB::table('teachers')
+                                ->join('school_teacher', 'school_teacher.teacher_id', '=', 'teachers.id')
+                                ->whereIn('school_teacher.school_id', $schoolIds)
+                                ->whereNull('school_teacher.deleted_at')
+                                ->whereNull('teachers.deleted_at')
+                                ->pluck('teachers.email')
+                        )
+                        ->merge(
+                            DB::table('assistants')
+                                ->join('assistant_school', 'assistant_school.assistant_id', '=', 'assistants.id')
+                                ->whereIn('assistant_school.school_id', $schoolIds)
+                                ->whereNull('assistant_school.deleted_at')
+                                ->whereNull('assistants.deleted_at')
+                                ->pluck('assistants.email')
+                        );
+                }
+
+                $emails = $emails->filter()->unique()->values()->all();
+
+                $q->where(function ($inner) use ($emails) {
+                    $inner->where('role', 'admin');
+
+                    if (! empty($emails)) {
+                        $inner->orWhereIn('email', $emails);
+                    }
+                });
+            })
             ->select('id', 'name', 'email', 'role')
             ->orderBy('name')
             ->get();
@@ -69,6 +121,7 @@ class HandleInertiaRequests extends Middleware
 
         return $users->map(function ($user) use ($images) {
             $user->profile_image = $images[$user->email] ?? null;
+
             return $user;
         })->values()->toArray();
     }
@@ -82,7 +135,9 @@ class HandleInertiaRequests extends Middleware
      */
     protected function unreadAnnouncementCount($user): int
     {
-        if (!$user) return 0;
+        if (! $user) {
+            return 0;
+        }
 
         $now = now();
 

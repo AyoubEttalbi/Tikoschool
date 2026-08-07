@@ -32,7 +32,9 @@ import {
   Pie, 
   Cell 
 } from "recharts";
-import * as XLSX from "xlsx";
+// `xlsx` is NOT imported at module scope. It is ~370 KB raw and was being shipped to
+// everyone who opened the payments page, to serve one button that most sessions never
+// click. It is loaded on demand in handleExportExcel() below.
 
 const monthsList = Array.from({ length: 12 }, (_, i) => {
     const date = new Date();
@@ -259,7 +261,10 @@ const TeacherEarningsTable = ({ teachers = [] }) => {
         URL.revokeObjectURL(url);
     };
 
-    const handleExportExcel = () => {
+    const handleExportExcel = async () => {
+        // Dynamic import: the chunk is fetched the first time someone actually exports.
+        const XLSX = await import("xlsx");
+
         const exportData = processedData.map(row => {
             if (selectedMonth === "") {
                 return {

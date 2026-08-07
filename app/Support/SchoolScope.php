@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Exceptions\AccessDeniedException;
 use App\Models\Assistant;
 use App\Models\Classes;
 use App\Models\Student;
@@ -141,11 +142,19 @@ class SchoolScope
             || in_array((int) $schoolId, array_map('intval', $schoolIds), true);
     }
 
-    /** Abort with 403 unless the student is in scope. */
+    /**
+     * Abort with 403 unless the student is in scope.
+     *
+     * These three helpers throw AccessDeniedException rather than calling abort(403).
+     * abort() throws an \Exception subclass, and 92 `catch (\Exception $e)` blocks across
+     * the controllers would turn the denial into a redirect that looks like success.
+     *
+     * @see \App\Exceptions\AccessDeniedException for the full reasoning.
+     */
     public static function authorizeStudent(Student $student, ?User $user = null): void
     {
         if (! static::allowsStudent($student, $user)) {
-            abort(403, "Vous n'avez pas accès à cet élève.");
+            throw new AccessDeniedException("Vous n'avez pas accès à cet élève.");
         }
     }
 
@@ -153,7 +162,7 @@ class SchoolScope
     public static function authorizeClass(Classes $class, ?User $user = null): void
     {
         if (! static::allowsClass($class, $user)) {
-            abort(403, "Vous n'avez pas accès à cette classe.");
+            throw new AccessDeniedException("Vous n'avez pas accès à cette classe.");
         }
     }
 
@@ -161,7 +170,19 @@ class SchoolScope
     public static function authorizeSchool(int $schoolId, ?User $user = null): void
     {
         if (! static::allowsSchool($schoolId, $user)) {
-            abort(403, "Vous n'avez pas accès à cet établissement.");
+            throw new AccessDeniedException("Vous n'avez pas accès à cet établissement.");
+        }
+    }
+
+    /** Abort with 403 unless the current user holds one of the given roles. */
+    public static function authorizeRole(array $roles, ?User $user = null): void
+    {
+        $user ??= Auth::user();
+
+        if (! $user || ! in_array($user->role, $roles, true)) {
+            throw new AccessDeniedException(
+                "Vous n'avez pas les droits nécessaires pour cette action."
+            );
         }
     }
 }

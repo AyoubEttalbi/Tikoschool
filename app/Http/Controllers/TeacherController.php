@@ -3,33 +3,30 @@
 namespace App\Http\Controllers;
 
 use App\Events\CheckEmailUnique;
-use App\Models\Teacher;
-use App\Support\SchoolScope;
-use Illuminate\Http\Request;
-use Inertia\Inertia;
-use Illuminate\Support\Facades\URL;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\DB;
-use App\Models\Subject;
-use App\Models\School;
-use App\Models\Classes;
-use App\Models\Membership;
 use App\Models\Announcement;
+use App\Models\Classes;
+use App\Models\Invoice;
+use App\Models\Membership;
+use App\Models\School;
+use App\Models\Subject;
+use App\Models\Teacher;
+use App\Models\User;
+use App\Support\SchoolScope;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Auth;
 use Cloudinary\Cloudinary;
 use Cloudinary\Configuration\Configuration;
-use Cloudinary\Api\Upload\UploadApi;
-use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rules;
 use Illuminate\Validation\ValidationException;
-use Illuminate\Support\Facades\Log;
-use App\Models\Invoice;
+use Inertia\Inertia;
 
 class TeacherController extends Controller
 {
-    
     private function getCloudinary()
     {
         return new Cloudinary(
@@ -40,26 +37,26 @@ class TeacherController extends Controller
                     'api_secret' => env('CLOUDINARY_API_SECRET'),
                 ],
                 'url' => [
-                    'secure' => true
-                ]
+                    'secure' => true,
+                ],
             ])
         );
     }
 
     /**
-    * Upload file to Cloudinary
-    */
+     * Upload file to Cloudinary
+     */
     private function uploadToCloudinary($file, $folder = 'teachers', $width = 300, $height = 300)
     {
         $cloudinary = $this->getCloudinary();
         $uploadApi = $cloudinary->uploadApi();
-        
+
         $options = [
             'folder' => $folder,
             'transformation' => [
                 [
-                    'width' => $width, 
-                    'height' => $height, 
+                    'width' => $width,
+                    'height' => $height,
                     'crop' => 'fill',
                     'gravity' => 'auto',
                 ],
@@ -68,12 +65,12 @@ class TeacherController extends Controller
                     'fetch_format' => 'auto',
                 ],
             ],
-            'public_id' => 'teacher_' . time() . '_' . random_int(1000, 9999),
+            'public_id' => 'teacher_'.time().'_'.random_int(1000, 9999),
             'resource_type' => 'image',
         ];
-        
+
         $result = $uploadApi->upload($file->getRealPath(), $options);
-        
+
         return [
             'secure_url' => $result['secure_url'],
             'public_id' => $result['public_id'],
@@ -108,12 +105,12 @@ class TeacherController extends Controller
         }
 
         // Apply search filter if search term is provided
-        if ($request->has('search') && !empty($request->search)) {
+        if ($request->has('search') && ! empty($request->search)) {
             $this->applySearchFilter($query, $request->search);
         }
 
         // Apply additional filters (subject, class, school, status)
-        // Note: The individual school filter might become redundant if session school is always applied, 
+        // Note: The individual school filter might become redundant if session school is always applied,
         // but keep it for explicit filtering capabilities.
         $this->applyFilters($query, $request->only(['subject', 'class', 'school', 'status']));
 
@@ -151,14 +148,14 @@ class TeacherController extends Controller
         $query->where(function ($q) use ($searchTerm) {
             // Search by teacher fields
             $q->where('first_name', 'LIKE', "%{$searchTerm}%")
-              ->orWhere('last_name', 'LIKE', "%{$searchTerm}%")
-              ->orWhere('phone_number', 'LIKE', "%{$searchTerm}%")
-              ->orWhere('email', 'LIKE', "%{$searchTerm}%")
-              ->orWhere('address', 'LIKE', "%{$searchTerm}%")
+                ->orWhere('last_name', 'LIKE', "%{$searchTerm}%")
+                ->orWhere('phone_number', 'LIKE', "%{$searchTerm}%")
+                ->orWhere('email', 'LIKE', "%{$searchTerm}%")
+                ->orWhere('address', 'LIKE', "%{$searchTerm}%")
               // Search by full name (first_name + last_name combined)
-              ->orWhereRaw("CONCAT(first_name, ' ', last_name) LIKE ?", ["%{$searchTerm}%"])
+                ->orWhereRaw("CONCAT(first_name, ' ', last_name) LIKE ?", ["%{$searchTerm}%"])
               // Search by full name in reverse order (last_name + first_name)
-              ->orWhereRaw("CONCAT(last_name, ' ', first_name) LIKE ?", ["%{$searchTerm}%"]);
+                ->orWhereRaw("CONCAT(last_name, ' ', first_name) LIKE ?", ["%{$searchTerm}%"]);
 
             // Search by related models through pivot tables
             $this->applyRelationshipSearch($q, $searchTerm);
@@ -173,12 +170,12 @@ class TeacherController extends Controller
         $query->orWhereHas('subjects', function ($subjectQuery) use ($searchTerm) {
             $subjectQuery->where('name', 'LIKE', "%{$searchTerm}%");
         })
-        ->orWhereHas('classes', function ($classQuery) use ($searchTerm) {
-            $classQuery->where('name', 'LIKE', "%{$searchTerm}%");
-        })
-        ->orWhereHas('schools', function ($schoolQuery) use ($searchTerm) {
-            $schoolQuery->where('name', 'LIKE', "%{$searchTerm}%");
-        });
+            ->orWhereHas('classes', function ($classQuery) use ($searchTerm) {
+                $classQuery->where('name', 'LIKE', "%{$searchTerm}%");
+            })
+            ->orWhereHas('schools', function ($schoolQuery) use ($searchTerm) {
+                $schoolQuery->where('name', 'LIKE', "%{$searchTerm}%");
+            });
     }
 
     /**
@@ -186,25 +183,25 @@ class TeacherController extends Controller
      */
     protected function applyFilters($query, $filters)
     {
-        if (!empty($filters['subject'])) {
+        if (! empty($filters['subject'])) {
             $query->whereHas('subjects', function ($subjectQuery) use ($filters) {
                 $subjectQuery->where('subjects.id', $filters['subject']);
             });
         }
 
-        if (!empty($filters['class'])) {
+        if (! empty($filters['class'])) {
             $query->whereHas('classes', function ($classQuery) use ($filters) {
                 $classQuery->where('classes.id', $filters['class']);
             });
         }
 
-        if (!empty($filters['school'])) {
+        if (! empty($filters['school'])) {
             $query->whereHas('schools', function ($schoolQuery) use ($filters) {
                 $schoolQuery->where('schools.id', $filters['school']);
             });
         }
 
-        if (!empty($filters['status'])) {
+        if (! empty($filters['status'])) {
             $query->where('status', $filters['status']);
         }
     }
@@ -216,7 +213,7 @@ class TeacherController extends Controller
     {
         return [
             'id' => $teacher->id,
-            'name' => $teacher->first_name . ' ' . $teacher->last_name,
+            'name' => $teacher->first_name.' '.$teacher->last_name,
             'phone_number' => $teacher->phone_number,
             'first_name' => $teacher->first_name,
             'last_name' => $teacher->last_name,
@@ -225,7 +222,7 @@ class TeacherController extends Controller
             'address' => $teacher->address,
             'status' => $teacher->status,
             'wallet' => $teacher->wallet,
-            'profile_image' => $teacher->profile_image ?? null, 
+            'profile_image' => $teacher->profile_image ?? null,
             'subjects' => $teacher->subjects,
             'classes' => $teacher->classes,
             'schools' => $teacher->schools,
@@ -242,11 +239,11 @@ class TeacherController extends Controller
 
         return Inertia::render('Teachers/Create', [
             'subjects' => $subjects,
-            'classes' => $classes, 
+            'classes' => $classes,
         ]);
     }
 
-     /**
+    /**
      * Store a newly created resource in storage.
      */
     public function store(Request $request)
@@ -272,7 +269,12 @@ class TeacherController extends Controller
             // (see TeacherWalletService); an opening balance typed into a create form would
             // be money with no corresponding entry, which is exactly the drift the ledger
             // exists to prevent.
-            $validatedData['wallet'] = 0;
+            //
+            // Zero now comes from the column default rather than from here: `wallet` is no
+            // longer in Teacher::$fillable, so passing it to create() would be silently
+            // dropped. Unsetting says that out loud instead of leaving a line that looks
+            // like it does something.
+            unset($validatedData['wallet']);
 
             // Handle profile image upload
             if ($request->hasFile('profile_image')) {
@@ -283,7 +285,7 @@ class TeacherController extends Controller
             }
 
             event(new CheckEmailUnique($request->email));
-            
+
             // Create the teacher record
             $teacher = Teacher::create($validatedData);
 
@@ -294,7 +296,8 @@ class TeacherController extends Controller
 
             return redirect()->route('teachers.index')->with('success', 'Teacher created successfully.');
         } catch (\Exception $e) {
-            Log::error('Error creating teacher: ' . $e->getMessage());
+            Log::error('Error creating teacher: '.$e->getMessage());
+
             return redirect()->back()->with('error', 'Failed to create teacher. Please try again.');
         }
     }
@@ -309,7 +312,7 @@ class TeacherController extends Controller
         try {
             // Eager load teacher relationships
             $teacher->load(['subjects', 'classes', 'schools']);
-            
+
             // Get filter parameters from request
             $filters = [
                 'search' => $request->get('search', ''),
@@ -326,25 +329,24 @@ class TeacherController extends Controller
                 'payment_status_filter' => $request->get('payment_status_filter', 'all'),
                 'page' => $request->get('page', 1),
             ];
-            
-            
+
             // Fetch announcements first
             $announcementStatus = $request->query('status', 'all'); // 'all', 'active', 'upcoming', 'expired'
-        
+
             // Base announcement query
             $announcementQuery = Announcement::query();
-            
+
             // Apply date filtering based on status parameter
             $now = Carbon::now();
-            
+
             if ($announcementStatus === 'active') {
-                $announcementQuery->where(function($q) use ($now) {
-                    $q->where(function($q) use ($now) {
+                $announcementQuery->where(function ($q) use ($now) {
+                    $q->where(function ($q) use ($now) {
                         $q->whereNull('date_start')
-                          ->orWhere('date_start', '<=', $now);
-                    })->where(function($q) use ($now) {
+                            ->orWhere('date_start', '<=', $now);
+                    })->where(function ($q) use ($now) {
                         $q->whereNull('date_end')
-                          ->orWhere('date_end', '>=', $now);
+                            ->orWhere('date_end', '>=', $now);
                     });
                 });
             } elseif ($announcementStatus === 'upcoming') {
@@ -352,77 +354,77 @@ class TeacherController extends Controller
             } elseif ($announcementStatus === 'expired') {
                 $announcementQuery->where('date_end', '<', $now);
             }
-            
+
             // Get user role for role-based visibility
             $userRole = Auth::user() ? Auth::user()->role : null;
-            
+
             // Apply role-based visibility filter based on user role
             if ($userRole === 'admin') {
                 // Admin sees all announcements (no visibility filter needed)
             } else {
                 // Employees only see announcements with visibility 'all' or matching their role
-                $announcementQuery->where(function($q) use ($userRole) {
+                $announcementQuery->where(function ($q) use ($userRole) {
                     $q->where('visibility', 'all')
-                      ->orWhere('visibility', $userRole);
+                        ->orWhere('visibility', $userRole);
                 });
             }
-            
+
             // Order announcements by date (most recent first)
             $announcementQuery->orderBy('date_announcement', 'desc');
-            
+
             // Execute announcement query
             $announcements = $announcementQuery->get();
 
             // Validate teacher email before proceeding
-            if (empty($teacher->email) || !filter_var($teacher->email, FILTER_VALIDATE_EMAIL)) {
+            if (empty($teacher->email) || ! filter_var($teacher->email, FILTER_VALIDATE_EMAIL)) {
                 Log::error('Teacher has invalid or missing email', [
                     'teacher_id' => $teacher->id,
-                    'teacher_email' => $teacher->email
+                    'teacher_email' => $teacher->email,
                 ]);
-                
+
                 // Return error response instead of crashing
                 return response()->json([
                     'error' => 'Teacher has invalid or missing email address',
-                    'teacher_id' => $teacher->id
+                    'teacher_id' => $teacher->id,
                 ], 400);
             }
-            
+
             $teacherUser = User::where('email', $teacher->email)->first();
-            
+
             // If teacher doesn't have a user account, create one (fallback mechanism)
-            if (!$teacherUser && $teacher->email) {
+            if (! $teacherUser && $teacher->email) {
                 try {
                     DB::beginTransaction();
-                    
+
                     // Check if email is already taken by another user
                     $existingUser = User::where('email', $teacher->email)->first();
                     if ($existingUser) {
                         Log::warning('Email already exists in users table but not linked to teacher', [
                             'teacher_id' => $teacher->id,
                             'teacher_email' => $teacher->email,
-                            'existing_user_id' => $existingUser->id
+                            'existing_user_id' => $existingUser->id,
                         ]);
                         $teacherUser = $existingUser;
                     } else {
                         // Check if email is valid and not empty
-                        if (empty($teacher->email) || !filter_var($teacher->email, FILTER_VALIDATE_EMAIL)) {
-                            throw new \Exception('Invalid email address: ' . $teacher->email);
+                        if (empty($teacher->email) || ! filter_var($teacher->email, FILTER_VALIDATE_EMAIL)) {
+                            throw new \Exception('Invalid email address: '.$teacher->email);
                         }
-                        
+
                         $teacherUser = User::create([
-                            'name' => $teacher->first_name . ' ' . $teacher->last_name,
+                            'name' => $teacher->first_name.' '.$teacher->last_name,
                             'email' => $teacher->email,
-                            'password' => bcrypt('temp_password_' . time()), // Temporary password
+                            'password' => bcrypt('temp_password_'.time()), // Temporary password
                             'role' => 'teacher',
                         ]);
-                        
+
                         Log::info('Created missing user account for teacher', [
                             'teacher_id' => $teacher->id,
                             'teacher_email' => $teacher->email,
-                            'new_user_id' => $teacherUser->id
+                            'new_user_id' => $teacherUser->id,
                         ]);
                     }
-                    
+
                     DB::commit();
                 } catch (\Exception $e) {
                     DB::rollBack();
@@ -430,83 +432,88 @@ class TeacherController extends Controller
                         'teacher_id' => $teacher->id,
                         'teacher_email' => $teacher->email,
                         'error' => $e->getMessage(),
-                        'trace' => $e->getTraceAsString()
+                        'trace' => $e->getTraceAsString(),
                     ]);
                     // Continue without user account - the system will handle this gracefully
                 }
             }
-            
+
             // Final safety check - if we still don't have a teacherUser, create a minimal one
-            if (!$teacherUser) {
+            if (! $teacherUser) {
                 Log::warning('Teacher has no user account and creation failed, using fallback data', [
                     'teacher_id' => $teacher->id,
-                    'teacher_email' => $teacher->email
+                    'teacher_email' => $teacher->email,
                 ]);
-                
+
                 // Create a minimal user object for the frontend
                 $teacherUser = (object) [
-                    'id' => 'temp_' . $teacher->id,
+                    'id' => 'temp_'.$teacher->id,
                     'email' => $teacher->email,
-                    'name' => $teacher->first_name . ' ' . $teacher->last_name,
-                    'role' => 'teacher'
+                    'name' => $teacher->first_name.' '.$teacher->last_name,
+                    'role' => 'teacher',
                 ];
             }
-            
+
             // Log teacher data for debugging
             Log::info('Teacher data fetched', [
                 'teacher_id' => $teacher->id,
                 'teacher_email' => $teacher->email,
                 'teacher_exists' => $teacher ? true : false,
                 'user_found' => $teacherUser ? true : false,
-                'user_id' => $teacherUser ? $teacherUser->id : null
+                'user_id' => $teacherUser ? $teacherUser->id : null,
             ]);
-            
-            if (!$teacher) {
+
+            if (! $teacher) {
                 abort(404);
             }
-            
+
             // Calculate total students for this teacher (including deleted memberships)
             $totalStudents = Membership::withTrashed()
                 ->whereJsonContains('teachers', [['teacherId' => (string) $teacher->id]])
                 ->distinct('student_id')
                 ->count('student_id');
-            
+
             // Fetch all memberships where the teacher is involved (including deleted ones)
             $memberships = Membership::withTrashed()
                 ->whereJsonContains('teachers', [['teacherId' => (string) $teacher->id]])
-                ->with(['invoices' => function($query) {
+                ->with(['invoices' => function ($query) {
                     // Only include non-deleted invoices
                     $query->whereNull('deleted_at');
                 }, 'student', 'student.school', 'student.class', 'offer'])
                 ->get();
-            
+
             // Debug: Log membership filtering
             Log::info('Membership filtering results', [
                 'teacher_id' => $teacher->id,
                 'total_memberships_found' => $memberships->count(),
-                'memberships_with_invoices' => $memberships->filter(function($m) { return $m->invoices->count() > 0; })->count(),
-                'total_invoices_found' => $memberships->sum(function($m) { return $m->invoices->count(); }),
+                'memberships_with_invoices' => $memberships->filter(function ($m) {
+                    return $m->invoices->count() > 0;
+                })->count(),
+                'total_invoices_found' => $memberships->sum(function ($m) {
+                    return $m->invoices->count();
+                }),
             ]);
-            
+
             // Extract invoices from memberships and calculate the teacher's share by month
             $invoices = $memberships->flatMap(function ($membership) use ($teacher, $filters) {
                 // Skip if the student doesn't exist
-                if (!$membership->student) {
+                if (! $membership->student) {
                     // Debug: Log skipped memberships
                     Log::info('Skipped membership - no student', [
                         'membership_id' => $membership->id,
                         'student_id' => $membership->student_id,
                     ]);
+
                     return [];
                 }
-                
+
                 return $membership->invoices->flatMap(function ($invoice) use ($membership, $teacher, $filters) {
                     // Find the teacher's data in the membership
-                    $teacherData = collect($membership->teachers)->first(function($item) use ($teacher) {
-                        return isset($item['teacherId']) && $item['teacherId'] == (string)$teacher->id;
+                    $teacherData = collect($membership->teachers)->first(function ($item) use ($teacher) {
+                        return isset($item['teacherId']) && $item['teacherId'] == (string) $teacher->id;
                     });
-                    
-                    if (!$teacherData) {
+
+                    if (! $teacherData) {
                         // Debug: Log skipped invoices due to teacher data
                         Log::info('Skipped invoice - no teacher data', [
                             'invoice_id' => $invoice->id,
@@ -515,12 +522,13 @@ class TeacherController extends Controller
                             'teachers_data' => $membership->teachers,
                             'teacher_id_looking_for' => $teacher->id,
                         ]);
+
                         return [];
                     }
-                    
+
                     // Use subject from teacher data or fallback to teacher's first subject
                     $subject = $teacherData['subject'] ?? ($teacher->subjects->first()->name ?? 'Unknown');
-                    
+
                     // Get selected months for this invoice
                     $selectedMonths = $invoice->selected_months ?? [];
                     if (is_string($selectedMonths)) {
@@ -529,7 +537,7 @@ class TeacherController extends Controller
 
                     // Determine bill month (format YYYY-MM) for possible partial-month inclusion
                     $billMonth = $invoice->billDate ? ($invoice->billDate instanceof \Carbon\Carbon ? $invoice->billDate->format('Y-m') : date('Y-m', strtotime($invoice->billDate))) : null;
-                    if (!$billMonth) {
+                    if (! $billMonth) {
                         // Fallback to created_at when billDate is missing
                         $billMonth = $invoice->created_at ? date('Y-m', strtotime($invoice->created_at)) : null;
                     }
@@ -544,29 +552,29 @@ class TeacherController extends Controller
                     $includePartialMonth = $invoice->includePartialMonth ?? false;
                     $partialMonthAmount = $invoice->partialMonthAmount ?? 0;
                     if ($includePartialMonth && $partialMonthAmount > 0 && $billMonth) {
-                        if (!in_array($billMonth, $selectedMonths)) {
+                        if (! in_array($billMonth, $selectedMonths)) {
                             // Prepend billMonth so partial-month row appears first (optional)
                             array_unshift($selectedMonths, $billMonth);
                         }
                     }
 
-            // Debug: Log invoice processing (only for first few invoices to avoid spam)
-            if ($invoice->id <= 10) {
-                Log::info('Processing invoice', [
-                    'invoice_id' => $invoice->id,
-                    'student_id' => $membership->student_id,
-                    'selected_months_raw' => $invoice->selected_months,
-                    'selected_months_processed' => $selectedMonths,
-                    'billDate' => $invoice->billDate,
-                    'payment_status' => $membership->payment_status,
-                    'membership_deleted' => !is_null($membership->deleted_at),
-                ]);
-            }
-                    
+                    // Debug: Log invoice processing (only for first few invoices to avoid spam)
+                    if ($invoice->id <= 10) {
+                        Log::info('Processing invoice', [
+                            'invoice_id' => $invoice->id,
+                            'student_id' => $membership->student_id,
+                            'selected_months_raw' => $invoice->selected_months,
+                            'selected_months_processed' => $selectedMonths,
+                            'billDate' => $invoice->billDate,
+                            'payment_status' => $membership->payment_status,
+                            'membership_deleted' => ! is_null($membership->deleted_at),
+                        ]);
+                    }
+
                     // Get school information
                     $schoolName = 'Unknown';
                     $schoolId = null;
-                    
+
                     if ($membership->student->school) {
                         $schoolName = $membership->student->school->name;
                         $schoolId = $membership->student->school->id;
@@ -577,10 +585,10 @@ class TeacherController extends Controller
                             $schoolName = $school->name;
                         }
                     }
-                    
+
                     // Get class name safely
                     $className = $membership->student->class ? $membership->student->class->name : 'Unknown';
-                    
+
                     // Calculate teacher earnings per month
                     $offer = $invoice->offer;
                     $teacherSubject = $subject;
@@ -605,7 +613,7 @@ class TeacherController extends Controller
                         $teacherAmountForPartial = $partialMonthAmount * ($teacherPercentage / 100);
 
                         // Count full months (exclude billMonth if it was inserted for partial)
-                        $countFullMonths = count(array_filter($selectedMonths, function($m) use ($billMonth) {
+                        $countFullMonths = count(array_filter($selectedMonths, function ($m) use ($billMonth) {
                             return $m !== $billMonth;
                         }));
 
@@ -625,20 +633,21 @@ class TeacherController extends Controller
                         $countFullMonths = count($selectedMonths);
                         $fullMonthsAmount = $countFullMonths > 0 ? ($totalTeacherAmount / $countFullMonths) : 0;
                     }
-                    
+
                     // Create one row per month
                     $monthlyInvoices = [];
                     foreach ($selectedMonths as $month) {
-                        if (!$month) {
+                        if (! $month) {
                             // Debug: Log skipped months
                             Log::info('Skipped month - empty', [
                                 'invoice_id' => $invoice->id,
                                 'student_id' => $membership->student_id,
                                 'selected_months' => $selectedMonths,
                             ]);
+
                             continue;
                         }
-                        
+
                         // Debug: Log monthly processing (only for first few invoices to avoid spam)
                         if ($invoice->id <= 10) {
                             Log::info('Processing month for invoice', [
@@ -649,35 +658,35 @@ class TeacherController extends Controller
                                 'month_matches_filter' => $month === ($filters['date_filter'] ?? 'none'),
                             ]);
                         }
-                        
+
                         // Format month for display (MM-YYYY)
-                        $monthDisplay = date('m-Y', strtotime($month . '-01'));
-                        
+                        $monthDisplay = date('m-Y', strtotime($month.'-01'));
+
                         // Check if this month is paid for this teacher
                         $teacherPayment = \App\Models\TeacherMembershipPayment::where('teacher_id', $teacher->id)
                             ->where('membership_id', $membership->id)
                             ->where('invoice_id', $invoice->id)
                             ->whereJsonContains('selected_months', $month)
                             ->first();
-                        
+
                         $isMonthPaid = false;
                         if ($teacherPayment) {
                             // Check if the month is NOT in the unpaid months list
-                            $isMonthPaid = !in_array($month, $teacherPayment->months_rest_not_paid_yet ?? []);
+                            $isMonthPaid = ! in_array($month, $teacherPayment->months_rest_not_paid_yet ?? []);
                         }
-                        
+
                         $amountForThisMonth = ($includePartialMonth && $partialMonthAmount > 0 && $month === $billMonth) ? $teacherAmountForPartial : $fullMonthsAmount;
 
                         $monthlyInvoices[] = [
-                            'id' => $invoice->id . '_' . $month, // Unique ID for each month
+                            'id' => $invoice->id.'_'.$month, // Unique ID for each month
                             'invoice_id' => $invoice->id,
                             'membership_id' => $invoice->membership_id,
                             'student_id' => $invoice->student_id,
-                            'student_name' => $membership->student->firstName . ' ' . $membership->student->lastName,
+                            'student_name' => $membership->student->firstName.' '.$membership->student->lastName,
                             'student_class' => $className,
                             'student_school' => $schoolName,
                             'schoolId' => $schoolId,
-                            'billDate' => $month . '-01', // Use month start date
+                            'billDate' => $month.'-01', // Use month start date
                             'month_display' => $monthDisplay,
                             'months' => $invoice->months,
                             'creationDate' => $invoice->creationDate,
@@ -693,49 +702,49 @@ class TeacherController extends Controller
                             'teacher_amount' => $amountForThisMonth, // Monthly amount instead of total
                             'months_count' => 1, // Always 1 month per row
                             'total_months' => count($selectedMonths), // Total months for reference
-                            'membership_deleted' => !is_null($membership->deleted_at), // Add membership deletion status
+                            'membership_deleted' => ! is_null($membership->deleted_at), // Add membership deletion status
                             'membership_deleted_at' => $membership->deleted_at, // Add deletion date for reference
                             'is_month_paid' => $isMonthPaid, // Add payment status for this month
                         ];
                     }
-                    
+
                     return $monthlyInvoices;
                 });
             });
-            
+
             // Apply filters to invoices
             $invoices = $invoices->filter(function ($invoice) use ($filters) {
                 // Search filter
-                if (!empty($filters['search'])) {
+                if (! empty($filters['search'])) {
                     $studentName = $invoice['student_name'] ?? '';
                     if (stripos($studentName, $filters['search']) === false) {
                         return false;
                     }
                 }
-                
+
                 // Class filter
                 if ($filters['class_filter'] !== 'all') {
                     if (($invoice['student_class'] ?? '') !== $filters['class_filter']) {
                         return false;
                     }
                 }
-                
+
                 // Offer filter
                 if ($filters['offer_filter'] !== 'all') {
                     if (($invoice['offer_name'] ?? '') !== $filters['offer_filter']) {
                         return false;
                     }
                 }
-                
+
                 // School filter
                 if ($filters['school_filter'] !== 'all') {
                     if (($invoice['student_school'] ?? '') !== $filters['school_filter']) {
                         return false;
                     }
                 }
-                
+
                 // Date filter
-                if (!empty($filters['date_filter'])) {
+                if (! empty($filters['date_filter'])) {
                     $invoiceMonths = $invoice['selected_months'] ?? [];
                     if (empty($invoiceMonths)) {
                         // Fallback: if no selected_months, use the billDate month
@@ -751,7 +760,7 @@ class TeacherController extends Controller
                         }
                     }
 
-                    if (!$hasMatchingMonth) {
+                    if (! $hasMatchingMonth) {
                         // Debug: Log filtered out invoices (only for first few to avoid spam)
                         if (($invoice['invoice_id'] ?? 0) <= 10) {
                             Log::info('Invoice filtered out by date', [
@@ -763,38 +772,39 @@ class TeacherController extends Controller
                                 'billDate' => $invoice['billDate'] ?? 'unknown',
                             ]);
                         }
+
                         return false;
                     }
                 }
-                
+
                 // Membership status filter
                 if ($filters['membership_status_filter'] !== 'all') {
                     $isDeleted = $invoice['membership_deleted'] ?? false;
                     if ($filters['membership_status_filter'] === 'active' && $isDeleted) {
                         return false;
                     }
-                    if ($filters['membership_status_filter'] === 'deleted' && !$isDeleted) {
+                    if ($filters['membership_status_filter'] === 'deleted' && ! $isDeleted) {
                         return false;
                     }
                 }
-                
+
                 // Payment status filter
                 if ($filters['payment_status_filter'] !== 'all') {
                     $isPaid = $invoice['is_month_paid'] ?? false;
-                    if ($filters['payment_status_filter'] === 'paid' && !$isPaid) {
+                    if ($filters['payment_status_filter'] === 'paid' && ! $isPaid) {
                         return false;
                     }
                     if ($filters['payment_status_filter'] === 'pending' && $isPaid) {
                         return false;
                     }
                 }
-                
+
                 return true;
             });
-            
+
             // Sort invoices by creation date (newest first) - this ensures the most recently created invoices appear first
             $invoices = $invoices->sortByDesc('created_at')->values();
-            
+
             // Calculate stats from ALL filtered invoices (before pagination)
             $stats = [
                 'total_invoices' => $invoices->count(),
@@ -806,7 +816,7 @@ class TeacherController extends Controller
                 'pending_months' => $this->calculatePendingMonths($invoices),
                 'active_memberships' => $invoices->pluck('membership_id')->unique()->count(),
             ];
-            
+
             // Debug: Log the stats for troubleshooting
             Log::info('Teacher stats calculated', [
                 'teacher_id' => $teacher->id,
@@ -820,8 +830,7 @@ class TeacherController extends Controller
                 'unique_student_ids_count' => $invoices->pluck('student_id')->unique()->count(),
                 'duplicate_students' => $invoices->pluck('student_id')->count() - $invoices->pluck('student_id')->unique()->count(),
             ]);
-            
-            
+
             // Paginate the invoices
             $perPage = 10; // Number of invoices per page
             $currentPage = (int) $filters['page']; // Use filter page parameter and ensure it's an integer
@@ -832,28 +841,30 @@ class TeacherController extends Controller
                 $currentPage,
                 ['path' => request()->url(), 'query' => request()->query()]
             );
-            
-            
-            
+
             // Fetch other necessary data
             $schools = School::all();
             $classes = Classes::all();
             $subjects = Subject::all();
-            
+
             // Get unique filter options from all invoices (not just filtered ones)
             $allInvoices = $memberships->flatMap(function ($membership) use ($teacher) {
-                if (!$membership->student) return [];
-                
+                if (! $membership->student) {
+                    return [];
+                }
+
                 return $membership->invoices->flatMap(function ($invoice) use ($membership, $teacher) {
-                    $teacherData = collect($membership->teachers)->first(function($item) use ($teacher) {
-                        return isset($item['teacherId']) && $item['teacherId'] == (string)$teacher->id;
+                    $teacherData = collect($membership->teachers)->first(function ($item) use ($teacher) {
+                        return isset($item['teacherId']) && $item['teacherId'] == (string) $teacher->id;
                     });
-                    
-                    if (!$teacherData) return [];
-                    
+
+                    if (! $teacherData) {
+                        return [];
+                    }
+
                     // Use subject from teacher data or fallback to teacher's first subject
                     $subject = $teacherData['subject'] ?? ($teacher->subjects->first()->name ?? 'Unknown');
-                    
+
                     $selectedMonths = $invoice->selected_months ?? [];
                     if (is_string($selectedMonths)) {
                         $selectedMonths = json_decode($selectedMonths, true) ?? [];
@@ -861,7 +872,7 @@ class TeacherController extends Controller
                     if (empty($selectedMonths)) {
                         $selectedMonths = [$invoice->billDate ? $invoice->billDate->format('Y-m') : null];
                     }
-                    
+
                     $schoolName = 'Unknown';
                     if ($membership->student->school) {
                         $schoolName = $membership->student->school->name;
@@ -871,11 +882,11 @@ class TeacherController extends Controller
                             $schoolName = $school->name;
                         }
                     }
-                    
+
                     $className = $membership->student->class ? $membership->student->class->name : 'Unknown';
                     $offerName = $invoice->offer ? $invoice->offer->offer_name : null;
-                    
-                    return collect($selectedMonths)->map(function($month) use ($className, $schoolName, $offerName) {
+
+                    return collect($selectedMonths)->map(function ($month) use ($className, $schoolName, $offerName) {
                         return [
                             'student_class' => $className,
                             'student_school' => $schoolName,
@@ -884,14 +895,14 @@ class TeacherController extends Controller
                     });
                 });
             });
-            
+
             // Extract unique values for filter dropdowns
             $filterOptions = [
                 'classes' => $allInvoices->pluck('student_class')->unique()->filter()->values()->toArray(),
                 'offers' => $allInvoices->pluck('offer_name')->unique()->filter()->values()->toArray(),
                 'schools' => $allInvoices->pluck('student_school')->unique()->filter()->values()->toArray(),
             ];
-            
+
             // Get recurring transactions for this teacher
             $recurringTransactions = collect();
             if ($teacherUser) {
@@ -899,71 +910,71 @@ class TeacherController extends Controller
                     ->where('user_id', $teacherUser->id)
                     ->get();
             }
-                
+
             // Log the relationship for debugging
             Log::info('Teacher-User relationship', [
                 'teacher_id' => $teacher->id,
                 'teacher_email' => $teacher->email,
                 'user_found' => $teacherUser ? true : false,
                 'user_id' => $teacherUser ? $teacherUser->id : null,
-                'user_email' => $teacherUser ? $teacherUser->email : null
+                'user_email' => $teacherUser ? $teacherUser->email : null,
             ]);
-                
+
             // Check if any recurring transactions have been paid this month
             $currentMonth = now()->format('Y-m');
-            $startDate = \Carbon\Carbon::parse($currentMonth . '-01')->startOfMonth();
-            $endDate = \Carbon\Carbon::parse($currentMonth . '-01')->endOfMonth();
-            
+            $startDate = \Carbon\Carbon::parse($currentMonth.'-01')->startOfMonth();
+            $endDate = \Carbon\Carbon::parse($currentMonth.'-01')->endOfMonth();
+
             foreach ($recurringTransactions as $transaction) {
                 // Check if a corresponding one-time transaction exists for this month
                 $isPaidThisMonth = \App\Models\Transaction::where('is_recurring', 0)
-                    ->where('description', 'like', '%(Recurring payment from #' . $transaction->id . ')%')
+                    ->where('description', 'like', '%(Recurring payment from #'.$transaction->id.')%')
                     ->whereBetween('payment_date', [$startDate, $endDate])
                     ->exists();
-                
+
                 $transaction->paid_this_month = $isPaidThisMonth;
             }
-            
+
             // Get all transactions (recurring and one-time) for this teacher
             $transactions = collect();
             if ($teacherUser) {
                 $transactions = \App\Models\Transaction::where('user_id', $teacherUser->id)->get();
             }
-            
+
             // Log transaction fetching results
             Log::info('Teacher transactions fetched', [
                 'user_id' => $teacherUser ? $teacherUser->id : null,
                 'transactions_count' => $transactions->count(),
-                'transaction_user_ids' => $transactions->pluck('user_id')->unique()->toArray()
+                'transaction_user_ids' => $transactions->pluck('user_id')->unique()->toArray(),
             ]);
 
             // Mark recurring transactions as paid_this_month if a corresponding one-time payment exists
             $currentMonth = now()->format('Y-m');
-            $startDate = \Carbon\Carbon::parse($currentMonth . '-01')->startOfMonth();
-            $endDate = \Carbon\Carbon::parse($currentMonth . '-01')->endOfMonth();
+            $startDate = \Carbon\Carbon::parse($currentMonth.'-01')->startOfMonth();
+            $endDate = \Carbon\Carbon::parse($currentMonth.'-01')->endOfMonth();
 
             foreach ($transactions as $transaction) {
                 if ($transaction->is_recurring) {
                     $isPaidThisMonth = \App\Models\Transaction::where('is_recurring', 0)
-                        ->where('description', 'like', '%(Recurring payment from #' . $transaction->id . ')%')
+                        ->where('description', 'like', '%(Recurring payment from #'.$transaction->id.')%')
                         ->whereBetween('payment_date', [$startDate, $endDate])
                         ->exists();
                     $transaction->paid_this_month = $isPaidThisMonth;
                 }
             }
-            
+
             // Get the currently selected school from session
             $selectedSchool = null;
             $selectedSchoolId = session('school_id');
             $selectedSchoolName = session('school_name');
-            
+
             if ($selectedSchoolId && $selectedSchoolName) {
                 $selectedSchool = [
                     'id' => $selectedSchoolId,
-                    'name' => $selectedSchoolName
+                    'name' => $selectedSchoolName,
                 ];
             }
-            
+
             return Inertia::render('Menu/SingleTeacherPage', [
                 'teacher' => $teacherUser ? array_merge($teacher->toArray(), ['user_id' => $teacherUser->id, 'totalStudents' => $totalStudents]) : array_merge($teacher->toArray(), ['totalStudents' => $totalStudents]),
                 'invoices' => $paginatedInvoices,
@@ -983,9 +994,10 @@ class TeacherController extends Controller
                 'transactions' => $transactions, // Add all transactions
             ]);
         } catch (\Exception $e) {
-            Log::error('Error in TeacherController@show: ' . $e->getMessage(), [
-                'trace' => $e->getTraceAsString()
+            Log::error('Error in TeacherController@show: '.$e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
             ]);
+
             return redirect()->back()->with('error', 'Failed to load teacher details. Please try again.');
         }
     }
@@ -999,6 +1011,7 @@ class TeacherController extends Controller
         $classes = Classes::all(); // ✅ Changed from 'groups' to 'classes'
         $schools = School::all();
         $teacherUser = User::where('email', $teacher->email)->first();
+
         return Inertia::render('Teachers/Edit', [
             'teacher' => $teacherUser ? array_merge($teacher->toArray(), ['user_id' => $teacherUser->id]) : $teacher,
             'subjects' => $subjects,
@@ -1028,7 +1041,7 @@ class TeacherController extends Controller
                     'email',
                     'max:255',
                     // Unique in teachers, except for this teacher
-                    'unique:teachers,email,' . $teacher->id,
+                    'unique:teachers,email,'.$teacher->id,
                 ],
                 'status' => 'required|in:active,inactive',
                 'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120',
@@ -1088,7 +1101,7 @@ class TeacherController extends Controller
             // Update the corresponding user (if exists)
             $user = User::where('email', $oldEmail)->first();
             if ($user) {
-                $user->name = $validatedData['first_name'] . ' ' . $validatedData['last_name'];
+                $user->name = $validatedData['first_name'].' '.$validatedData['last_name'];
                 $user->email = $validatedData['email'];
                 $user->save();
             }
@@ -1096,7 +1109,7 @@ class TeacherController extends Controller
             if ($currentSchoolId) {
                 session([
                     'school_id' => $currentSchoolId,
-                    'school_name' => $currentSchoolName
+                    'school_name' => $currentSchoolName,
                 ]);
             }
 
@@ -1111,7 +1124,8 @@ class TeacherController extends Controller
                 return redirect()->route('teachers.show', $teacher->id)->with('success', 'Teacher updated successfully.');
             }
         } catch (\Exception $e) {
-            Log::error('Error updating teacher: ' . $e->getMessage());
+            Log::error('Error updating teacher: '.$e->getMessage());
+
             return redirect()->back()->with('error', 'Failed to update teacher. Please try again.');
         }
     }
@@ -1140,7 +1154,8 @@ class TeacherController extends Controller
 
             return redirect()->route('teachers.index')->with('success', 'Teacher deleted successfully.');
         } catch (\Exception $e) {
-            Log::error('Error deleting teacher: ' . $e->getMessage());
+            Log::error('Error deleting teacher: '.$e->getMessage());
+
             return redirect()->back()->with('error', 'Failed to delete teacher. Please try again.');
         }
     }
@@ -1193,8 +1208,8 @@ class TeacherController extends Controller
                 'phone_number' => $request->input('teacher.phone_number'),
                 'email' => $request->input('teacher.email'),
                 'status' => $request->input('teacher.status'),
-                // Always zero on creation — see the note in store().
-                'wallet' => 0,
+                // `wallet` is intentionally absent: it is not fillable, and the column
+                // defaults to 0. See the note in store().
             ];
 
             if ($request->hasFile('teacher.profile_image')) {
@@ -1211,6 +1226,7 @@ class TeacherController extends Controller
             $teacher->schools()->sync($request->input('teacher.schools', []));
 
             DB::commit();
+
             // Always redirect to teachers.index for Inertia
             return redirect()->route('teachers.index')->with('success', 'User and Teacher created successfully.');
         } catch (ValidationException $e) {
@@ -1219,8 +1235,12 @@ class TeacherController extends Controller
             $userErrors = [];
             $teacherErrors = [];
             foreach ($errors as $key => $val) {
-                if (str_starts_with($key, 'user.')) $userErrors[$key] = $val;
-                if (str_starts_with($key, 'teacher.')) $teacherErrors[$key] = $val;
+                if (str_starts_with($key, 'user.')) {
+                    $userErrors[$key] = $val;
+                }
+                if (str_starts_with($key, 'teacher.')) {
+                    $teacherErrors[$key] = $val;
+                }
             }
             // Only return JSON for true API requests
             if ($request->expectsJson() || $request->isXmlHttpRequest()) {
@@ -1262,7 +1282,7 @@ class TeacherController extends Controller
 
         return [
             'name' => $bestOfferName ?: 'N/A',
-            'amount' => number_format($bestOffer, 2)
+            'amount' => number_format($bestOffer, 2),
         ];
     }
 
@@ -1272,7 +1292,7 @@ class TeacherController extends Controller
     private function calculateCurrentMonthAmount($invoices)
     {
         $currentMonth = now()->format('Y-m');
-        
+
         return $invoices->filter(function ($invoice) use ($currentMonth) {
             return strpos($invoice['billDate'], $currentMonth) === 0;
         })->sum('teacher_amount');
