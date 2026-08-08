@@ -78,7 +78,15 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          # 512M was not enough headroom for the absence-list PDF. This one container runs
+          # php-fpm and all its workers, the queue runner and reverb under supervisor, and
+          # a single PDF render peaks near 300 MB — so the request could be OOM-KILLED by
+          # the kernel, taking the container with it, well before PHP's own memory_limit
+          # produced a clean error. AttendanceController::PDF_MEMORY_LIMIT caps one
+          # request at 384M; this leaves the rest of the container room to keep serving.
+          # Budget check on the 3.9 GB host: 128 (nginx) + 768 + 1200 (mysql) + 128
+          # (redis) = 2.2 GB of caps.
+          memory: 768M
 
   mysql:
     image: mysql:8.0

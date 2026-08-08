@@ -55,18 +55,11 @@
                 <th class="billing">Billing Date</th>
                 <th style="width: 18px;">ST</th>
                 <th style="width: 18px;">AS</th>
-                @php
-                    // Determine number of days in the selected month
-                    $month = 1; $year = date('Y');
-                    if (!empty($date)) {
-                        $parts = explode('-', substr($date, 0, 10));
-                        if (count($parts) >= 2) {
-                            $year = (int)$parts[0];
-                            $month = (int)$parts[1];
-                        }
-                    }
-                    $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $month, $year);
-                @endphp
+                {{-- $daysInMonth is passed in by AttendanceController::downloadAbsenceList.
+                     A second copy of that calculation used to live here and silently won,
+                     because it ran after the controller's — so the controller value was
+                     never actually used. It also called cal_days_in_month(), from
+                     ext-calendar, which is not installed on the production image. --}}
                 @for ($d = 1; $d <= $daysInMonth; $d++)
                     <th style="width: 14px;">{{ str_pad($d, 2, '0', STR_PAD_LEFT) }}</th>
                 @endfor

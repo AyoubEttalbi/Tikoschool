@@ -22,6 +22,32 @@ use WasenderApi\Facades\WasenderApi;
 
 class AttendanceController extends Controller
 {
+    /*
+     * MEMORY BUDGET FOR THE ABSENCE SHEET
+     *
+     * Measured, not guessed. Rendering a 31-day sheet costs a fixed ~80 MB (dompdf loads
+     * the whole DejaVu Sans face for the ✓/✗ glyphs) plus ~0.75 MB per student row:
+     *
+     *     10 students →  90 MB      80 students → 146 MB
+     *     40 students → 114 MB     150 students → 200 MB     300 students → 320 MB
+     *
+     * Add ~40 MB for a booted Laravel and a 40-student class peaks near 155 MB — which is
+     * why it died instantly at the stock 128 M and survived at the container's 256 M.
+     *
+     * The ceiling cannot simply be set high: docker-compose caps the whole php container
+     * at 768 MB, shared by php-fpm, every worker, the queue runner and reverb. A request
+     * allowed more than the container has would be OOM-killed by the kernel — which takes
+     * the container down instead of failing one download. 384 M is ~2.5x the realistic
+     * worst case and still leaves the container room to serve everything else.
+     *
+     * PDF_MAX_STUDENTS is the backstop that turns "probably enough" into "cannot fail":
+     * 384 M covers roughly 350 rows, so anything past 300 is refused with a readable
+     * message rather than allowed to run into the limit. No real class comes close.
+     */
+    private const PDF_MEMORY_LIMIT = '384M';
+
+    private const PDF_MAX_STUDENTS = 300;
+
     /** Scope an existing attendance row by its student and class. */
     private function authorizeAttendance(Attendance $attendance): void
     {
@@ -1096,8 +1122,20 @@ Ig: https://www.instagram.com/centreredcity?igsh=MXg1NjJwam80eTNoMw%3D%3D&utm_so
         $teacher = \App\Models\Teacher::findOrFail($request->teacher_id);
         $class = \App\Models\Classes::with('level')->findOrFail($request->class_id);
 
-        // Get all students in the class first, filtering by active status
-        $allStudents = $class->students()->where('status', 'active')->orderBy('lastName')->get();
+        // dompdf holds the whole document — every cell as a frame object with its own
+        // resolved style — in memory until download() returns. The render is bounded and
+        // short-lived, so it gets its own ceiling rather than raising php.ini for every
+        // request in the app. See PDF_MEMORY_LIMIT for the measurements behind the value.
+        ini_set('memory_limit', self::PDF_MEMORY_LIMIT);
+
+        // `with('memberships')`: BOTH the teacher filter below and the ST column in the
+        // Blade walk $student->memberships. Without this the relation was lazy-loaded
+        // twice per student — two queries per row, on top of the render cost.
+        $allStudents = $class->students()
+            ->where('status', 'active')
+            ->with('memberships')
+            ->orderBy('lastName')
+            ->get();
 
         // Filter students to only include those taught by the selected teacher through memberships
         $students = $allStudents->filter(function ($student) use ($teacher) {
@@ -1118,25 +1156,40 @@ Ig: https://www.instagram.com/centreredcity?igsh=MXg1NjJwam80eTNoMw%3D%3D&utm_so
             return false; // Student is not taught by this teacher
         });
 
-        $date = $request->input('date', now()->format('Y-m-d'));
-
-        // Parse year and month
-        $year = date('Y');
-        $month = 1;
-        if (! empty($date)) {
-            $parts = explode('-', substr($date, 0, 10));
-            if (count($parts) >= 2) {
-                $year = (int) $parts[0];
-                $month = (int) $parts[1];
-            }
+        // Refuse rather than run into the ceiling. This route is opened in a new tab by an
+        // <a> element, so there is no page left to flash an error back to — the reply has
+        // to carry the message itself or the admin gets a blank tab.
+        if ($students->count() > self::PDF_MAX_STUDENTS) {
+            return response(
+                '<!doctype html><html lang="fr"><meta charset="utf-8">'
+                .'<title>Liste trop longue</title>'
+                .'<body style="font-family:sans-serif;max-width:34em;margin:4em auto;line-height:1.5">'
+                .'<h1 style="font-size:1.25em">Liste trop longue</h1>'
+                .'<p>Cette classe compte '.$students->count().' élèves actifs pour cet '
+                .'enseignant. La liste de présence est limitée à '.self::PDF_MAX_STUDENTS
+                .' élèves par document.</p>'
+                .'<p>Choisissez une classe plus petite, ou passez en inactifs les élèves '
+                .'qui ne suivent plus les cours.</p></body></html>',
+                413
+            )->header('Content-Type', 'text/html; charset=utf-8');
         }
-        $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $month, $year);
 
-        // Fetch all absences for this class and month
+        $date = $request->filled('date') ? $request->input('date') : now()->format('Y-m-d');
+
+        // This was cal_days_in_month(CAL_GREGORIAN, ...). That function lives in
+        // ext-calendar, which ships enabled on Windows but is NOT one of the extensions
+        // the Dockerfile installs — so the whole route was a fatal "call to undefined
+        // function" in production while working perfectly on a dev machine. Carbon gives
+        // the same number with no extension to install or forget on the next host.
+        $monthStart = Carbon::parse($date)->startOfMonth();
+        $daysInMonth = $monthStart->daysInMonth;
+
+        // Half-open range rather than whereYear()+whereMonth(): those wrap the column in
+        // functions and cannot use the index on `date`.
         $absences = \App\Models\Attendance::where('classId', $class->id)
             ->where('status', 'absent')
-            ->whereYear('date', $year)
-            ->whereMonth('date', $month)
+            ->where('date', '>=', $monthStart)
+            ->where('date', '<', $monthStart->copy()->addMonth())
             ->get();
 
         // Build a map: [student_id][day] = true if absent
@@ -1146,6 +1199,11 @@ Ig: https://www.instagram.com/centreredcity?igsh=MXg1NjJwam80eTNoMw%3D%3D&utm_so
             $studentAbsences[$absence->student_id][$day] = true;
         }
 
+        // NOTE: config/dompdf.php sets 'enable_font_subsetting' => false, against dompdf's
+        // own default of true. Turning it on here shrinks this sheet from ~930 KB to
+        // ~93 KB and changes nothing about the memory cost — the font is loaded either
+        // way, only the embedded copy shrinks. Left off because it alters what lands in a
+        // document the school prints, and that needs an eyeball on the paper, not a test.
         $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('absence_list_pdf', [
             'teacher' => $teacher,
             'class' => $class,

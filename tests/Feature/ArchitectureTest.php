@@ -133,3 +133,27 @@ test('the framework default providers are in effect', function () {
     expect(config('app.providers'))
         ->toContain(Illuminate\Concurrency\ConcurrencyServiceProvider::class);
 });
+
+test('no code depends on ext-calendar', function () {
+    // cal_days_in_month() ships enabled on Windows and is bundled-but-not-installed in
+    // the php:alpine image the Dockerfile builds from, so the absence-list PDF worked on
+    // every dev machine and was a fatal "call to undefined function" in production. The
+    // test environment HAS the extension, so no functional test can catch this — only a
+    // source-level ban can. Carbon answers the same questions with no extension.
+    $offenders = [];
+
+    $sources = sourceFiles()
+        + phpFilesIn(resource_path('views'))
+        + phpFilesIn(base_path('routes'))
+        + phpFilesIn(database_path());
+
+    foreach ($sources as $path => $contents) {
+        $code = preg_replace('#(//.*$)|(/\*.*?\*/)|(\{\{--.*?--\}\})#ms', '', $contents);
+
+        if (preg_match('/\b(cal_days_in_month|cal_info|cal_from_jd|cal_to_jd|easter_date|easter_days|jd\w*to\w*|CAL_GREGORIAN)\b/i', $code)) {
+            $offenders[] = str_replace(base_path().DIRECTORY_SEPARATOR, '', $path);
+        }
+    }
+
+    expect($offenders)->toBe([]);
+});

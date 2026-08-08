@@ -168,35 +168,60 @@ class StudentsController extends Controller
         // Apply additional filters (e.g., school, class, level)
         $this->applyFilters($query, $request->only(['school', 'class', 'level']));
 
-        // Membership status filter — now expressed in SQL.
+        // Membership status filter.
         //
         // This used to ->get() every matching student (no LIMIT) with class, school,
         // level, every membership, every offer and every invoice eager-loaded, filter in
         // PHP, then hand the collection to a LengthAwarePaginator that only SLICED it.
         // The paginator made it look paginated; the database was doing a full read on
-        // every listing view, every search keystroke and every filter change.
+        // every listing view, every search keystroke and every filter change. It stays in
+        // SQL here for the same reason.
         //
-        // The three cases below reproduce the old PHP predicate exactly, including its
-        // treatment of a student with NO memberships: shown under 'unpaid' and 'rest',
-        // hidden under 'paid'.
+        // What changed: it used to read `memberships.payment_status`, and the column the
+        // admin is looking at while they pick a filter does not. The "Statut" badge comes
+        // from calculateMembershipPaymentStatus(), which ignores payment_status entirely
+        // and derives the answer from invoice money — so the filter and the column
+        // disagreed by construction. Two concrete symptoms:
+        //
+        //   * `payment_status` is an enum of pending|paid|expired. It has never held
+        //     'rest', so the old "Partiel" branch could only ever match on its fallback,
+        //     which was "the student has no memberships at all" — the one case that is
+        //     definitively not a partial payment. Those same students also came back
+        //     under "Non payé", so one row appeared under two mutually exclusive filters.
+        //   * A membership marked 'paid' whose invoice was later edited downward still
+        //     read as paid to the filter while the badge showed money outstanding.
+        //
+        // "Payé" and "Tous" looked right only because InvoiceController happens to set
+        // payment_status = 'paid' on the same condition, and because "Tous" filters
+        // nothing. The predicates below are the SQL translation of the badge, so every
+        // row returned now carries the badge that was asked for. A student with no
+        // memberships shows "Aucune" and belongs to none of the three.
         $membershipStatus = $request->input('membership_status');
 
         if ($membershipStatus && $membershipStatus !== 'all') {
-            $paid = fn ($q) => $q->where('payment_status', 'paid');
-            $notPaid = fn ($q) => $q->where('payment_status', '!=', 'paid');
+            // Scalar subqueries over the invoices of the membership row being tested.
+            // whereHas() supplies the `memberships.student_id = students.id` correlation
+            // and the soft-delete guard on memberships; these add the same for invoices.
+            $paidSum = '(select coalesce(sum(inv.amountPaid), 0) from invoices inv'
+                .' where inv.membership_id = memberships.id and inv.deleted_at is null)';
+            $dueSum = '(select coalesce(sum(inv.totalAmount), 0) from invoices inv'
+                .' where inv.membership_id = memberships.id and inv.deleted_at is null)';
+
+            // Mirrors calculateMembershipPaymentStatus(): no invoices, or nothing paid
+            // against them, counts as unpaid — coalesce() makes both the same test.
+            $unpaid = fn ($q) => $q->whereRaw("$paidSum = 0");
+            $partial = fn ($q) => $q->whereRaw("$paidSum > 0 and $paidSum < $dueSum");
 
             match ($membershipStatus) {
-                // every membership paid, and at least one exists
-                'paid' => $query->has('memberships')->whereDoesntHave('memberships', $notPaid),
-                // no paid membership at all (a student with none qualifies)
-                'unpaid' => $query->whereDoesntHave('memberships', $paid),
-                // a mix of paid and unpaid, or no memberships at all
-                'rest' => $query->where(function ($q) use ($paid, $notPaid) {
-                    $q->where(fn ($inner) => $inner
-                        ->whereHas('memberships', $paid)
-                        ->whereHas('memberships', $notPaid))
-                        ->orWhereDoesntHave('memberships');
-                }),
+                // Badge priority is unpaid > partial > paid, so the two narrower filters
+                // exclude what the wider one already claims. That keeps the three sets
+                // disjoint: no student can be returned by more than one of them.
+                'unpaid' => $query->whereHas('memberships', $unpaid),
+                'rest' => $query->whereHas('memberships', $partial)
+                    ->whereDoesntHave('memberships', $unpaid),
+                'paid' => $query->has('memberships')
+                    ->whereDoesntHave('memberships', $unpaid)
+                    ->whereDoesntHave('memberships', $partial),
                 default => null,
             };
         }

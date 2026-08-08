@@ -1,10 +1,26 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import InputError from "@/Components/InputError";
 import InputLabel from "@/Components/InputLabel";
 import PrimaryButton from "@/Components/PrimaryButton";
 import TextInput from "@/Components/TextInput";
 import { useForm, usePage } from "@inertiajs/react";
 import { Eye, EyeOff } from "lucide-react";
+
+/**
+ * The three call sites hand `userData` over in two different shapes:
+ *
+ *   UserListPage          → the Laravel paginator, so the rows are under `.data`
+ *   TeacherForm/AssistantForm → a bare one-element array they build inline
+ *
+ * The component only ever looked at `userData.data`, so from a teacher or assistant
+ * profile it found nothing: every field opened blank and the submit button hit the
+ * "identifiant manquant" alert. Accept both shapes.
+ */
+const rowsOf = (userData) => {
+    if (Array.isArray(userData)) return userData;
+    if (Array.isArray(userData?.data)) return userData.data;
+    return [];
+};
 
 export default function UpdateUser({
     userData,
@@ -13,38 +29,62 @@ export default function UpdateUser({
 }) {
     const { auth } = usePage().props;
     const isAdmin = auth?.user?.role === "admin";
-    // Safely get updateUserData only if userData.data exists
-    const updateUserData = Array.isArray(userData?.data)
-        ? userData.data.find((user) => user.id === isUpdateOpen.id)
-        : undefined;
-    const [showPassword, setShowPassword] = React.useState(false);
-    const { data, setData, put, processing, errors, reset } = useForm({
-        name: updateUserData?.name || "",
-        email: updateUserData?.email || "",
-        role: updateUserData?.role || "",
-        password: "",
+
+    const updateUserData = useMemo(() => {
+        const rows = rowsOf(userData);
+        // Fall back to the only row when no id matches: TeacherForm builds its array from
+        // the form's own state, so the id can still be undefined on first paint.
+        return (
+            rows.find((user) => user?.id === isUpdateOpen?.id) ??
+            (rows.length === 1 ? rows[0] : undefined)
+        );
+    }, [userData, isUpdateOpen?.id]);
+
+    const [showPassword, setShowPassword] = useState(false);
+    const { data, setData, put, processing, errors, reset, transform } =
+        useForm({
+            name: updateUserData?.name || "",
+            email: updateUserData?.email || "",
+            role: updateUserData?.role || "",
+            password: "",
+        });
+
+    // An untouched password field must not be sent at all. Leaving it in posts an empty
+    // string, and UserController only skips the re-hash because a middleware happens to
+    // turn "" into null first — one config change away from resetting a password nobody
+    // asked to change.
+    transform((payload) => {
+        if (payload.password) return payload;
+        const { password, ...rest } = payload;
+        return rest;
     });
-    React.useEffect(() => {
-        if (updateUserData) {
-            setData({
-                name: updateUserData.name,
-                email: updateUserData.email,
-                role: updateUserData.role,
-                password: "",
-            });
-        }
-    }, [updateUserData]);
+
+    // Depend on the fields, not on the object: `updateUserData` is a fresh find() result
+    // on every render, so an object dependency re-ran this effect forever and wiped the
+    // password field the moment anyone typed in it.
+    const { name, email, role } = updateUserData ?? {};
+    useEffect(() => {
+        if (!updateUserData) return;
+        setData({
+            name: name ?? "",
+            email: email ?? "",
+            role: role ?? "",
+            password: "",
+        });
+    }, [name, email, role]);
+
+    const userId = updateUserData?.id ?? isUpdateOpen?.id;
+
     const submit = (e) => {
         e.preventDefault();
-        if (!updateUserData || !updateUserData.id) {
-            alert("Erreur: l'identifiant de l'utilisateur est manquant pour la mise à jour.");
-            return;
-        }
-        // Only send password if filled
-        const payload = { ...data };
-        if (!data.password) delete payload.password;
-        put(route("users.update", { user: updateUserData.id }), {
-            ...payload,
+        if (!userId) return;
+
+        // `put(url, options)` — the second argument is Inertia options, NOT the payload.
+        // The body is always `data`, so spreading a stripped copy in here did nothing and
+        // the blank password was posted anyway. Drop it in transform() instead, which is
+        // the supported hook, so the server never has to decide what "" means.
+        put(route("users.update", { user: userId }), {
+            preserveScroll: true,
             onSuccess: () => {
                 reset();
                 setIsUpdateOpen({ isOpen: false, id: null });
@@ -163,10 +203,21 @@ export default function UpdateUser({
                                     </div>
                                 )}
                                 {/* Bouton Soumettre */}
+                                {errors.general && (
+                                    <p className="text-sm text-red-600">
+                                        {errors.general}
+                                    </p>
+                                )}
+                                {!userId && (
+                                    <p className="text-sm text-red-600">
+                                        Ce profil n'a pas de compte utilisateur
+                                        associé. Impossible de le modifier ici.
+                                    </p>
+                                )}
                                 <div className="flex items-center justify-center mt-6">
                                     <PrimaryButton
-                                        className="px-4 py-2 bg-black text-white rounded-md hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2"
-                                        disabled={processing}
+                                        className="px-4 py-2 bg-black text-white rounded-md hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 disabled:opacity-50"
+                                        disabled={processing || !userId}
                                     >
                                         Mettre à jour l'utilisateur
                                     </PrimaryButton>

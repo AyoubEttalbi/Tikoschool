@@ -2,25 +2,21 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Assistant;
+use App\Models\Teacher;
 use App\Models\User;
-use Illuminate\Http\Request;
-use Illuminate\Validation\ValidationException;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Validation\Rules\Password;
-use App\Models\Teacher;
-use App\Models\Assistant;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rules\Password;
+use Illuminate\Validation\ValidationException;
 
 class UserController extends Controller
 {
     /**
      * Update the specified user in storage.
-     *
-     * @param Request $request
-     * @param User $user
-     * @return RedirectResponse
      */
     public function update(Request $request, User $user): RedirectResponse
     {
@@ -44,12 +40,12 @@ class UserController extends Controller
                     'lowercase',
                     'email',
                     'max:255',
-                    'unique:users,email,' . $user->id,
+                    'unique:users,email,'.$user->id,
                 ];
             }
             $validatedData = $request->validate($validationRules);
             // If email is not changed, always use the current email
-            if (!$validateEmail) {
+            if (! $validateEmail) {
                 $validatedData['email'] = $user->email;
             }
 
@@ -116,9 +112,11 @@ class UserController extends Controller
                 }
             }
 
-            return redirect()->back()->with('success', 'User updated successfully!');
+            // French: every other string on this screen is, and this one is rendered.
+            return redirect()->back()->with('success', 'Utilisateur mis à jour.');
         } catch (ValidationException $e) {
             Log::error('Validation failed', $e->errors());
+
             return redirect()->back()
                 ->withErrors($e->errors())
                 ->withInput();
@@ -127,6 +125,7 @@ class UserController extends Controller
             if ($e->errorInfo[1] === 1062) {
                 $errorMessage = 'The email address is already in use.';
             }
+
             return redirect()->back()
                 ->withErrors(['email' => $errorMessage])
                 ->withInput();
@@ -139,9 +138,6 @@ class UserController extends Controller
 
     /**
      * Remove the specified user from storage.
-     *
-     * @param User $user
-     * @return RedirectResponse
      */
     public function destroy(User $user): RedirectResponse
     {
@@ -150,7 +146,7 @@ class UserController extends Controller
             $user->delete();
 
             // Redirect with success message
-            return redirect()->back()->with('success', 'User deleted successfully!');
+            return redirect()->back()->with('success', 'Utilisateur supprimé.');
         } catch (\Exception $e) {
             // Handle any unexpected exceptions
             return redirect()->back()
@@ -166,16 +162,16 @@ class UserController extends Controller
         $query = User::query();
 
         // Apply search filter
-        if ($request->has('search') && !empty($request->search)) {
+        if ($request->has('search') && ! empty($request->search)) {
             $searchTerm = $request->search;
             $query->where(function ($q) use ($searchTerm) {
                 $q->where('name', 'LIKE', "%{$searchTerm}%")
-                  ->orWhere('email', 'LIKE', "%{$searchTerm}%");
+                    ->orWhere('email', 'LIKE', "%{$searchTerm}%");
             });
         }
 
         // Apply role filter
-        if ($request->has('role') && !empty($request->role) && $request->role !== 'all') {
+        if ($request->has('role') && ! empty($request->role) && $request->role !== 'all') {
             $query->where('role', $request->role);
         }
 
