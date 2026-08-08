@@ -13,6 +13,7 @@ use App\Models\School;
 use App\Models\Student;
 use App\Models\StudentMovement;
 use App\Models\Teacher;
+use App\Support\PdfBudget;
 use App\Support\SchoolScope;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Cloudinary\Cloudinary;
@@ -37,6 +38,7 @@ class StudentsController extends Controller
         // including guardian phone numbers and medical fields.
         SchoolScope::authorizeStudent($student);
 
+        PdfBudget::apply();
         $pdf = Pdf::loadView('students_pdf', [
             'student' => $student,
         ]);

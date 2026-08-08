@@ -10,6 +10,7 @@ use App\Models\Level;
 use App\Models\School;
 use App\Models\Student;
 use App\Models\Teacher;
+use App\Support\PdfBudget;
 use App\Support\SchoolScope;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -22,30 +23,12 @@ use WasenderApi\Facades\WasenderApi;
 
 class AttendanceController extends Controller
 {
-    /*
-     * MEMORY BUDGET FOR THE ABSENCE SHEET
-     *
-     * Measured, not guessed. Rendering a 31-day sheet costs a fixed ~80 MB (dompdf loads
-     * the whole DejaVu Sans face for the ✓/✗ glyphs) plus ~0.75 MB per student row:
-     *
-     *     10 students →  90 MB      80 students → 146 MB
-     *     40 students → 114 MB     150 students → 200 MB     300 students → 320 MB
-     *
-     * Add ~40 MB for a booted Laravel and a 40-student class peaks near 155 MB — which is
-     * why it died instantly at the stock 128 M and survived at the container's 256 M.
-     *
-     * The ceiling cannot simply be set high: docker-compose caps the whole php container
-     * at 768 MB, shared by php-fpm, every worker, the queue runner and reverb. A request
-     * allowed more than the container has would be OOM-killed by the kernel — which takes
-     * the container down instead of failing one download. 384 M is ~2.5x the realistic
-     * worst case and still leaves the container room to serve everything else.
-     *
-     * PDF_MAX_STUDENTS is the backstop that turns "probably enough" into "cannot fail":
-     * 384 M covers roughly 350 rows, so anything past 300 is refused with a readable
-     * message rather than allowed to run into the limit. No real class comes close.
+    /**
+     * Rows this sheet may carry. The absence grid is the most expensive document in the
+     * app at ~0.75 MB per student (35 cells wide), so it gets the tightest guard; the
+     * measurements and the reasoning behind the ceiling live in App\Support\PdfBudget.
+     * 300 sits well under what PdfBudget::LIMIT covers and far above any real class.
      */
-    private const PDF_MEMORY_LIMIT = '384M';
-
     private const PDF_MAX_STUDENTS = 300;
 
     /** Scope an existing attendance row by its student and class. */
@@ -1122,11 +1105,8 @@ Ig: https://www.instagram.com/centreredcity?igsh=MXg1NjJwam80eTNoMw%3D%3D&utm_so
         $teacher = \App\Models\Teacher::findOrFail($request->teacher_id);
         $class = \App\Models\Classes::with('level')->findOrFail($request->class_id);
 
-        // dompdf holds the whole document — every cell as a frame object with its own
-        // resolved style — in memory until download() returns. The render is bounded and
-        // short-lived, so it gets its own ceiling rather than raising php.ini for every
-        // request in the app. See PDF_MEMORY_LIMIT for the measurements behind the value.
-        ini_set('memory_limit', self::PDF_MEMORY_LIMIT);
+        // Raise the ceiling for this render only — see App\Support\PdfBudget.
+        PdfBudget::apply();
 
         // `with('memberships')`: BOTH the teacher filter below and the ST column in the
         // Blade walk $student->memberships. Without this the relation was lazy-loaded

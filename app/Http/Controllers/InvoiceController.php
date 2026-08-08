@@ -7,6 +7,7 @@ use App\Models\Invoice;
 use App\Models\Membership;
 use App\Models\School;
 use App\Models\Teacher;
+use App\Support\PdfBudget;
 use App\Support\SchoolScope;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
@@ -18,6 +19,13 @@ use Spatie\Activitylog\Models\Activity;
 
 class InvoiceController extends Controller
 {
+    /**
+     * Upper bound on a single bulk PDF run. PdfBudget::LIMIT covers roughly 2000 invoices
+     * at the measured ~0.12 MB each; 500 keeps a wide margin and is far above any real
+     * selection a user makes from the invoices table.
+     */
+    private const MAX_BULK_INVOICES = 500;
+
     /**
      * Object-level scope for a single invoice.
      *
@@ -995,6 +1003,7 @@ class InvoiceController extends Controller
         $offerName = $membership?->offer?->offer_name ?? 'No offer available';
 
         // Load the view for the invoice
+        PdfBudget::apply();
         $pdf = Pdf::loadView('invoices.invoice_pdf', [
             'invoice' => $invoice,
             'membership' => $membership,
@@ -1021,6 +1030,7 @@ class InvoiceController extends Controller
         $invoice->className = $className;
 
         // Generate the PDF
+        PdfBudget::apply();
         $pdf = Pdf::loadView('invoices.teacher_invoicePdf', compact('invoice'));
 
         // Download the PDF
@@ -1036,11 +1046,17 @@ class InvoiceController extends Controller
         $invoiceIds = $request->input('invoiceIds', []);
 
         if (empty($invoiceIds)) {
-            return redirect()->back()->with('error', 'No invoices selected for download');
+            return redirect()->back()->with('error', 'Aucune facture selectionnee.');
         }
 
-        // Log for debugging
-        Log::info('Selected Invoice IDs:', $invoiceIds);
+        // Nothing bounded how many ids a caller could post. At ~0.12 MB per invoice on top
+        // of the fixed font cost, a large enough selection walks into the memory ceiling —
+        // and PHP memory exhaustion is fatal, not catchable, so it has to be refused here.
+        if (count($invoiceIds) > self::MAX_BULK_INVOICES) {
+            return redirect()->back()->with('error',
+                'Trop de factures selectionnees ('.count($invoiceIds).'). Maximum '
+                .self::MAX_BULK_INVOICES.' par telechargement.');
+        }
 
         $invoices = Invoice::with(['student', 'offer'])
             ->whereIn('id', $invoiceIds)
@@ -1056,6 +1072,7 @@ class InvoiceController extends Controller
         });
 
         // Generate the PDF with proper headers
+        PdfBudget::apply();
         $pdf = Pdf::loadView('invoices.teacher-bulk-invoices', compact('invoices'));
 
         // Make sure proper headers are set for download
@@ -1083,7 +1100,13 @@ class InvoiceController extends Controller
         $dateRange = $request->input('dateRange', $request->query('dateRange', 'All time'));
 
         if (empty($invoiceIds)) {
-            return redirect()->back()->with('error', 'No invoices selected for download');
+            return redirect()->back()->with('error', 'Aucune facture selectionnee.');
+        }
+
+        if (count($invoiceIds) > self::MAX_BULK_INVOICES) {
+            return redirect()->back()->with('error',
+                'Trop de factures selectionnees ('.count($invoiceIds).'). Maximum '
+                .self::MAX_BULK_INVOICES.' par telechargement.');
         }
 
         // Get the selected invoices with their details
@@ -1105,13 +1128,18 @@ class InvoiceController extends Controller
         ];
 
         // Generate the PDF
+        PdfBudget::apply();
         $pdf = Pdf::loadView('invoices.teacher-income-report', compact('invoices', 'summaryData'));
 
-        // Return the PDF as a response with proper headers
-        return response($pdf->output(), 200, [
+        // output() RENDERS the document — it is not a cached getter. Calling it twice, as
+        // the Content-Length line below used to, built the entire PDF a second time: double
+        // the CPU and double the peak memory, on the endpoint least able to afford either.
+        $body = $pdf->output();
+
+        return response($body, 200, [
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'attachment; filename="teacher-income-report-'.date('Y-m-d').'.pdf"',
-            'Content-Length' => strlen($pdf->output()),
+            'Content-Length' => strlen($body),
         ]);
     }
 
