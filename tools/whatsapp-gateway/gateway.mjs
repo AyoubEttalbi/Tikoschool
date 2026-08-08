@@ -21,7 +21,9 @@ import qrcode from 'qrcode-terminal';
 import QRImage from 'qrcode';
 
 const PORT = Number(process.env.PORT || 8080);
-const API_KEY = process.env.GATEWAY_API_KEY || 'local-dev-key';
+const BIND = process.env.BIND || '127.0.0.1';
+const DEV_API_KEY = 'local-dev-key';
+const API_KEY = process.env.GATEWAY_API_KEY || DEV_API_KEY;
 const INSTANCE = process.env.INSTANCE || 'tikoschool';
 const AUTH_DIR = process.env.AUTH_DIR || './auth';
 const DRY_RUN = process.env.DRY_RUN === '1';
@@ -219,9 +221,25 @@ const server = createServer(async (req, res) => {
   json(res, 404, { message: 'not found' });
 });
 
-// Loopback only. This process can message every parent in the school; it has no business
-// listening on a public interface.
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`[wa] listening on http://127.0.0.1:${PORT}  instance=${INSTANCE}  dry_run=${DRY_RUN}`);
+/*
+ * Loopback by default. This process can message every parent in the school; it has no
+ * business listening on a public interface.
+ *
+ * BIND exists for one case: inside Docker, where 127.0.0.1 is the container's own loopback
+ * and the PHP container cannot reach it at all. There the address that matters is the
+ * compose network, and the service is `expose`d rather than published, so it is still
+ * unreachable from outside the host.
+ *
+ * The API key is the only thing standing between whoever can reach this port and the
+ * school's WhatsApp account, so binding wider than loopback while still using the built-in
+ * development key is refused rather than warned about.
+ */
+if (BIND !== '127.0.0.1' && API_KEY === DEV_API_KEY) {
+  console.error('[wa] refusing to start: GATEWAY_API_KEY must be set when BIND is not 127.0.0.1');
+  process.exit(1);
+}
+
+server.listen(PORT, BIND, () => {
+  console.log(`[wa] listening on http://${BIND}:${PORT}  instance=${INSTANCE}  dry_run=${DRY_RUN}`);
   connect().catch((e) => console.error('[wa] connect failed', e));
 });

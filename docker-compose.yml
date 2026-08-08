@@ -146,10 +146,51 @@ services:
         limits:
           memory: 128M
 
+  # The WhatsApp gateway that actually delivers parent notifications.
+  #
+  # Deliberately NOT a dependency of php. The application is designed to run with this
+  # service down — messages are HELD rather than failed, and released when it returns — so
+  # making PHP wait on it would turn a recoverable outage into a site outage.
+  #
+  # `expose`, not `ports`: nothing outside the host may reach it. The API key is the only
+  # thing between a caller and the school's WhatsApp account, and the /qr endpoint hands
+  # out a credential that links a device to it.
+  whatsapp:
+    build:
+      context: ./tools/whatsapp-gateway
+    volumes:
+      # The linked-device session. If this is not persistent, every deploy logs the school
+      # out and somebody has to stand in front of the admin page with the school phone.
+      - whatsapp_auth:/gateway/auth
+    environment:
+      - INSTANCE=${EVOLUTION_INSTANCE:-tikoschool}
+      # Same value the application sends as its `apikey` header. Required, with no default:
+      # gateway.mjs refuses to bind beyond loopback on the built-in development key.
+      - GATEWAY_API_KEY=${EVOLUTION_API_KEY:?EVOLUTION_API_KEY is required}
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - tikoschool
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          # Baileys is a WebSocket client, not a browser — this is nothing like the ~500 MB
+          # a Puppeteer-based gateway would need. Host budget: 128 (nginx) + 768 (php)
+          # + 1200 (mysql) + 128 (redis) + 256 = 2.5 GB of 3.9 GB.
+          memory: 256M
+
 volumes:
   app_storage:
   mysql_data:
   redis_data:
+  whatsapp_auth:
 
 networks:
   tikoschool:
