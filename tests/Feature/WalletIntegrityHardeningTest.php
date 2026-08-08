@@ -11,6 +11,7 @@ use App\Models\Transaction;
 use App\Models\User;
 use App\Services\TeacherMembershipPaymentService;
 use App\Services\TeacherWalletService;
+use Illuminate\Support\Carbon;
 
 /*
  * Regression cover for the money bugs found in the 2026-08-07 audit (§6.1 - §6.8).
@@ -19,6 +20,10 @@ use App\Services\TeacherWalletService;
  * would ever read. The ledger is what makes them detectable at all, so these tests assert
  * against the LEDGER, not just the cached teachers.wallet column.
  */
+
+// Any test in this file that freezes the clock must not leak it into the next one —
+// Carbon::setTestNow is process-global and survives between tests.
+afterEach(fn () => Carbon::setTestNow());
 
 // ---------------------------------------------------------------------------
 // §6.1 — the wallet hole the guard test could not see
@@ -325,6 +330,18 @@ test('reassigning a paid membership reverses the old teacher wallet credit', fun
     // The deactivation LOOKED like a reversal, so the code read as correct — but no money
     // moved. The old teacher kept money they were no longer owed, and the record that
     // would let payouts:audit notice was marked inactive.
+
+    /*
+     * The clock is frozen because this test is ABOUT a deadline.
+     *
+     * The fixture bills on now()->startOfMonth() and the claw-back expires
+     * REVERSAL_DEADLINE_DAYS (7) after the billing date. Run on the 1st it asserts the
+     * reversal; run on the 9th the deadline has already passed, the teacher legitimately
+     * keeps the money, and the assertion fails — so the test passed for the first week of
+     * every month and failed for the other three. Nothing about the product changed on the
+     * day it started failing; only the calendar did.
+     */
+    Carbon::setTestNow('2026-08-03 10:00:00');
     $school = App\Models\School::factory()->create();
     $admin = User::factory()->create(['role' => 'admin']);
 
