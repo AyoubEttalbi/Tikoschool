@@ -296,6 +296,18 @@ Route::middleware('auth')->group(function () {
             Route::post('/schoolyear/transition', [SchoolYearController::class, 'transition'])
                 ->name('schoolyear.transition');
 
+            /*
+             * The level roster PDF.
+             *
+             * Registered before the {level} verb routes below and constrained to digits,
+             * because a wildcard `{level}` segment registered first makes any literal
+             * sibling unreachable and Route::fallback then redirects it to /dashboard —
+             * the trap documented in CLAUDE.md.
+             */
+            Route::get('/levels/{level}/students/download', [LevelController::class, 'downloadStudents'])
+                ->where('level', '[0-9]+')
+                ->name('othersettings.levels.students.download');
+
             // Level routes
             Route::controller(LevelController::class)->group(function () {
                 Route::post('/levels', 'store')->name('othersettings.levels.store');

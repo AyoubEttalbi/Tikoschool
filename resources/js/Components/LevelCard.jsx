@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
     Trash2,
+    Download,
     GraduationCap,
     School,
     BookOpen,
@@ -43,34 +44,131 @@ const getIconColor = (levelName) => {
     return "text-gray-600";
 };
 
-function LevelCard({ level, onDelete }) {
+/*
+ * "Print everyone in 2 BAC."
+ *
+ * A level exists across every branch, so the roster is only a meaningful document once
+ * you know which branch it is for. With one school there is nothing to ask — the click
+ * downloads. With several, the question has to be answered before the download starts,
+ * which is why this opens a small picker instead of guessing a school.
+ */
+function RosterDownload({ level, schools }) {
+    const [open, setOpen] = useState(false);
+    const [schoolId, setSchoolId] = useState("");
+    const boxRef = useRef(null);
+
+    const base = route("othersettings.levels.students.download", level.id);
+    const href = schoolId ? `${base}?school_id=${schoolId}` : base;
+
+    // A picker that stays open after you have clicked away from it reads as stuck.
+    useEffect(() => {
+        if (!open) return;
+        const onDocClick = (e) => {
+            if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false);
+        };
+        const onKey = (e) => e.key === "Escape" && setOpen(false);
+        document.addEventListener("mousedown", onDocClick);
+        document.addEventListener("keydown", onKey);
+        return () => {
+            document.removeEventListener("mousedown", onDocClick);
+            document.removeEventListener("keydown", onKey);
+        };
+    }, [open]);
+
+    // One school (or none): nothing to choose, so do not make them choose it. The server
+    // scopes the rows to what the caller may see either way.
+    if (schools.length <= 1) {
+        return (
+            <a
+                href={schools.length === 1 ? `${base}?school_id=${schools[0].id}` : base}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={`Télécharger la liste des élèves de ${level.name}`}
+                className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 text-black transition-all duration-200 hover:bg-lamaPurple hover:text-white"
+            >
+                <Download className="w-4 h-4" />
+            </a>
+        );
+    }
+
+    return (
+        <div className="relative" ref={boxRef}>
+            <button
+                type="button"
+                onClick={() => setOpen((v) => !v)}
+                aria-expanded={open}
+                title={`Télécharger la liste des élèves de ${level.name}`}
+                className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 text-black transition-all duration-200 hover:bg-lamaPurple hover:text-white"
+            >
+                <Download className="w-4 h-4" />
+            </button>
+
+            {open && (
+                <div className="absolute right-0 z-20 mt-2 w-60 rounded-lg border border-gray-200 bg-white p-3 shadow-lg">
+                    <label className="block text-xs font-medium text-gray-600">
+                        Établissement
+                    </label>
+                    <select
+                        value={schoolId}
+                        onChange={(e) => setSchoolId(e.target.value)}
+                        className="mt-1 w-full rounded-md border-gray-300 text-sm focus:border-gray-900 focus:ring-gray-900"
+                    >
+                        <option value="">Tous les établissements</option>
+                        {schools.map((s) => (
+                            <option key={s.id} value={s.id}>
+                                {s.name}
+                            </option>
+                        ))}
+                    </select>
+
+                    <a
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => setOpen(false)}
+                        className="mt-3 flex w-full items-center justify-center gap-2 rounded-md bg-lamaPurple px-3 py-2 text-sm font-medium text-white transition hover:opacity-90"
+                    >
+                        <Download className="w-4 h-4" />
+                        Télécharger
+                    </a>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function LevelCard({ level, schools, onDelete }) {
     const Icon = getLevelIcon(level.name);
     const bgColor = getIconBackground(level.name);
     const iconColor = getIconColor(level.name);
 
     return (
-        <div className="overflow-hidden rounded-lg border border-gray-200 bg-white transition-all duration-200 hover:shadow-md hover:-translate-y-1 flex group">
+        <div className="rounded-lg border border-gray-200 bg-white transition-all duration-200 hover:shadow-md hover:-translate-y-1 flex group">
             <div className="w-full text-left flex justify-between items-center p-4">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 min-w-0">
                     <div
                         className={`p-2 rounded-lg ${bgColor} transition-transform group-hover:scale-110`}
                     >
                         <Icon className={`w-4 h-4 ${iconColor}`} />
                     </div>
-                    <span className="font-medium">{level.name}</span>
+                    <span className="font-medium truncate">{level.name}</span>
                 </div>
-                <button
-                    onClick={() => onDelete(level)}
-                    className="w-7 h-7 flex items-center hover:text-white text-black justify-center rounded-full bg-gray-100  transition-all duration-200 hover:bg-red-500"
-                >
-                    <Trash2 className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                    <RosterDownload level={level} schools={schools} />
+                    <button
+                        onClick={() => onDelete(level)}
+                        title={`Supprimer le niveau ${level.name}`}
+                        className="w-7 h-7 flex items-center hover:text-white text-black justify-center rounded-full bg-gray-100  transition-all duration-200 hover:bg-red-500"
+                    >
+                        <Trash2 className="w-4 h-4" />
+                    </button>
+                </div>
             </div>
         </div>
     );
 }
 
-function LevelsList({ levelsData = [] }) {
+function LevelsList({ levelsData = [], schools = [] }) {
     const [deleteLevel, setDeleteLevel] = useState(null);
 
     return (
@@ -93,6 +191,7 @@ function LevelsList({ levelsData = [] }) {
                         <LevelCard
                             key={level.id}
                             level={level}
+                            schools={schools}
                             onDelete={setDeleteLevel}
                         />
                     ))}

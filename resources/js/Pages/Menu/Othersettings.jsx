@@ -17,7 +17,10 @@ export default function Othersettings({ levels, subjects, schools }) {
                 </>
             )}
             <SubjectsList subjectsData={subjects} />
-            <LevelsList levelsData={levels} />
+            {/* `schools` is the caller's own scope, not every branch in the product —
+                LevelController::index filters it. The roster download needs it to know
+                whether there is a choice to offer. */}
+            <LevelsList levelsData={levels} schools={schools} />
         </div>
     );
 }
