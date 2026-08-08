@@ -2,11 +2,11 @@
 
 namespace App\Models;
 
+use App\Services\StudentMovementService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use App\Models\Classes;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use App\Services\StudentMovementService;
+
 class Student extends Model
 {
     use HasFactory, SoftDeletes;
@@ -33,6 +33,8 @@ class Student extends Model
         'hasDisease',
         'diseaseName',
         'medication',
+        'notifyGuardian',
+        'guardianNumberFailures',
     ];
 
     /**
@@ -46,6 +48,22 @@ class Student extends Model
         'levelId' => 'integer',
         'classId' => 'integer',
         'schoolId' => 'integer',
+        'notifyGuardian' => 'boolean',
+        'guardianNumberFailures' => 'integer',
+    ];
+
+    /**
+     * In-memory defaults must match the column defaults.
+     *
+     * Eloquent does not read a column's DEFAULT back after an INSERT, so a Student built
+     * in this request has `notifyGuardian === null` even though the row in the database
+     * says 1. Anything that reads it as a boolean then sees "false" and concludes the
+     * guardian opted out of notifications — a student created through the UI would have
+     * been silently un-notifiable for the rest of that request.
+     */
+    protected $attributes = [
+        'notifyGuardian' => true,
+        'guardianNumberFailures' => 0,
     ];
 
     // Track the old class ID before update
@@ -58,6 +76,18 @@ class Student extends Model
         // Capture the old class ID before update
         static::updating(function ($student) {
             $student->oldClassId = $student->getOriginal('classId');
+
+            /*
+             * A corrected number deserves a clean slate.
+             *
+             * guardianNumberFailures is what stops the app retrying a dead number forever.
+             * Without this reset, fixing the typo would not be enough — the student would
+             * stay on the "à corriger" list and their guardian would never be messaged
+             * again, which is a worse bug than the one the counter exists to solve.
+             */
+            if ($student->isDirty('guardianNumber')) {
+                $student->guardianNumberFailures = 0;
+            }
         });
 
         // Update class student count when a student is created
@@ -68,10 +98,10 @@ class Student extends Model
                     'number_of_students' => $class->students()->count(),
                 ]);
             }
-            
+
             // Record student inscription movement
             if ($student->billingDate) {
-                $movementService = new StudentMovementService();
+                $movementService = new StudentMovementService;
                 $movementService->recordInscription($student);
             }
         });
@@ -95,11 +125,11 @@ class Student extends Model
                     'number_of_students' => $newClass->students()->count(),
                 ]);
             }
-            
+
             // Record student abandonment if status changed to inactive
             $originalStatus = $student->getOriginal('status');
             if ($originalStatus !== 'inactive' && $student->status === 'inactive') {
-                $movementService = new StudentMovementService();
+                $movementService = new StudentMovementService;
                 $movementService->recordAbandonment($student, 'Status changed to inactive', $originalStatus);
             }
         });
@@ -185,7 +215,7 @@ class Student extends Model
         } else {
             $value = $value ? 1 : 0;
         }
-        
+
         $this->attributes['hasDisease'] = $value;
     }
 
@@ -217,7 +247,7 @@ class Student extends Model
         } else {
             $value = $value ? 1 : 0;
         }
-        
+
         $this->attributes['assurance'] = $value;
     }
 
@@ -228,22 +258,24 @@ class Student extends Model
     {
         return $this->hasMany(StudentPromotion::class, 'student_id');
     }
-    
+
     /**
      * Get the current year's promotion status.
      */
     public function getCurrentPromotion()
     {
         $currentYear = date('Y');
+
         return $this->promotions()->where('school_year', $currentYear)->first();
     }
-    
+
     /**
      * Check if student is promoted for the current year.
      */
     public function isPromoted()
     {
         $promotion = $this->getCurrentPromotion();
+
         return $promotion ? $promotion->is_promoted : true; // Default to true if no record
     }
 
@@ -253,11 +285,11 @@ class Student extends Model
     public function getMovementStats($monthYear = null)
     {
         $query = $this->movements();
-        
+
         if ($monthYear) {
             $query->where('month_year', $monthYear);
         }
-        
+
         return [
             'inscribed' => $query->clone()->where('movement_type', 'inscribed')->count(),
             'abandoned' => $query->clone()->where('movement_type', 'abandoned')->count(),

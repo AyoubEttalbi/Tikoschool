@@ -13,6 +13,7 @@ use App\Http\Controllers\LevelController;
 use App\Http\Controllers\MembershipController;
 use App\Http\Controllers\MessageController;
 use App\Http\Controllers\OfferController;
+use App\Http\Controllers\OutboundMessageController;
 use App\Http\Controllers\PerformanceController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ResultsController;
@@ -367,6 +368,26 @@ Route::middleware('auth')->group(function () {
         Route::get('/absence-list', [AttendanceController::class, 'absenceListPage'])->name('absence-list');
         // Absence List PDF download (GET, not POST)
         Route::get('/absence-list/download', [AttendanceController::class, 'downloadAbsenceList'])->name('absence-list.download');
+
+    });
+
+    /*
+     * What was actually sent to parents — admin only.
+     *
+     * Tighter than the notify button that creates the rows, which assistants may press.
+     * The screen carries the gateway's QR code, and that QR is a CREDENTIAL: whoever
+     * scans it links their own device to the school's WhatsApp account and can then read
+     * every conversation on it.
+     */
+    Route::middleware(RequireRole::class.':admin')->group(function () {
+        Route::get('/notifications', [OutboundMessageController::class, 'index'])->name('notifications.index');
+        Route::post('/notifications/{message}/retry', [OutboundMessageController::class, 'retry'])
+            ->name('notifications.retry')
+            ->where('message', '[0-9]+');
+        // Unlinks the school's phone. Destructive, admin-only, and it stops all delivery
+        // until somebody scans a new code.
+        Route::post('/notifications/disconnect', [OutboundMessageController::class, 'disconnect'])
+            ->name('notifications.disconnect');
     });
 
     // Cashier — daily cash register. MUST stay inside the auth group: the role check

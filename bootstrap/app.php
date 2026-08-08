@@ -106,6 +106,37 @@ return Application::configure(basePath: dirname(__DIR__))
             ->appendOutputTo(storage_path('logs/schedule.log'))
             ->onFailure(fn () => $reportScheduledFailure('wallet:check'));
 
+        /*
+         * The notification recovery sweep: release what the system never attempted, retry
+         * recent failures, abandon what has gone stale.
+         *
+         * Every thirty minutes, not once a morning. A gateway that someone reconnects at
+         * 10:15 should not sit idle until tomorrow, and a whole day of absences released
+         * in one burst is exactly the pattern that gets a WhatsApp number banned — the
+         * pacer would space them, but the backlog would take hours to drain.
+         *
+         * The command is a no-op when there is nothing to do and when the gateway is
+         * still down, so running it often costs a query and nothing else.
+         */
+        $schedule->command('notifications:retry-failed')
+            ->everyThirtyMinutes()
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->appendOutputTo(storage_path('logs/schedule.log'))
+            ->onFailure(fn () => $reportScheduledFailure('notifications:retry-failed'));
+
+        /*
+         * Guardian numbers that reach nobody. Read-only, exits non-zero when it finds an
+         * unusable number — a number that LOOKS present and silently delivers to nobody is
+         * the worst failure this feature has, because every screen shows it as fine.
+         */
+        $schedule->command('whatsapp:audit-numbers --active')
+            ->weeklyOn(1, '06:00')
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->appendOutputTo(storage_path('logs/schedule.log'))
+            ->onFailure(fn () => $reportScheduledFailure('whatsapp:audit-numbers'));
+
         // Read-only payout audit, kept as a daily signal. It never writes.
         // (`payments:check-consistency --fix` remains deliberately DISABLED: it repairs
         // toward the current payout formula, so enabling it before the amount model is

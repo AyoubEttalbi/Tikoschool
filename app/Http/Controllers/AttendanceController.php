@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Jobs\SendWhatsAppNotification;
 use App\Models\Assistant;
 use App\Models\Attendance;
 use App\Models\Classes;
@@ -10,6 +9,7 @@ use App\Models\Level;
 use App\Models\School;
 use App\Models\Student;
 use App\Models\Teacher;
+use App\Services\OutboundMessageService;
 use App\Support\PdfBudget;
 use App\Support\SchoolScope;
 use Carbon\Carbon;
@@ -19,7 +19,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 use Spatie\Activitylog\Models\Activity;
-use WasenderApi\Facades\WasenderApi;
 
 class AttendanceController extends Controller
 {
@@ -409,7 +408,7 @@ class AttendanceController extends Controller
         ]);
     }
 
-    public function store(Request $request)
+    public function store(Request $request, OutboundMessageService $messages)
     {
         $validated = $request->validate([
             'attendances' => 'required|array|min:1',
@@ -426,6 +425,29 @@ class AttendanceController extends Controller
         // which makes the object-level check the only thing constraining a teacher to
         // their own classes. `exists:` proves the class is real, not that it is theirs.
         SchoolScope::authorizeClass(Classes::findOrFail($validated['class_id']));
+
+        /*
+         * Authorising the CLASS was not enough.
+         *
+         * Every attendances.*.student_id is validated with `exists:students,id`, which
+         * proves a student exists somewhere in the product — not that the caller may touch
+         * them. A teacher or assistant scoped to school A could put a school-B student_id
+         * into the same POST that saves their own class sheet, and the loop below would
+         * write a fabricated absence for that child AND send a real WhatsApp message,
+         * naming them, to their guardian's actual phone.
+         *
+         * update() in this same controller already does this per student; store() simply
+         * never did. Checked here, before the transaction opens, so a denial cannot leave
+         * half a sheet written — and note SchoolScope throws AccessDeniedException, which
+         * extends \Error precisely so the `catch (\Exception)` below cannot swallow it.
+         */
+        $students = Student::whereIn('id', collect($validated['attendances'])->pluck('student_id'))
+            ->get()
+            ->keyBy('id');
+
+        foreach ($students as $student) {
+            SchoolScope::authorizeStudent($student);
+        }
 
         try {
             DB::beginTransaction();
@@ -524,113 +546,26 @@ class AttendanceController extends Controller
                 }
 
                 if ($attendance['status'] === 'absent') {
-                    // Queue WhatsApp notifications instead of sending immediately
-                    $student = Student::find($studentId);
-                    if ($student && ! empty($student->guardianNumber)) {
-                        $studentName = trim($student->firstName.' '.$student->lastName);
-                        $subject = $subjectName ?: 'غير محدد';
-                        $date = Carbon::parse($validated['date'])->locale('ar')->isoFormat('dddd، D MMMM YYYY');
+                    /*
+                     * This block used to build a ~25-line Arabic message inline and
+                     * dispatch it, and it sits OUTSIDE the create/update branch above —
+                     * so re-saving a class sheet to fix a single typo re-sent a WhatsApp
+                     * message to every absent student's parent in that class. The service
+                     * keys the notice on the attendance row's id, which is stable across
+                     * re-saves, so the second save now creates nothing.
+                     *
+                     * It also dropped students with no guardian number into a Log::warning
+                     * nobody reads. Those are recorded as skipped rows now.
+                     */
+                    $record = Attendance::where('student_id', $studentId)
+                        ->where('classId', $validated['class_id'])
+                        ->whereDate('date', $validated['date'])
+                        ->where('teacher_id', $teacherIdForRecord)
+                        ->where('subject', $subjectName)
+                        ->first();
 
-                        // Get teacher information
-                        $teacher = Teacher::find($teacherIdForRecord);
-                        $teacherName = $teacher ? $teacher->first_name.' '.$teacher->last_name : 'غير محدد';
-
-                        // Get class information
-                        $class = Classes::find($validated['class_id']);
-                        $className = $class ? $class->name : 'غير محدد';
-
-                        // Get school information
-                        $school = $student->school;
-                        $schoolName = 'Centre Red city'; // Always use Centre Red city as general name
-                        $schoolPhone = $school ? $school->phone_number : '05XX-XXX-XXX';
-                        $schoolEmail = $school ? $school->email : 'info@centreredcity.com';
-
-                        // Get attendance statistics for current school year (August to August)
-                        $currentYear = now()->year;
-                        $schoolYearStart = Carbon::create($currentYear, 8, 1); // August 1st
-                        $schoolYearEnd = Carbon::create($currentYear + 1, 7, 31); // July 31st next year
-
-                        // If we're before August, use previous school year
-                        if (now()->month < 8) {
-                            $schoolYearStart = Carbon::create($currentYear - 1, 8, 1);
-                            $schoolYearEnd = Carbon::create($currentYear, 7, 31);
-                        }
-
-                        // Count attendance records for the school year
-                        $absentCount = $student->attendances()
-                            ->whereBetween('date', [$schoolYearStart, $schoolYearEnd])
-                            ->where('status', 'absent')
-                            ->count();
-                        $lateCount = $student->attendances()
-                            ->whereBetween('date', [$schoolYearStart, $schoolYearEnd])
-                            ->where('status', 'late')
-                            ->count();
-
-                        // Calculate total days from school year start to today (or end of school year)
-                        $endDate = now() > $schoolYearEnd ? $schoolYearEnd : now();
-                        $totalDays = $schoolYearStart->diffInDays($endDate) + 1;
-
-                        // Calculate attendance rate: (total days - absent - late) / total days * 100
-                        $presentDays = $totalDays - $absentCount - $lateCount;
-                        $attendanceRate = $totalDays > 0 ? round(($presentDays / $totalDays) * 100) : 100;
-
-                        // Ensure attendance rate is not negative
-                        $attendanceRate = max(0, $attendanceRate);
-
-                        // Determine gender-based pronouns
-                        $genderPronoun = 'ابنكم'; // Default to male
-                        $verb = 'تغيب';
-
-                        // You can add logic here to determine gender if you have a gender field
-                        // For now, we'll use a simple approach or you can modify based on your needs
-
-                        // NEW ENHANCED PROFESSIONAL MESSAGE WITH IMPROVED UX
-                        $message = "🏫 *{$schoolName}* 🌟
-
-السلام عليكم ورحمة الله وبركاته،
-
-📋 *تنبيه غياب الطالب*
-نخبركم أن {$genderPronoun} *{$studentName}* قد {$verb} عن حصة *{$subject}* التي جرت يوم *{$date}* بمركز {$schoolName}.
-
-👨‍🏫 *المعلم:* {$teacherName}
-📅 *الفصل:* {$className}
-📊 *معدل الحضور لهذا العام:* {$attendanceRate}%
-
-📞 *للاستفسار والتواصل:*
-📱 {$schoolPhone}
-Ig: https://www.instagram.com/centreredcity?igsh=MXg1NjJwam80eTNoMw%3D%3D&utm_source=qr
-
-🕐 
-ساعات العمل:*من 10:00 إلى 13:00
-ومن 16:30 الى *22:30*
-
-نرجو منكم التفضل بالتواصل معنا لتوضيح سبب الغياب، حتى نتمكن من متابعة مستواه وضمان استفادته الكاملة من الدروس.
-
-شكراً لتعاونكم 🌷
-*إدارة {$schoolName}*";
-
-                        // OLD SIMPLE MESSAGE (COMMENTED FOR EASY ROLLBACK)
-                        /*
-                        $message = "السلام عليكم ورحمة الله وبركاته،\n\nنخبركم أن {$genderPronoun} {$studentName} قد {$verb} عن حصة {$subject} التي جرت يوم {$date} بمركز Centre Red city.\n\nنرجو منكم التفضل بالتواصل معنا لتوضيح سبب الغياب، حتى نتمكن من متابعة مستواه وضمان استفادته الكاملة من الدروس.\n\nشكراً لتعاونكم 🌷\nإدارة Centre Red city";
-                        */
-
-                        // Queue job on dedicated WhatsApp queue
-                        $job = (new SendWhatsAppNotification(
-                            $student->guardianNumber,
-                            $message,
-                            $studentId
-                        ))->onQueue('whatsapp');
-                        dispatch($job);
-                        // Optionally, you can log the queueing event
-                        Log::info('WhatsApp notification queued', [
-                            'student_id' => $studentId,
-                            'phone' => $student->guardianNumber,
-                            'queued_at' => now()->toDateTimeString(),
-                        ]);
-                    } else {
-                        Log::warning('No guardian phone number for student', [
-                            'student_id' => $studentId,
-                        ]);
+                    if ($record) {
+                        $messages->createForAbsence($record);
                     }
                 }
             }
@@ -670,7 +605,10 @@ Ig: https://www.instagram.com/centreredcity?igsh=MXg1NjJwam80eTNoMw%3D%3D&utm_so
                 'trace' => $e->getTraceAsString(),
             ]);
 
-            return redirect()->back()->with('error', 'Error saving attendance: '.$e->getMessage());
+            // The exception text is logged above, not handed to the browser: a raw
+            // Eloquent or PDO message leaks table and column names to any teacher who
+            // manages to trip it.
+            return redirect()->back()->with('error', "Erreur lors de l'enregistrement de la présence.");
         }
     }
 
@@ -967,7 +905,7 @@ Ig: https://www.instagram.com/centreredcity?igsh=MXg1NjJwam80eTNoMw%3D%3D&utm_so
         ]);
     }
 
-    public function notifyParent($studentId, ?Request $request = null)
+    public function notifyParent(Request $request, OutboundMessageService $messages, $studentId)
     {
         $student = Student::findOrFail($studentId);
 
@@ -976,120 +914,41 @@ Ig: https://www.instagram.com/centreredcity?igsh=MXg1NjJwam80eTNoMw%3D%3D&utm_so
         // any student's parent in the product.
         SchoolScope::authorizeStudent($student);
 
-        // Use guardianNumber as the parent's phone number
-        $fatherPhone = $student->guardianNumber;
-        if (empty($fatherPhone)) {
-            return back()->with('error', "Le numéro de téléphone du tuteur n'est pas renseigné.");
-        }
-        $studentName = trim($student->firstName.' '.$student->lastName);
-        $date = now()->locale('ar')->isoFormat('dddd، D MMMM YYYY');
-
-        // Get subject from request or try to find it from today's attendance
-        $subject = 'غير محدد'; // Default subject
-        $teacherName = 'غير محدد';
-        $className = 'غير محدد';
-
-        if ($request && $request->has('subject')) {
-            $subject = $request->input('subject');
-        } else {
-            // Try to find the subject from today's attendance record
-            $todayAttendance = Attendance::where('student_id', $studentId)
-                ->whereDate('date', now()->toDateString())
-                ->where('status', 'absent')
-                ->with(['teacher', 'class'])
-                ->first();
-
-            if ($todayAttendance) {
-                if (! empty($todayAttendance->subject)) {
-                    $subject = $todayAttendance->subject;
-                }
-                if ($todayAttendance->teacher) {
-                    $teacherName = $todayAttendance->teacher->first_name.' '.$todayAttendance->teacher->last_name;
-                }
-                if ($todayAttendance->class) {
-                    $className = $todayAttendance->class->name;
-                }
-            }
-        }
-
-        // Get school information
-        $school = $student->school;
-        $schoolName = 'Centre Red city'; // Always use Centre Red city as general name
-        $schoolPhone = $school ? $school->phone_number : '05XX-XXX-XXX';
-        $schoolEmail = $school ? $school->email : 'info@centreredcity.com';
-
-        // Get attendance statistics for current school year (August to August)
-        $currentYear = now()->year;
-        $schoolYearStart = Carbon::create($currentYear, 8, 1); // August 1st
-        $schoolYearEnd = Carbon::create($currentYear + 1, 7, 31); // July 31st next year
-
-        // If we're before August, use previous school year
-        if (now()->month < 8) {
-            $schoolYearStart = Carbon::create($currentYear - 1, 8, 1);
-            $schoolYearEnd = Carbon::create($currentYear, 7, 31);
-        }
-
-        // Count attendance records for the school year
-        $absentCount = $student->attendances()
-            ->whereBetween('date', [$schoolYearStart, $schoolYearEnd])
-            ->where('status', 'absent')
-            ->count();
-        $lateCount = $student->attendances()
-            ->whereBetween('date', [$schoolYearStart, $schoolYearEnd])
-            ->where('status', 'late')
-            ->count();
-
-        // Calculate total days from school year start to today (or end of school year)
-        $endDate = now() > $schoolYearEnd ? $schoolYearEnd : now();
-        $totalDays = $schoolYearStart->diffInDays($endDate) + 1;
-
-        // Calculate attendance rate: (total days - absent - late) / total days * 100
-        $presentDays = $totalDays - $absentCount - $lateCount;
-        $attendanceRate = $totalDays > 0 ? round(($presentDays / $totalDays) * 100) : 100;
-
-        // Ensure attendance rate is not negative
-        $attendanceRate = max(0, $attendanceRate);
-
-        // Determine gender-based pronouns
-        $genderPronoun = 'ابنكم'; // Default to male
-        $verb = 'تغيب';
-
-        // You can add logic here to determine gender if you have a gender field
-        // For now, we'll use a simple approach or you can modify based on your needs
-
-        // NEW ENHANCED PROFESSIONAL MESSAGE WITH IMPROVED UX
-        $message = "🏫 *{$schoolName}* 🌟
-
-السلام عليكم ورحمة الله وبركاته،
-
-📋 *تنبيه غياب الطالب*
-نخبركم أن {$genderPronoun} *{$studentName}* قد {$verb} عن حصة *{$subject}* التي جرت يوم *{$date}* بمركز {$schoolName}.
-
-👨‍🏫 *المعلم:* {$teacherName}
-📅 *الفصل:* {$className}
-📊 *معدل الحضور لهذا العام:* {$attendanceRate}%
-
-📞 *للاستفسار والتواصل:*
-📱 {$schoolPhone}
-Ig: https://www.instagram.com/centreredcity?igsh=MXg1NjJwam80eTNoMw%3D%3D&utm_source=qr
-
-🕐 
-ساعات العمل:*من 10:00 إلى 13:00
-ومن 16:30 الى *22:30*
-
-نرجو منكم التفضل بالتواصل معنا لتوضيح سبب الغياب، حتى نتمكن من متابعة مستواه وضمان استفادته الكاملة من الدروس.
-
-شكراً لتعاونكم 🌷
-*إدارة {$schoolName}*";
-
-        // OLD SIMPLE MESSAGE (COMMENTED FOR EASY ROLLBACK)
         /*
-    $message = "السلام عليكم ورحمة الله وبركاته،\n\nنخبركم أن {$genderPronoun} {$studentName} قد {$verb} عن حصة {$subject} التي جرت يوم {$date} بمركز Centre Red city.\n\nنرجو منكم التفضل بالتواصل معنا لتوضيح سبب الغياب، حتى نتمكن من متابعة مستواه وضمان استفادته الكاملة من الدروس.\n\nشكراً لتعاونكم 🌷\nإدارة Centre Red city";
-        */
+         * This method had no validation at all, and `subject` goes straight into the body
+         * of a message sent from the school's own WhatsApp number to a parent's phone.
+         * Blade escapes HTML, which is irrelevant here — WhatsApp renders *bold*, _italic_
+         * and links, so unvalidated free text is a way to put arbitrary formatted content,
+         * including a link, into what a parent reads as an official school notice.
+         */
+        $validated = $request->validate([
+            'subject' => 'nullable|string|max:120',
+            'teacher_id' => 'nullable|integer|exists:teachers,id',
+        ]);
 
-        WasenderApi::sendText($fatherPhone, $message);
+        /*
+         * Everything else that used to live here — resolving the guardian's number,
+         * building the Arabic message, computing the attendance rate, dispatching the job
+         * — is now OutboundMessageService, which also records the outcome and refuses to
+         * send the same notice twice in a day. The message body itself was a verbatim copy
+         * of the one in store(); there is one copy now, in a Blade file.
+         */
+        $message = $messages->createManual($student, [
+            'subject' => $validated['subject'] ?? null,
+            'date' => now(),
+            'teacher_id' => $validated['teacher_id'] ?? null,
+            'class_id' => $student->classId,
+        ]);
 
-        return back()->with('success', 'WhatsApp message envoyé au parent.');
+        if ($message === null) {
+            return back()->with('warning', "Ce parent a deja ete notifie aujourd'hui pour cet eleve.");
+        }
+
+        if ($message->status === \App\Models\OutboundMessage::STATUS_SKIPPED) {
+            return back()->with('error', $message->reason());
+        }
+
+        return back()->with('success', 'Notification envoyée au parent (mise en file d\'attente).');
     }
 
     /**

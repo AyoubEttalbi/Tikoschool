@@ -1,0 +1,3 @@
+# Linked-device credentials. Whoever has these can read the school's WhatsApp.
+auth/
+node_modules/

@@ -103,6 +103,12 @@ const menuItems = [
         title: "AUTRE",
         items: [
             {
+                icon: "/message.png",
+                label: "Notifications WhatsApp",
+                href: "/notifications",
+                visible: ["admin"],
+            },
+            {
                 icon: "/profile.png",
                 label: "Profil",
                 href: "/profile",
