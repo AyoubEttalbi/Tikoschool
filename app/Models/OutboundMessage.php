@@ -121,4 +121,39 @@ class OutboundMessage extends Model
             },
         };
     }
+
+    /**
+     * "Has the parent already been told about this absence?", for a whole page of absences.
+     *
+     * One query keyed by attendance, so the absence log can render the answer instead of
+     * making somebody press a button to discover it. That mattered more than it sounds: the
+     * button gave no hint, so staff pressed it on absences the register had already
+     * notified, and every press sent a real parent a second copy of the same notice.
+     *
+     * Only rows created FROM an attendance are returned. A manual notice carries no
+     * attendance_id and is not an answer about any particular absence.
+     *
+     * @param  array<int, int>  $attendanceIds
+     * @return array<int, array{status: string, reason: string|null, sentAt: string|null}>
+     */
+    public static function summaryForAttendances(array $attendanceIds): array
+    {
+        $ids = array_values(array_filter($attendanceIds));
+
+        if ($ids === []) {
+            return [];
+        }
+
+        return static::query()
+            ->whereIn('attendance_id', $ids)
+            ->orderBy('id')
+            ->get(['id', 'attendance_id', 'status', 'skip_reason', 'hold_reason', 'sent_at'])
+            ->keyBy('attendance_id')
+            ->map(fn (self $message) => [
+                'status' => $message->status,
+                'reason' => $message->reason(),
+                'sentAt' => $message->sent_at?->toIso8601String(),
+            ])
+            ->all();
+    }
 }

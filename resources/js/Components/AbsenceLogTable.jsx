@@ -114,8 +114,10 @@ const AbsenceLogTable = ({ absences, studentId, studentClassId }) => {
             <td className="p-4">{getStatusBadge(absence.status)}</td>
             <td className="p-4">{absence.reason || "---"}</td>
             <td className="p-4">
-                <WhatsAppButton 
+                <WhatsAppButton
                     studentId={absence.student_id}
+                    attendanceId={absence.id}
+                    notification={absence.notification}
                     studentName={
                         (absence.first_name && absence.last_name && `${absence.first_name} ${absence.last_name}`) ||
                         (absence.student_first_name && absence.student_last_name && `${absence.student_first_name} ${absence.student_last_name}`) ||

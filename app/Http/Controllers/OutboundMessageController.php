@@ -183,6 +183,21 @@ class OutboundMessageController extends Controller
         // The cached state is now a lie, and this page is about to re-read it.
         WhatsAppGateway::forget();
 
+        /*
+         * A 404 is not a refusal, and saying "refused" sent somebody looking for a
+         * permission problem that did not exist. The gateway answered — it simply has no
+         * /logout route, which means the process running is older than the code on disk.
+         * Restarting it is the fix, and the message has to say so, because nothing else
+         * about the symptom points there.
+         */
+        if ($response->status() === 404) {
+            return back()->with('error', 'Cette passerelle ne gère pas la déconnexion à distance. Le service doit être redémarré pour prendre en compte sa dernière version.');
+        }
+
+        if ($response->status() === 401 || $response->status() === 403) {
+            return back()->with('error', 'La passerelle a rejeté la clé d\'accès (HTTP '.$response->status().'). Vérifiez EVOLUTION_API_KEY.');
+        }
+
         if ($response->failed()) {
             return back()->with('error', 'La passerelle a refusé la déconnexion (HTTP '.$response->status().').');
         }
@@ -262,6 +277,7 @@ class OutboundMessageController extends Controller
     {
         $waiting = 0;
         $failed = 0;
+        $stalledMinutes = 0;
 
         // Only meaningful on the database queue driver; wrapped because a Redis or SQS
         // deployment has no such tables and this panel must not take the page down.
@@ -271,13 +287,36 @@ class OutboundMessageController extends Controller
                 ->where('payload', 'like', '%SendOutboundMessage%')
                 ->where('failed_at', '>=', now()->subDays(7))
                 ->count();
+
+            /*
+             * How long the oldest CLAIMABLE job has gone unclaimed — the one number that
+             * distinguishes "busy" from "dead".
+             *
+             * `waiting` alone cannot: a healthy paced backlog and a queue with no worker
+             * both show a positive count. The difference is that the pacer releases each
+             * job with a fresh delay, so under a working worker the oldest claimable job
+             * is always seconds old. Minutes here means nobody is listening, and every
+             * one of those parents will simply never be told.
+             */
+            $now = now()->timestamp;
+
+            $oldest = DB::table('jobs')
+                ->where('queue', 'whatsapp')
+                ->whereNull('reserved_at')
+                ->where('available_at', '<=', $now)
+                ->min('available_at');
+
+            if ($oldest) {
+                $stalledMinutes = (int) floor(($now - (int) $oldest) / 60);
+            }
         } catch (\Throwable) {
-            // leave both at zero rather than break the screen
+            // leave the counters at zero rather than break the screen
         }
 
         return [
             'waiting' => $waiting,
             'failedJobs' => $failed,
+            'stalledMinutes' => $stalledMinutes,
             'connection' => (string) config('queue.default'),
         ];
     }

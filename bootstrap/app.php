@@ -126,6 +126,23 @@ return Application::configure(basePath: dirname(__DIR__))
             ->onFailure(fn () => $reportScheduledFailure('notifications:retry-failed'));
 
         /*
+         * Is the notification pipeline still moving at all?
+         *
+         * Read-only, and the only watcher for the one failure mode that produces no error
+         * anywhere: a queue with no worker. Rows are created, marked pending, and never
+         * picked up — nothing fails, nothing retries, every screen reports success, and the
+         * first sign is a parent who was never told. supervisord.conf restarts a crashed
+         * worker, but a worker that crash-loops, or a `--queue` flag lost in a config edit,
+         * leaves no trace at all. Hourly is enough: the check is three counts.
+         */
+        $schedule->command('notifications:health')
+            ->hourly()
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->appendOutputTo(storage_path('logs/schedule.log'))
+            ->onFailure(fn () => $reportScheduledFailure('notifications:health'));
+
+        /*
          * Guardian numbers that reach nobody. Read-only, exits non-zero when it finds an
          * unusable number — a number that LOOKS present and silently delivers to nobody is
          * the worst failure this feature has, because every screen shows it as fine.

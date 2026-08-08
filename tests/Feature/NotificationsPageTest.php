@@ -285,3 +285,49 @@ it('never puts the gateway api key in the page props', function () {
         ->assertOk()
         ->assertDontSee('super-secret-key');
 });
+
+/*
+ * DISCONNECTING, AND WHY IT SAID THE WRONG THING
+ *
+ * The button reported "La passerelle a refusé la déconnexion (HTTP 404)" — which sent
+ * somebody hunting for a permissions problem that did not exist. A 404 is not a refusal:
+ * the gateway answered perfectly well, it simply has no /logout route, because the process
+ * running was older than the code on disk. Nothing else about the symptom points at
+ * "restart the service", so the message has to.
+ */
+it('says the service needs restarting when it has no logout route', function () {
+    config()->set('whatsapp.driver', 'evolution');
+    config()->set('whatsapp.evolution.api_key', 'k');
+    Illuminate\Support\Facades\Http::fake(['*' => Illuminate\Support\Facades\Http::response([], 404)]);
+
+    test()->actingAs(User::factory()->create(['role' => 'admin']))
+        ->post(route('notifications.disconnect'))
+        ->assertRedirect()
+        ->assertSessionHas('error', fn ($m) => str_contains($m, 'redémarré'));
+});
+
+it('names the key when the gateway rejects it', function () {
+    config()->set('whatsapp.driver', 'evolution');
+    config()->set('whatsapp.evolution.api_key', 'wrong');
+    Illuminate\Support\Facades\Http::fake(['*' => Illuminate\Support\Facades\Http::response([], 401)]);
+
+    test()->actingAs(User::factory()->create(['role' => 'admin']))
+        ->post(route('notifications.disconnect'))
+        ->assertSessionHas('error', fn ($m) => str_contains($m, 'EVOLUTION_API_KEY'));
+});
+
+it('confirms the unlink when the gateway accepts it', function () {
+    config()->set('whatsapp.driver', 'evolution');
+    config()->set('whatsapp.evolution.api_key', 'k');
+    Illuminate\Support\Facades\Http::fake(['*' => Illuminate\Support\Facades\Http::response(['state' => 'connecting'], 200)]);
+
+    test()->actingAs(User::factory()->create(['role' => 'admin']))
+        ->post(route('notifications.disconnect'))
+        ->assertSessionHas('success');
+});
+
+it('is not something an assistant can do', function () {
+    test()->actingAs(User::factory()->create(['role' => 'assistant']))
+        ->post(route('notifications.disconnect'))
+        ->assertForbidden();
+});

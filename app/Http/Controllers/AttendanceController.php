@@ -6,6 +6,7 @@ use App\Models\Assistant;
 use App\Models\Attendance;
 use App\Models\Classes;
 use App\Models\Level;
+use App\Models\OutboundMessage;
 use App\Models\School;
 use App\Models\Student;
 use App\Models\Teacher;
@@ -878,10 +879,22 @@ class AttendanceController extends Controller
         $perPage = $request->input('per_page', 20);
         $absences = $query->orderByDesc('date')->paginate($perPage);
 
+        /*
+         * Whether each of these absences has already been reported to the parent.
+         *
+         * One query for the page, not one per row. Without it the "Envoyer WhatsApp"
+         * button had no idea, so the only way to find out was to press it — and pressing
+         * it on an already-reported absence used to send the parent a second copy.
+         */
+        $notifications = OutboundMessage::summaryForAttendances(
+            $absences->pluck('id')->all()
+        );
+
         // Format for frontend
-        $data = $absences->through(function ($attendance) {
+        $data = $absences->through(function ($attendance) use ($notifications) {
             return [
                 'id' => $attendance->id,
+                'notification' => $notifications[$attendance->id] ?? null,
                 'student_id' => $attendance->student ? $attendance->student->id : $attendance->student_id,
                 'student_name' => $attendance->student ? $attendance->student->firstName.' '.$attendance->student->lastName : 'Unknown',
                 'class_id' => $attendance->class ? $attendance->class->id : null,
@@ -924,24 +937,57 @@ class AttendanceController extends Controller
         $validated = $request->validate([
             'subject' => 'nullable|string|max:120',
             'teacher_id' => 'nullable|integer|exists:teachers,id',
+            'attendance_id' => 'nullable|integer|exists:attendances,id',
         ]);
 
         /*
          * Everything else that used to live here — resolving the guardian's number,
          * building the Arabic message, computing the attendance rate, dispatching the job
          * — is now OutboundMessageService, which also records the outcome and refuses to
-         * send the same notice twice in a day. The message body itself was a verbatim copy
-         * of the one in store(); there is one copy now, in a Blade file.
+         * send the same notice twice. The message body itself was a verbatim copy of the
+         * one in store(); there is one copy now, in a Blade file.
+         *
+         * WHICH absence, not just which pupil.
+         *
+         * The button sits on a row of the absence log, so it means "tell this parent about
+         * THIS absence" — and routing it through createForAbsence() makes it share one key
+         * with the register's automatic notice. Before, the two used different keys, so
+         * pressing the button on an absence the register had already reported created a
+         * second row and sent the parent a duplicate. It also dated the notice `now()`,
+         * which told a parent their child was absent today when the row was from last week.
+         *
+         * The student-level fallback below still exists for callers with no absence row in
+         * scope; it keeps its own once-per-day key.
          */
-        $message = $messages->createManual($student, [
-            'subject' => $validated['subject'] ?? null,
-            'date' => now(),
-            'teacher_id' => $validated['teacher_id'] ?? null,
-            'class_id' => $student->classId,
-        ]);
+        if (! empty($validated['attendance_id'])) {
+            // Scoped to this student on purpose: $student is authorised above, an id from
+            // the request body is not. Without the constraint, any absence in the database
+            // could be attached to a pupil the caller happens to be allowed to see.
+            $attendance = Attendance::where('id', $validated['attendance_id'])
+                ->where('student_id', $student->id)
+                ->firstOrFail();
 
+            $message = $messages->createForAbsence($attendance);
+        } else {
+            $message = $messages->createManual($student, [
+                'subject' => $validated['subject'] ?? null,
+                'date' => now(),
+                'teacher_id' => $validated['teacher_id'] ?? null,
+                'class_id' => $student->classId,
+            ]);
+        }
+
+        /*
+         * null means the idempotency key already exists: this parent has already been sent
+         * this exact notice today. It is a refusal, not a failure — but it MUST reach the
+         * screen, because the alternative is a button that reports success for a message
+         * that was never created. WhatsAppButton renders this text itself.
+         */
         if ($message === null) {
-            return back()->with('warning', "Ce parent a deja ete notifie aujourd'hui pour cet eleve.");
+            return back()->with(
+                'warning',
+                'Ce parent a déjà été notifié pour cette absence.'
+            );
         }
 
         if ($message->status === \App\Models\OutboundMessage::STATUS_SKIPPED) {

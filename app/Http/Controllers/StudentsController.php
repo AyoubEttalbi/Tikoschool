@@ -670,21 +670,33 @@ class StudentsController extends Controller
             ->first();
 
         // Fetch attendance records for the student
-        $attendances = Attendance::with(['class', 'recordedBy'])
+        $attendanceRows = Attendance::with(['class', 'recordedBy'])
             ->where('student_id', $student->id)
             ->latest()
-            ->get()
-            ->map(function ($attendance) {
-                return [
-                    'id' => $attendance->id,
-                    'date' => $attendance->date,
-                    'status' => $attendance->status,
-                    'class' => $attendance->class ? $attendance->class->name : null,
-                    'recordedBy' => $attendance->recordedBy ? $attendance->recordedBy->name : null,
-                    'created_at' => $attendance->created_at,
-                    'reason' => $attendance->reason,
-                ];
-            });
+            ->get();
+
+        // Whether the parent was already told, per absence — one query for the whole list.
+        // The "Envoyer WhatsApp" button on each row reads this instead of making somebody
+        // press it to find out, which is how duplicate notices reached parents.
+        $notifications = \App\Models\OutboundMessage::summaryForAttendances(
+            $attendanceRows->pluck('id')->all()
+        );
+
+        $attendances = $attendanceRows->map(function ($attendance) use ($notifications) {
+            return [
+                'id' => $attendance->id,
+                'date' => $attendance->date,
+                'status' => $attendance->status,
+                // Part of what makes two notices on one day legitimate (Maths and French
+                // are separate absences), so the row has to carry it.
+                'subject' => $attendance->subject,
+                'class' => $attendance->class ? $attendance->class->name : null,
+                'recordedBy' => $attendance->recordedBy ? $attendance->recordedBy->name : null,
+                'created_at' => $attendance->created_at,
+                'reason' => $attendance->reason,
+                'notification' => $notifications[$attendance->id] ?? null,
+            ];
+        });
 
         // Fetch results/grades for the student
         $results = Result::with(['subject', 'class.level'])

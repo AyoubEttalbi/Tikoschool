@@ -118,8 +118,10 @@ const AbsenceLogTableForStudent = ({ absences, studentId, studentClassId }) => {
                                     {absence.reason || "---"}
                                 </td>
                                 <td className="p-3 text-sm text-gray-900">
-                                    <WhatsAppButton 
+                                    <WhatsAppButton
                                         studentId={absence.student_id}
+                                        attendanceId={absence.id}
+                                        notification={absence.notification}
                                         studentName="Élève"
                                         className="text-xs px-3 py-1.5"
                                     />
