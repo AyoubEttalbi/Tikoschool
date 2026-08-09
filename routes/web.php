@@ -400,6 +400,9 @@ Route::middleware('auth')->group(function () {
         // until somebody scans a new code.
         Route::post('/notifications/disconnect', [OutboundMessageController::class, 'disconnect'])
             ->name('notifications.disconnect');
+        // The way back. Without it, a revoked pairing left the screen with nothing to click.
+        Route::post('/notifications/connect', [OutboundMessageController::class, 'connect'])
+            ->name('notifications.connect');
     });
 
     // Cashier — daily cash register. MUST stay inside the auth group: the role check

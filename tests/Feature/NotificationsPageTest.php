@@ -331,3 +331,62 @@ it('is not something an assistant can do', function () {
         ->post(route('notifications.disconnect'))
         ->assertForbidden();
 });
+
+/*
+ * CONNECTING, WHICH HAD NO BUTTON AT ALL
+ *
+ * `disconnect` shipped with a control and its counterpart shipped with none. That was fine
+ * right up until WhatsApp revoked the pairing on its own — leave a QR unscanned long enough
+ * and it does — at which point the screen read "Déconnectée", showed no code, and offered
+ * nothing to click. The gateway does not retry a logged-out session by design, because the
+ * stored credentials are dead and reusing them fails identically forever. The only recovery
+ * was redeploying the container.
+ */
+it('asks the gateway for a new session', function () {
+    config()->set('whatsapp.driver', 'evolution');
+    config()->set('whatsapp.evolution.api_key', 'k');
+    Illuminate\Support\Facades\Http::fake(['*' => Illuminate\Support\Facades\Http::response(['state' => 'connecting'], 200)]);
+
+    test()->actingAs(User::factory()->create(['role' => 'admin']))
+        ->post(route('notifications.connect'))
+        ->assertRedirect()
+        ->assertSessionHas('success');
+});
+
+it('does not pretend a code is coming when the phone is already linked', function () {
+    config()->set('whatsapp.driver', 'evolution');
+    config()->set('whatsapp.evolution.api_key', 'k');
+    Illuminate\Support\Facades\Http::fake(['*' => Illuminate\Support\Facades\Http::response(['state' => 'open'], 200)]);
+
+    test()->actingAs(User::factory()->create(['role' => 'admin']))
+        ->post(route('notifications.connect'))
+        ->assertSessionHas('success', fn ($m) => str_contains($m, 'déjà connecté'));
+});
+
+it('says the service needs restarting when it has no connect route', function () {
+    config()->set('whatsapp.driver', 'evolution');
+    config()->set('whatsapp.evolution.api_key', 'k');
+    Illuminate\Support\Facades\Http::fake(['*' => Illuminate\Support\Facades\Http::response([], 404)]);
+
+    test()->actingAs(User::factory()->create(['role' => 'admin']))
+        ->post(route('notifications.connect'))
+        ->assertSessionHas('error', fn ($m) => str_contains($m, 'redémarré'));
+});
+
+it('reports an unreachable gateway rather than hanging the page', function () {
+    config()->set('whatsapp.driver', 'evolution');
+    config()->set('whatsapp.evolution.api_key', 'k');
+    Illuminate\Support\Facades\Http::fake(
+        fn () => throw new Illuminate\Http\Client\ConnectionException('refused')
+    );
+
+    test()->actingAs(User::factory()->create(['role' => 'admin']))
+        ->post(route('notifications.connect'))
+        ->assertSessionHas('error', fn ($m) => str_contains($m, 'injoignable'));
+});
+
+it('does not let an assistant open a WhatsApp session', function () {
+    test()->actingAs(User::factory()->create(['role' => 'assistant']))
+        ->post(route('notifications.connect'))
+        ->assertForbidden();
+});

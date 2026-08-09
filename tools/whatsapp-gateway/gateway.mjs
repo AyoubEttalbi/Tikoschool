@@ -78,6 +78,34 @@ async function connect() {
   });
 }
 
+/*
+ * Tear the session down and start a fresh one.
+ *
+ * `wipeCreds` is the whole difference between "try again" and "pair a new phone".
+ * WhatsApp revokes the pairing on a logged_out close, so the credentials left on disk are
+ * dead: connect() with them still present fails the same way forever, which is exactly how
+ * this gateway ended up parked in logged_out with no QR and no way out short of a redeploy.
+ * Wiping is destructive, so it happens only when the credentials are already known dead.
+ */
+async function restart({ wipeCreds }) {
+  try {
+    sock?.end?.(undefined);
+  } catch {
+    // Already gone. The point is only that the old socket stops competing with the new one.
+  }
+
+  sock = null;
+  lastQr = null;
+
+  if (wipeCreds) {
+    rmSync(AUTH_DIR, { recursive: true, force: true });
+    mkdirSync(AUTH_DIR, { recursive: true });
+  }
+
+  state = 'connecting';
+  await connect();
+}
+
 const json = (res, code, body) => {
   res.writeHead(code, { 'content-type': 'application/json' });
   res.end(JSON.stringify(body));
@@ -166,19 +194,40 @@ const server = createServer(async (req, res) => {
     }
 
     try {
-      rmSync(AUTH_DIR, { recursive: true, force: true });
-      mkdirSync(AUTH_DIR, { recursive: true });
+      await restart({ wipeCreds: true });
     } catch (e) {
-      return json(res, 500, { message: 'could not clear credentials: ' + e.message });
+      return json(res, 500, { message: 'could not restart after logout: ' + e.message });
     }
 
-    sock = null;
-    lastQr = null;
-    state = 'connecting';
     console.log('[wa] logged out — a new QR will follow');
 
-    // Reconnect so a fresh QR appears without anyone restarting the process.
-    setTimeout(() => connect().catch((e) => console.error('[wa] reconnect failed', e)), 500);
+    return json(res, 200, { state });
+  }
+
+  /*
+   * Ask for a QR code.
+   *
+   * The counterpart to /logout, and the endpoint whose absence left the admin screen with
+   * nothing to click: once WhatsApp revoked the pairing, the gateway sat in logged_out
+   * forever — no QR, no reconnect, no recovery short of redeploying the container.
+   *
+   * Credentials are wiped ONLY when they are already dead. From any other state this is
+   * just "drop the half-open socket and try again", which must not cost a working session.
+   */
+  if (req.method === 'POST' && url.pathname === '/connect') {
+    if (req.headers.apikey !== API_KEY) return json(res, 401, { message: 'bad apikey' });
+
+    if (state === 'open') {
+      return json(res, 200, { state, message: 'already connected' });
+    }
+
+    try {
+      await restart({ wipeCreds: state === 'logged_out' });
+    } catch (e) {
+      return json(res, 500, { message: 'could not start a new session: ' + e.message });
+    }
+
+    console.log('[wa] reconnect requested — a QR will follow shortly');
 
     return json(res, 200, { state });
   }

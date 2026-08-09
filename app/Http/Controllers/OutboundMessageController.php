@@ -206,6 +206,57 @@ class OutboundMessageController extends Controller
     }
 
     /**
+     * Ask the gateway for a fresh QR code.
+     *
+     * The missing half of the pair. `disconnect` had a button and this had nothing, so once
+     * WhatsApp revoked the pairing — which happens on its own if a code goes unscanned long
+     * enough — the screen showed "Déconnectée" and offered no way back. The gateway does not
+     * retry a logged-out session by design (the stored credentials are dead and reusing them
+     * fails identically forever), so somebody had to redeploy the container to get a code.
+     */
+    public function connect()
+    {
+        $config = config('whatsapp.evolution');
+
+        if (config('whatsapp.driver') !== 'evolution') {
+            return back()->with('error', 'Aucune passerelle à connecter (WHATSAPP_DRIVER='.config('whatsapp.driver').').');
+        }
+
+        try {
+            $response = Http::withHeaders(['apikey' => (string) $config['api_key']])
+                // Longer than the status probe: this tears a socket down and opens a new
+                // one, and answering slowly is not the same as being broken.
+                ->timeout(20)
+                ->post(rtrim($config['base_url'], '/').'/connect');
+        } catch (\Throwable $e) {
+            return back()->with('error', 'Passerelle injoignable — le service WhatsApp est-il démarré ?');
+        }
+
+        // The cached state is now a lie, and this page is about to re-read it.
+        WhatsAppGateway::forget();
+
+        if ($response->status() === 404) {
+            return back()->with('error', 'Cette passerelle ne gère pas la reconnexion à distance. Le service doit être redémarré pour prendre en compte sa dernière version.');
+        }
+
+        if ($response->status() === 401 || $response->status() === 403) {
+            return back()->with('error', 'La passerelle a rejeté la clé d\'accès (HTTP '.$response->status().'). Vérifiez EVOLUTION_API_KEY.');
+        }
+
+        if ($response->failed()) {
+            return back()->with('error', 'La passerelle n\'a pas pu ouvrir de session (HTTP '.$response->status().').');
+        }
+
+        if ($response->json('state') === 'open') {
+            return back()->with('success', 'WhatsApp est déjà connecté.');
+        }
+
+        // Baileys needs a moment to negotiate before it emits a code, so this promises the
+        // code rather than claiming one is already on screen.
+        return back()->with('success', 'Connexion demandée. Le code QR apparaît dans quelques secondes.');
+    }
+
+    /**
      * Whether the gateway is actually linked to the school's phone.
      *
      * This is the single most useful fact on the screen and the app had no way to know it.

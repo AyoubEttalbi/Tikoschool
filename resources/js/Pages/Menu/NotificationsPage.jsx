@@ -10,6 +10,7 @@ import {
     MinusCircle,
     PauseCircle,
     Power,
+    QrCode,
     RotateCcw,
     Settings2,
     XCircle,
@@ -167,7 +168,10 @@ const GATEWAY = {
         label: "Déconnectée",
         dot: "bg-red-500",
         rail: "border-l-red-500",
-        so: "Le lien a été retiré depuis le téléphone. Les messages attendent.",
+        // No QR is on screen in this state and none will appear on its own: WhatsApp has
+        // revoked the pairing and the stored credentials are dead. The sentence has to
+        // name the button, because the screen otherwise looks like a dead end.
+        so: "Le lien avec le téléphone a été retiré. Cliquez sur « Connecter » pour obtenir un nouveau code QR. Les messages attendent — rien n'est perdu.",
     },
     unreachable: {
         label: "Injoignable",
@@ -247,6 +251,32 @@ function GatewayStrip({ gateway, queue, service, heldCount }) {
         return () => clearInterval(id);
     }, [watching]);
 
+    /*
+     * The way back.
+     *
+     * A pairing can be revoked without anyone touching this screen — leave a QR unscanned
+     * long enough and WhatsApp ends the session itself. The gateway does not retry that
+     * case on purpose (the stored credentials are dead), so the state sat at "Déconnectée"
+     * with no code and no control, and the only recovery was redeploying the container.
+     */
+    const connect = () => {
+        setBusy(true);
+        router.post(
+            route("notifications.connect"),
+            {},
+            {
+                preserveScroll: true,
+                onFinish: () => {
+                    setBusy(false);
+                    // A code takes a few seconds to negotiate; the poll below is on an 8s
+                    // cycle, and waiting a whole cycle after clicking reads as nothing
+                    // having happened.
+                    setTimeout(() => router.reload({ only: ["gateway"] }), 2500);
+                },
+            },
+        );
+    };
+
     const disconnect = () => {
         setBusy(true);
         router.post(
@@ -317,6 +347,20 @@ function GatewayStrip({ gateway, queue, service, heldCount }) {
                         >
                             <Power className="h-4 w-4" />
                             Déconnecter
+                        </button>
+                    )}
+
+                    {/* Shown whenever the service could be working and is not — including
+                        the state with no QR on screen, which previously offered nothing. */}
+                    {!connected && gateway?.state !== "disabled" && (
+                        <button
+                            type="button"
+                            onClick={connect}
+                            disabled={busy}
+                            className="ml-2 inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-slate-400"
+                        >
+                            <QrCode className="h-4 w-4" />
+                            {busy ? "Connexion…" : "Connecter"}
                         </button>
                     )}
                 </div>
