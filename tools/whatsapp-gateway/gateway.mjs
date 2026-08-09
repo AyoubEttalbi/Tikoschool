@@ -11,7 +11,8 @@
  * capability the gateway does not have is one that cannot be abused if the key leaks.
  */
 import { createServer } from 'node:http';
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
@@ -79,6 +80,23 @@ async function connect() {
 }
 
 /*
+ * Empty the credentials directory WITHOUT removing the directory itself.
+ *
+ * The obvious version — rmSync(AUTH_DIR, {recursive:true}) then mkdirSync — works on a
+ * laptop and fails in production with EBUSY, because under Docker AUTH_DIR is a volume
+ * mount point and a container cannot unlink its own mount. That failure is invisible
+ * locally: `./auth` is an ordinary directory there. It turned both /logout and /connect
+ * into 500s on the server while passing every local test.
+ */
+function clearAuthDir() {
+  mkdirSync(AUTH_DIR, { recursive: true });
+
+  for (const entry of readdirSync(AUTH_DIR)) {
+    rmSync(join(AUTH_DIR, entry), { recursive: true, force: true });
+  }
+}
+
+/*
  * Tear the session down and start a fresh one.
  *
  * `wipeCreds` is the whole difference between "try again" and "pair a new phone".
@@ -98,8 +116,7 @@ async function restart({ wipeCreds }) {
   lastQr = null;
 
   if (wipeCreds) {
-    rmSync(AUTH_DIR, { recursive: true, force: true });
-    mkdirSync(AUTH_DIR, { recursive: true });
+    clearAuthDir();
   }
 
   state = 'connecting';
