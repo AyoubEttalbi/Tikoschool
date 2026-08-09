@@ -11,8 +11,9 @@
  * capability the gateway does not have is one that cannot be abused if the key leaks.
  */
 import { createServer } from 'node:http';
-import { mkdirSync, readdirSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
@@ -21,10 +22,36 @@ import makeWASocket, {
 import qrcode from 'qrcode-terminal';
 import QRImage from 'qrcode';
 
+/*
+ * Fall back to the application's own EVOLUTION_API_KEY when GATEWAY_API_KEY is not set.
+ *
+ * These two values MUST match — the app sends one as its `apikey` header and this process
+ * checks the other — and keeping them in sync by hand is a job nobody remembers doing. The
+ * failure it produces is not obviously a key problem either: the gateway runs, /health is
+ * fine, and every send comes back 401.
+ *
+ * It also makes `npm start` work on a dev machine with no exports at all, which is the
+ * difference between a service that gets restarted after a reboot and one that quietly
+ * stays down while messages pile up. Docker passes GATEWAY_API_KEY explicitly and never
+ * reaches this.
+ */
+function apiKeyFromProjectEnv() {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const contents = readFileSync(join(here, '..', '..', '.env'), 'utf8');
+    const match = contents.match(/^EVOLUTION_API_KEY=(.*)$/m);
+
+    return match ? match[1].trim().replace(/^["']|["']$/g, '') : null;
+  } catch {
+    // No .env next to the project — a container, or the folder copied somewhere else.
+    return null;
+  }
+}
+
 const PORT = Number(process.env.PORT || 8080);
 const BIND = process.env.BIND || '127.0.0.1';
 const DEV_API_KEY = 'local-dev-key';
-const API_KEY = process.env.GATEWAY_API_KEY || DEV_API_KEY;
+const API_KEY = process.env.GATEWAY_API_KEY || apiKeyFromProjectEnv() || DEV_API_KEY;
 const INSTANCE = process.env.INSTANCE || 'tikoschool';
 const AUTH_DIR = process.env.AUTH_DIR || './auth';
 const DRY_RUN = process.env.DRY_RUN === '1';
