@@ -424,3 +424,71 @@ it('is registered on the schedule', function () {
     expect($commands)->toContain('notifications:retry-failed')
         ->and($commands)->toContain('whatsapp:audit-numbers');
 });
+
+/*
+ * THE HALF HOUR OF LOOKING BROKEN
+ *
+ * A held message is released only by this sweep. At a half-hourly cadence somebody could
+ * reconnect the school phone, watch the screen say "Connectée", and still be staring at
+ * "En pause" twenty-nine minutes later — with no way to tell a slow system from a broken
+ * one. Reported as "the message is not being sent automatically", which is exactly what it
+ * looks like.
+ *
+ * Two things have to hold for the fix to be safe: it must release promptly once the
+ * gateway is usable, and a run with nothing to do must be cheap enough to repeat every
+ * minute forever.
+ */
+it('releases a held message as soon as the gateway is usable', function () {
+    config()->set('whatsapp.driver', 'evolution');
+    config()->set('whatsapp.evolution.api_key', 'k');
+    Cache::flush();
+    Http::fake(['*' => Http::response(['state' => 'open'], 200)]);
+
+    $student = recStudent();
+    $message = OutboundMessage::create([
+        'school_id' => $student->schoolId,
+        'student_id' => $student->id,
+        'idempotency_key' => 'recovery:reconnect:'.uniqid('', true),
+        'type' => OutboundMessage::TYPE_ABSENCE,
+        'channel' => OutboundMessage::CHANNEL_WHATSAPP,
+        'recipient' => '212612345678',
+        'message' => 'x',
+        'status' => OutboundMessage::STATUS_HELD,
+        'hold_reason' => 'gateway_disconnected',
+        'held_since' => now()->subMinutes(3),
+    ]);
+
+    Queue::fake();
+
+    Illuminate\Support\Facades\Artisan::call('notifications:retry-failed');
+
+    expect($message->fresh()->status)->toBe(OutboundMessage::STATUS_PENDING)
+        ->and($message->fresh()->hold_reason)->toBeNull();
+
+    Queue::assertPushed(SendOutboundMessage::class);
+});
+
+it('costs nothing when there is nothing to recover', function () {
+    config()->set('whatsapp.driver', 'evolution');
+    config()->set('whatsapp.evolution.api_key', 'k');
+    Cache::flush();
+
+    // A sent row is not recoverable, so this is the ordinary quiet minute.
+    $student = recStudent();
+    OutboundMessage::create([
+        'school_id' => $student->schoolId,
+        'student_id' => $student->id,
+        'idempotency_key' => 'recovery:quiet:'.uniqid('', true),
+        'type' => OutboundMessage::TYPE_ABSENCE,
+        'channel' => OutboundMessage::CHANNEL_WHATSAPP,
+        'recipient' => '212612345678',
+        'message' => 'x',
+        'status' => OutboundMessage::STATUS_SENT,
+        'sent_at' => now(),
+    ]);
+
+    Http::fake(fn () => throw new RuntimeException('the gateway must not be probed on a quiet run'));
+
+    expect(Illuminate\Support\Facades\Artisan::call('notifications:retry-failed'))->toBe(0);
+    expect(Illuminate\Support\Facades\Artisan::output())->toBe('');
+});

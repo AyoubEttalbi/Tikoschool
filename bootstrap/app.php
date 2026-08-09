@@ -110,16 +110,21 @@ return Application::configure(basePath: dirname(__DIR__))
          * The notification recovery sweep: release what the system never attempted, retry
          * recent failures, abandon what has gone stale.
          *
-         * Every thirty minutes, not once a morning. A gateway that someone reconnects at
-         * 10:15 should not sit idle until tomorrow, and a whole day of absences released
-         * in one burst is exactly the pattern that gets a WhatsApp number banned — the
-         * pacer would space them, but the backlog would take hours to drain.
+         * EVERY MINUTE, and the cadence is the feature.
          *
-         * The command is a no-op when there is nothing to do and when the gateway is
-         * still down, so running it often costs a query and nothing else.
+         * A message held during an outage is released only by this sweep. At the previous
+         * half-hourly cadence somebody could reconnect the school phone, watch the screen
+         * say "Connectée", and still be staring at "En pause" twenty-nine minutes later.
+         * Nothing was broken and there was no way to know that from the outside — which
+         * makes it indistinguishable from broken, and that is what people report. Recovery
+         * now lands within a minute of the phone coming back.
+         *
+         * Affordable because the command leaves immediately on one indexed EXISTS query
+         * when there is nothing held, failed or stranded: no gateway probe, no rows loaded,
+         * nothing appended to schedule.log. A quiet minute costs a single query.
          */
         $schedule->command('notifications:retry-failed')
-            ->everyThirtyMinutes()
+            ->everyMinute()
             ->withoutOverlapping()
             ->onOneServer()
             ->appendOutputTo(storage_path('logs/schedule.log'))

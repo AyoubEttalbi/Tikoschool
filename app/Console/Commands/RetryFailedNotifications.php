@@ -50,6 +50,36 @@ class RetryFailedNotifications extends Command
         $maxAgeDays = max(1, (int) config('whatsapp.max_age_days', 5));
         $cutoff = now()->subDays($maxAgeDays);
 
+        /*
+         * Is there anything to do at all?
+         *
+         * This runs every minute, and the reason it can is this query: one indexed EXISTS
+         * against `status`. A quiet minute costs that and nothing else — no gateway probe,
+         * no four collection loads, no output appended to schedule.log.
+         *
+         * It runs every minute because of what happens when it does not. A message held
+         * during an outage is released only by this sweep, so at the old half-hourly
+         * cadence somebody could reconnect the phone, watch the screen say "Connectée",
+         * and still be looking at "En pause" twenty-nine minutes later with no way to tell
+         * whether the system was broken or merely slow. It looked broken. It was slow, and
+         * from the outside those are the same thing.
+         */
+        $hasWork = OutboundMessage::query()
+            ->where(function ($query) {
+                $query->whereIn('status', [
+                    OutboundMessage::STATUS_HELD,
+                    OutboundMessage::STATUS_FAILED,
+                ])->orWhere(function ($stranded) {
+                    $stranded->where('status', OutboundMessage::STATUS_PENDING)
+                        ->where('scheduled_at', '<', now()->subHours(2));
+                });
+            })
+            ->exists();
+
+        if (! $hasWork && ! $dryRun) {
+            return self::SUCCESS;
+        }
+
         // 1. Abandon what is too old to be worth sending — held or failed alike. Done
         //    FIRST so the passes below never release something that should have expired.
         $expired = OutboundMessage::recoverable()
