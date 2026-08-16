@@ -11,7 +11,9 @@ import { getEcho, currentEcho } from "@/echo";
 const InboxPopup = React.lazy(() => import("@/Components/InboxPopup"));
 
 export default function DashboardLayout({ children }) {
-    const { auth, chatContacts } = usePage().props;
+    const page = usePage();
+    const { auth, chatContacts } = page.props;
+    const user = page.props.auth.user;
     const [showInbox, setShowInbox] = useState(false);
     const [onlineUsers, setOnlineUsers] = useState([]);
     const [unreadCount, setUnreadCount] = useState(() => {
@@ -22,10 +24,8 @@ export default function DashboardLayout({ children }) {
     // Absence notices awaiting approval — the sidebar badge on "Présences". Seeded from
     // the page-load prop, then refreshed by the 60s reconciliation poll below.
     const [pendingNotices, setPendingNotices] = useState(
-        () => props.pendingNoticesCount ?? 0,
+        () => page.props.pendingNoticesCount ?? 0,
     );
-    const { props } = usePage();
-    const user = props.auth.user;
 
     // Function to update unread count and save to localStorage
     const updateUnreadCount = (count) => {
@@ -168,7 +168,7 @@ export default function DashboardLayout({ children }) {
 
             {/* RIGHT - Main Content */}
             <div className="w-[86%] md:w-[92%] lg:w-[84%] xl:w-[86%] bg-[#F7F8FA] flex flex-col">
-                <Navbar auth={user} profile_image={props.auth.profile_image} />
+                <Navbar auth={user} profile_image={page.props.auth.profile_image} />
 
                 {/* Mounted once here rather than per page: every controller that touches
                     teacher money flashes through the same channel, so no page has to opt in. */}
