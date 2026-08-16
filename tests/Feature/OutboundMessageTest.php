@@ -329,7 +329,11 @@ it('refuses a class sheet containing a student from another school', function ()
 
 // ------------------------------------------------------------------ the controller ----
 
-it('queues one notice per absent student when a sheet is saved', function () {
+it('records one notice per absent student when a sheet is saved — and dispatches none', function () {
+    /*
+     * The register is the approval-gated path: rows appear, nothing is queued. Saving is
+     * a teacher's move; sending is a reviewer's, from the absence log.
+     */
     Queue::fake();
     $admin = User::factory()->create(['role' => 'admin']);
     $class = Classes::factory()->create();
@@ -346,13 +350,18 @@ it('queues one notice per absent student when a sheet is saved', function () {
     ];
 
     test()->actingAs($admin)->post(route('attendances.store'), $payload)->assertSessionHasNoErrors();
-    expect(OutboundMessage::count())->toBe(1);
+    expect(OutboundMessage::count())->toBe(1)
+        ->and(OutboundMessage::sole()->status)->toBe(OutboundMessage::STATUS_AWAITING_APPROVAL);
+
+    Queue::assertNotPushed(SendOutboundMessage::class);
 
     // Saving the identical sheet again — the correcting-a-typo case. This is the bug:
     // the dispatch sat outside the create/update branch, so the second save re-messaged
     // every absent parent in the class.
     test()->actingAs($admin)->post(route('attendances.store'), $payload)->assertSessionHasNoErrors();
     expect(OutboundMessage::count())->toBe(1);
+
+    Queue::assertNotPushed(SendOutboundMessage::class);
 });
 
 it('hides the guardian number and the message body from serialisation', function () {

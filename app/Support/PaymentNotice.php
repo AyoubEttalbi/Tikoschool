@@ -131,7 +131,7 @@ class PaymentNotice
         $blocked = $outcome['blocked'] ?? [];
 
         if (array_filter($blocked, fn ($r) => ($r['reason'] ?? '') === 'deadline_passed') !== []) {
-            $messages[] = 'Facture de plus de '.($outcome['deadline_days'] ?? 7)
+            $messages[] = 'Dernier paiement de plus de '.($outcome['deadline_days'] ?? 7)
                 .' jours : les enseignants gardent ce qui leur a été versé.';
         }
 
@@ -168,7 +168,7 @@ class PaymentNotice
             self::TONE_WARNING,
             'Supprimer cette facture ?',
             [
-                "Facture de plus de {$deadline} jours : les enseignants gardent ce qui leur a été versé.",
+                "Dernier paiement de plus de {$deadline} jours : les enseignants gardent ce qui leur a été versé.",
                 'Aucun portefeuille ne change, que vous supprimiez ou non.',
             ],
             $details,

@@ -287,7 +287,7 @@ class MembershipController extends Controller
             // rather than one per invoice — or, as before, none at all.
             $reversal = [
                 'reversed' => false, 'total_reversed' => 0.0, 'deadline_days' => \App\Services\TeacherMembershipPaymentService::REVERSAL_DEADLINE_DAYS,
-                'days_since_billing' => null, 'within_deadline' => true, 'applied' => [], 'blocked' => [], 'messages' => [],
+                'days_since_payment' => null, 'within_deadline' => true, 'applied' => [], 'blocked' => [], 'messages' => [],
             ];
 
             if ($membership->payment_status === 'paid') {

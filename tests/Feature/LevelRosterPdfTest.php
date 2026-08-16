@@ -190,3 +190,81 @@ it('publishes the schools the picker needs', function () {
             ->has('levels')
         );
 });
+
+/*
+ * THE CLASS ROSTER — the same document, reached from /classes instead of /othersettings.
+ *
+ * The class route is open to every staff role (teachers see their own classes), so unlike
+ * the level route the object-level check is not a dormant second layer — it is the only
+ * thing standing between an assistant of one branch and another branch's children.
+ */
+it('renders a roster for one class', function () {
+    $school = School::factory()->create();
+    $class = \App\Models\Classes::factory()->create(['school_id' => $school->id]);
+    Student::factory()->create([
+        'classId' => $class->id,
+        'schoolId' => $school->id,
+        'status' => 'active',
+    ]);
+
+    $response = test()->actingAs(rosterAdmin())
+        ->get(route('classes.students.download', $class->id));
+
+    $response->assertOk();
+    expect($response->headers->get('content-type'))->toContain('application/pdf')
+        ->and(substr($response->getContent(), 0, 4))->toBe('%PDF');
+});
+
+it('includes only that class\'s active students in that class\'s school', function () {
+    $mine = School::factory()->create();
+    $theirs = School::factory()->create();
+    $class = \App\Models\Classes::factory()->create(['school_id' => $mine->id]);
+
+    Student::factory()->create(['classId' => $class->id, 'schoolId' => $mine->id, 'status' => 'active']);
+    Student::factory()->create(['classId' => $class->id, 'schoolId' => $mine->id, 'status' => 'inactive']);
+    // A stale classId pointing at this class from ANOTHER school's student: the class row
+    // belongs to one school, and the sheet must not show that school's pupil.
+    Student::factory()->create(['classId' => $class->id, 'schoolId' => $theirs->id, 'status' => 'active']);
+    // Same school, different class — not this sheet.
+    $otherClass = \App\Models\Classes::factory()->create(['school_id' => $mine->id]);
+    Student::factory()->create(['classId' => $otherClass->id, 'schoolId' => $mine->id, 'status' => 'active']);
+
+    // Through the same filters the controller applies, per this file's convention: the
+    // PDF bytes are compressed and cannot be grepped for names.
+    $onTheSheet = Student::where('classId', $class->id)
+        ->where('schoolId', $class->school_id)
+        ->where('status', 'active')
+        ->count();
+
+    expect($onTheSheet)->toBe(1);
+
+    test()->actingAs(rosterAdmin())
+        ->get(route('classes.students.download', $class->id))
+        ->assertOk();
+});
+
+it('refuses another school\'s class to a scoped assistant', function () {
+    $mine = School::factory()->create();
+    $theirs = School::factory()->create();
+    $theirClass = \App\Models\Classes::factory()->create(['school_id' => $theirs->id]);
+
+    // A real 403, not AdminMiddleware's redirect: this route has no role gate, so the
+    // denial can only come from SchoolScope inside the controller.
+    test()->actingAs(rosterAssistant($mine, 'class-scope@example.test'))
+        ->get(route('classes.students.download', $theirClass->id))
+        ->assertForbidden();
+});
+
+it('lets a teacher of the class download its roster', function () {
+    $school = School::factory()->create();
+    $class = \App\Models\Classes::factory()->create(['school_id' => $school->id]);
+
+    $teacherUser = User::factory()->create(['role' => 'teacher', 'email' => 'class-teacher@example.test']);
+    $teacher = \App\Models\Teacher::factory()->create(['email' => 'class-teacher@example.test']);
+    $teacher->schools()->attach($school->id);
+    $teacher->classes()->attach($class->id);
+
+    test()->actingAs($teacherUser)
+        ->get(route('classes.students.download', $class->id))
+        ->assertOk();
+});

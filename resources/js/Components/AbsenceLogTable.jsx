@@ -1,7 +1,5 @@
 import { FaCalendarAlt, FaExclamationTriangle } from "react-icons/fa";
 import { format } from "date-fns";
-import FormModal from "./FormModal";
-import AttendanceModal from "@/Pages/Attendance/AttendanceModal";
 import { useState } from "react";
 import { Edit } from "lucide-react";
 import { router } from '@inertiajs/react';
@@ -9,9 +7,12 @@ import Table from './Table';
 import { usePage } from "@inertiajs/react";
 import WhatsAppButton from './WhatsAppButton';
 
-const AbsenceLogTable = ({ absences, studentId, studentClassId }) => {
+const AbsenceLogTable = ({ absences, studentId, studentClassId, onNotified }) => {
     const [showUpdateModal, setShowUpdateModal] = useState(false);
     const [selectedAbsence, setSelectedAbsence] = useState(null);
+    const [editForm, setEditForm] = useState({ status: "absent", reason: "", subject: "" });
+    const [saving, setSaving] = useState(false);
+    const [editError, setEditError] = useState(null);
     // Defensive: ensure absences is always an array
     const safeAbsences = Array.isArray(absences) ? absences : [];
     const role = usePage().props.auth.user.role;
@@ -65,7 +66,53 @@ const AbsenceLogTable = ({ absences, studentId, studentClassId }) => {
 
     const handleEditClick = (absence) => {
         setSelectedAbsence(absence);
+        setEditForm({
+            status: absence.status || "absent",
+            reason: absence.reason || "",
+            subject: absence.subject || "",
+        });
+        setEditError(null);
         setShowUpdateModal(true);
+    };
+
+    const handleEditSubmit = (e) => {
+        e.preventDefault();
+        if (!selectedAbsence || saving) return;
+        setSaving(true);
+        setEditError(null);
+
+        router.put(
+            route("attendances.update", selectedAbsence.id),
+            {
+                student_id: selectedAbsence.student_id,
+                status: editForm.status,
+                reason: editForm.reason,
+                date: selectedAbsence.date,
+                class_id: selectedAbsence.class_id,
+                teacher_id: selectedAbsence.teacher_id || null,
+                subject: editForm.subject,
+            },
+            {
+                preserveState: true,
+                preserveScroll: true,
+                /*
+                 * "present" deletes the row server-side (the update route's
+                 * convention), so the local list must not keep it — ask for the day
+                 * again and let the server say who is left.
+                 */
+                onSuccess: () => {
+                    setShowUpdateModal(false);
+                    onNotified();
+                },
+                onError: (errors) => {
+                    const first = errors && Object.values(errors)[0];
+                    setEditError(
+                        first || "Impossible de modifier cet enregistrement.",
+                    );
+                },
+                onFinish: () => setSaving(false),
+            },
+        );
     };
 
     // Define columns for the Table component
@@ -114,16 +161,27 @@ const AbsenceLogTable = ({ absences, studentId, studentClassId }) => {
             <td className="p-4">{getStatusBadge(absence.status)}</td>
             <td className="p-4">{absence.reason || "---"}</td>
             <td className="p-4">
-                <WhatsAppButton
-                    studentId={absence.student_id}
-                    attendanceId={absence.id}
-                    notification={absence.notification}
-                    studentName={
-                        (absence.first_name && absence.last_name && `${absence.first_name} ${absence.last_name}`) ||
-                        (absence.student_first_name && absence.student_last_name && `${absence.student_first_name} ${absence.student_last_name}`) ||
-                        absence.student_name || absence.studentName || 'Élève'
-                    }
-                />
+                <div className="flex items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={() => handleEditClick(absence)}
+                        title="Modifier l'enregistrement"
+                        className="p-2 rounded-md text-gray-500 hover:bg-indigo-50 hover:text-indigo-600 transition"
+                    >
+                        <Edit className="h-4 w-4" />
+                    </button>
+                    <WhatsAppButton
+                        studentId={absence.student_id}
+                        attendanceId={absence.id}
+                        notification={absence.notification}
+                        onSettled={onNotified}
+                        studentName={
+                            (absence.first_name && absence.last_name && `${absence.first_name} ${absence.last_name}`) ||
+                            (absence.student_first_name && absence.student_last_name && `${absence.student_first_name} ${absence.student_last_name}`) ||
+                            absence.student_name || absence.studentName || 'Élève'
+                        }
+                    />
+                </div>
             </td>
         </tr>
     );
@@ -137,6 +195,104 @@ const AbsenceLogTable = ({ absences, studentId, studentClassId }) => {
             {(safeAbsences.length === 0) && (
                 <div className="p-8 text-center text-gray-500">
                     Aucun enregistrement d'absence trouvé.
+                </div>
+            )}
+
+            {showUpdateModal && selectedAbsence && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                    <div className="bg-white rounded-lg p-6 w-full max-w-md">
+                        <h3 className="text-lg font-semibold mb-4">
+                            Modifier l'enregistrement
+                        </h3>
+                        <form onSubmit={handleEditSubmit} className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium mb-1">
+                                    Statut
+                                </label>
+                                <select
+                                    value={editForm.status}
+                                    onChange={(e) =>
+                                        setEditForm({
+                                            ...editForm,
+                                            status: e.target.value,
+                                        })
+                                    }
+                                    className="w-full p-2 border border-gray-300 rounded-md"
+                                    required
+                                >
+                                    <option value="absent">Absent(e)</option>
+                                    <option value="late">En retard</option>
+                                    <option value="present">Présent(e)</option>
+                                </select>
+                                {editForm.status === "present" && (
+                                    <p className="mt-1 text-xs text-gray-500">
+                                        Marquer présent supprime l'enregistrement —
+                                        la notification en attente est annulée.
+                                    </p>
+                                )}
+                            </div>
+
+                            {editForm.status !== "present" && (
+                                <>
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1">
+                                            Motif
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={editForm.reason}
+                                            onChange={(e) =>
+                                                setEditForm({
+                                                    ...editForm,
+                                                    reason: e.target.value,
+                                                })
+                                            }
+                                            className="w-full p-2 border border-gray-300 rounded-md"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1">
+                                            Matière
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={editForm.subject}
+                                            onChange={(e) =>
+                                                setEditForm({
+                                                    ...editForm,
+                                                    subject: e.target.value,
+                                                })
+                                            }
+                                            className="w-full p-2 border border-gray-300 rounded-md"
+                                        />
+                                    </div>
+                                </>
+                            )}
+
+                            {editError && (
+                                <div className="text-red-500 text-sm">
+                                    {editError}
+                                </div>
+                            )}
+
+                            <div className="flex justify-end gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowUpdateModal(false)}
+                                    className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-md"
+                                >
+                                    Annuler
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={saving}
+                                    className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                                >
+                                    {saving ? "Enregistrement…" : "Enregistrer"}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
             )}
         </div>

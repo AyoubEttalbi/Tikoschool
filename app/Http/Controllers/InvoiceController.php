@@ -264,6 +264,11 @@ class InvoiceController extends Controller
             // Create the invoice
             $invoice = Invoice::create($validated);
             Log::info('Invoice created successfully', ['invoice_id' => $invoice->id]);
+
+            // The payment EVENT, at the moment it happened. The cashier sums events; the
+            // invoice's cumulative amountPaid can never answer "what came in today".
+            \App\Models\InvoicePaymentLog::recordDelta($invoice, 0, auth()->id());
+
             // Log the activity
             $this->logActivity('created', $invoice, null, $invoice->toArray());
 
@@ -708,6 +713,13 @@ class InvoiceController extends Controller
             // Update the invoice
             $invoice->update($validated);
 
+            // THE SECOND HALF OF THE PAYMENT. amountPaid is cumulative, so the rest
+            // paid days later arrives as an edit like this one — the event log gets the
+            // DELTA, which is the money that actually changed hands today. Negative
+            // deltas (a correction that reduces amountPaid) are logged too: cash that
+            // leaves must leave the day it leaves, or the register stops adding up.
+            \App\Models\InvoicePaymentLog::recordDelta($invoice, $previousAmountPaid, auth()->id());
+
             // Log the activity
             $this->logActivity('updated', $invoice, $oldData, $invoice->toArray());
 
@@ -990,9 +1002,10 @@ class InvoiceController extends Controller
      */
     public function generateInvoicePdf($id)
     {
+        // `student.level` feeds the Niveau row on the redesigned invoice.
         $invoice = Invoice::with(['membership' => function ($membershipQuery) {
             $membershipQuery->withTrashed()->with('offer');
-        }, 'student'])
+        }, 'student.level'])
             ->findOrFail($id);
 
         $this->authorizeInvoice($invoice);

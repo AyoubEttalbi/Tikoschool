@@ -98,7 +98,9 @@ test('after the deadline the teacher keeps the money and the caller is told why'
     $s = PaymentScenario::make(['Math' => 50]);
     $s->bill(months: ['2026-08'], total: 1000, paid: 1000, billDate: '2026-08-01');
 
-    Carbon::setTestNow(Carbon::parse('2026-08-01')->addDays($deadline() + 1)->setTime(9, 0));
+    // The window follows the PAYMENT (made "now", 2026-08-10), not the 1st-of-month
+    // billing anchor.
+    Carbon::setTestNow(now()->copy()->addDays($deadline() + 1)->setTime(9, 0));
 
     $outcome = $s->deleteInvoice();
 
@@ -113,19 +115,38 @@ test('after the deadline the teacher keeps the money and the caller is told why'
 });
 
 test('an invoice billed in advance is comfortably inside the window', function () {
-    // A post-dated bill measures NEGATIVE days since billing. The comparison has to treat
-    // that as inside the window, not wrap round into "expired" — an invoice whose due date
-    // has not arrived is the clearest possible case for allowing the claw-back.
-    //
-    // (There is no null-billDate case to test: invoices.billDate is NOT NULL, so the null
-    // branch in reverseInvoicePayments() is unreachable defensive code.)
+    // The window follows the PAYMENT, not the bill: this invoice is paid today for a
+    // period starting on the 20th, so the payment is zero days old and the claw-back
+    // must be allowed. (There is no null-billDate case to test: invoices.billDate is
+    // NOT NULL, so the null branch in reverseInvoicePayments() is unreachable
+    // defensive code.)
     $s = PaymentScenario::make(['Math' => 50]);
     $s->bill(months: ['2026-09'], total: 1000, paid: 1000, billDate: '2026-09-20');
 
     $outcome = $s->deleteInvoice();
 
-    expect($outcome['days_since_billing'])->toBeLessThan(0)
+    expect($outcome['days_since_payment'])->toBe(0)
         ->and($outcome['within_deadline'])->toBeTrue()
+        ->and($s->wallet('Math'))->toBe(0.0);
+});
+
+test('the window counts from the payment, not the billing anchor', function () use ($deadline) {
+    /*
+     * The reported bug, exactly. A pupil pays on the 12th for a month billed on the
+     * 1st; the invoice is deleted the same day. Measuring from billDate read "11
+     * days since billing" the moment the money landed — every deletion was already
+     * past the deadline and no wallet was ever corrected.
+     */
+    $s = PaymentScenario::make(['Math' => 50]);
+    $s->bill(months: ['2026-08'], total: 1000, paid: 1000, billDate: '2026-08-01');
+
+    Carbon::setTestNow(Carbon::parse('2026-08-01')->addDays(12)->setTime(9, 0));
+
+    $outcome = $s->deleteInvoice();
+
+    expect($outcome['days_since_payment'])->toBeLessThanOrEqual($deadline())
+        ->and($outcome['within_deadline'])->toBeTrue()
+        ->and($outcome['reversed'])->toBeTrue()
         ->and($s->wallet('Math'))->toBe(0.0);
 });
 
@@ -147,10 +168,14 @@ test('a multi-month invoice deleted early after the cron has run claws back all 
     $s = PaymentScenario::make(['Math' => 30]);
     $s->bill(months: ['2026-08', '2026-09', '2026-10'], total: 3000, paid: 3000, billDate: '2026-09-01');
 
-    // September and October both run, then the clerk deletes within the window of the
-    // September billing date.
+    // September and October both run, then the clerk deletes. Three weeks have passed
+    // since the original payment, so the window only still be open because money moved
+    // again: the pupil tops up on the 1st (exactly what InvoiceController::update()
+    // stamps), and the clerk deletes the invoice the same day.
     $s->advanceToMonth('2026-09', dayOfMonth: 1);
     expect($s->wallet('Math'))->toBeGreaterThan(0.0);
+
+    $s->invoice->update(['last_payment_date' => now()]);
 
     $walletBefore = $s->wallet('Math');
     $outcome = $s->deleteInvoice();
@@ -166,7 +191,8 @@ test('a multi-month invoice deleted late keeps paid months and cancels the unpai
     $creditedSoFar = $s->wallet('Math');
     expect($creditedSoFar)->toBe(300.0);
 
-    Carbon::setTestNow(Carbon::parse('2026-08-01')->addDays($deadline() + 1)->setTime(9, 0));
+    // Past the window of the PAYMENT ("now" = 2026-08-10), not of the bill anchor.
+    Carbon::setTestNow(now()->copy()->addDays($deadline() + 1)->setTime(9, 0));
     $outcome = $s->deleteInvoice();
 
     expect($s->wallet('Math'))->toBe($creditedSoFar, 'What was already paid stays paid.')
@@ -239,7 +265,7 @@ test('the outcome names every affected teacher so the UI can list them', functio
     $s = PaymentScenario::make(['Math' => 40, 'Physique' => 20]);
     $s->bill(months: ['2026-08'], total: 1000, paid: 1000, billDate: '2026-08-01');
 
-    Carbon::setTestNow(Carbon::parse('2026-08-01')->addDays($deadline() + 1)->setTime(9, 0));
+    Carbon::setTestNow(now()->copy()->addDays($deadline() + 1)->setTime(9, 0));
     $outcome = $s->deleteInvoice();
 
     expect($outcome['blocked'])->toHaveCount(2)

@@ -1,195 +1,122 @@
+{{--
+    The learner invoice, in the client's design.
+
+    Rebuilt from their example PDF ("Bill-hiba EL BOUZIRI 2026-07.pdf"): one A4 sheet
+    carrying the SAME receipt twice — the school's copy and the learner's, separated by
+    a cut line. The copies are two titles of the same paper: the school's "FACTURE" and
+    the learner's "REÇU". In their example the school copy carries the pack price and
+    the learner copy does not; that asymmetry is kept on purpose.
+
+    Measurements are the example's, not invented: DejaVu Sans 12pt rows, bold 14pt title
+    at the top right, near-white row fill with #DDD row rules inside a #CCC box, label
+    column ~31% of the width. DejaVu because the core PDF fonts cannot print "é".
+--}}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Facture</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            font-size: 16px; /* Increased base font size for better readability */
-            background-color: #f9fafb; /* Light background */
-        }
-        .logo {
-            text-align: center;
-            margin-bottom: 16px;
-        }
-        .logo img {
-            width: 80px; /* Slightly smaller logo */
-            height: auto;
-        }
-        .invoice-header {
-            text-align: center;
-            margin-bottom: 16px;
-        }
-        h1 {
-            font-size: 22px;
-            margin: 0;
-            color: #3730a3; /* Purple heading */
-        }
-        p {
-            margin: 4px 0;
-            font-size: 14px; /* Increased font size for better readability */
-            color: #4b5563; /* Subtle gray text */
-        }
-        .invoice-details {
-            margin-top: 16px;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 16px;
-            border-radius: 8px;
-            overflow: hidden; /* Rounded corners */
-            background-color: #ffffff; /* White background */
-        }
-        table, th, td {
-            border: 1px solid #e5e7eb; /* Light border */
-        }
-        th, td {
-            padding: 10px; /* Increased padding for better spacing */
-            text-align: left;
-            font-size: 14px; /* Increased font size for better readability */
-        }
-        th {
-            background-color: #f3f4f6; /* Light gray header */
-            color: #3730a3; /* Purple text */
-            font-weight: bold;
-        }
-        td {
-            color: #4b5563; /* Subtle gray text */
-        }
-        .separator {
-            border-top: 1px dashed #d1d5db; /* Light dashed separator */
-            margin: 16px 0;
-        }
-        .footer {
-            text-align: center;
-            margin-top: 6px;
-            font-size: 13px; /* Increased font size for better readability */
-            color: #4b5563; /* Subtle gray text */
-        }
-        .print-date {
-            text-align: right;
-            margin-bottom: 12px;
-            font-size: 13px; /* Increased font size for better readability */
-            color: #6b7280; /* Slightly lighter gray */
-            font-style: italic;
-        }
-        .print-date-label {
-            color: #3730a3; /* Purple accent */
-            font-weight: bold;
-            font-style: normal;
-        }
-        .currency {
-            font-weight: bold;
-            font-size: 14px; /* Ensure currency values are readable */
-        }
-        
+        @page { margin: 28px 28px; }
+        body { font-family: DejaVu Sans, sans-serif; color: #000; font-size: 12px; }
+
+        .copy { page-break-inside: avoid; }
+
+        .copy-header { width: 100%; margin-bottom: 14px; }
+        .copy-header td { vertical-align: top; }
+        .logo { height: 56px; max-width: 190px; }
+        .brand-tagline { font-size: 9px; color: #555; margin-top: 2px; }
+        .doc-title { font-size: 14px; font-weight: bold; text-align: right; }
+
+        table.fields { width: 100%; border-collapse: collapse; border: 1px solid #CCC; }
+        table.fields td { padding: 6px 8px; font-size: 12px; background-color: #FEFEFE; border-bottom: 1px solid #D5D5D5; vertical-align: top; }
+        table.fields tr.last td { border-bottom: none; }
+        td.label { width: 31%; }
+        td.value { width: 69%; }
+
+        .cut { border-top: 1px dashed #BBB; margin: 26px 0; }
+
+        .amount { font-weight: bold; }
     </style>
 </head>
 <body>
-    <!-- Copie École -->
+
+@php
+    /*
+     * Subjects straight from the membership's teachers array — the same source every
+     * other surface reads. Distinct, because one teacher appearing twice on the JSON
+     * would otherwise print twice for a parent counting lines.
+     */
+    $teachers = is_array($membership?->teachers) ? $membership->teachers : json_decode((string) $membership?->teachers, true);
+    $subjects = collect($teachers ?? [])->pluck('subject')->filter()->unique()->values();
+@endphp
+
+{{-- The school copy first — it is the one that carries the pack price. --}}
+@foreach([[true, 'Copie école'], [false, 'Copie élève']] as [$isSchoolCopy, $copyName])
+
     <div class="copy">
-        <div class="print-date">
-            <span class="print-date-label">Imprimé le:</span> {{ now()->format('d/m/Y à H:i') }}
-        </div>
-        <div class="logo">
-            <img src="{{ public_path('logo.png') }}" alt="Logo de l'école">
-        </div>
-        <div class="invoice-header">
-            <p>ID Facture : {{ $invoice->id }}</p>
-            <p>Date : {{ $invoice->creationDate->format('Y-m-d') }}</p>
-        </div>
-        <div class="invoice-details">
-            <table>
+        <table class="copy-header">
+            <tr>
+                <td style="width: 60%;">
+                    <img src="{{ public_path('logo-tiko-horizontal.png') }}" class="logo" alt="Logo">
+                    {{-- BRAND from config, never the branch — same rule as every document. --}}
+                    <div class="brand-tagline">{{ config('school.name') }} — votre guide du succès</div>
+                </td>
+                <td style="width: 40%; text-align: right;">
+                    <div class="doc-title">{{ $isSchoolCopy ? 'FACTURE' : 'REÇU' }}</div>
+                    <div class="brand-tagline">{{ $copyName }} · N° {{ $invoice->id }}</div>
+                </td>
+            </tr>
+        </table>
+
+        <table class="fields">
+            <tr>
+                <td class="label">Date de création :</td>
+                <td class="value">{{ $invoice->creationDate?->format('d/m/Y | H:i') }}</td>
+            </tr>
+            <tr>
+                <td class="label">Élève :</td>
+                <td class="value">{{ $student?->firstName }} {{ $student?->lastName }}</td>
+            </tr>
+            <tr>
+                <td class="label">Niveau :</td>
+                <td class="value">{{ $student?->level?->name ?? '—' }}</td>
+            </tr>
+            <tr>
+                <td class="label">Date de facturation :</td>
+                <td class="value">{{ $invoice->billDate?->format('Y-m') }}</td>
+            </tr>
+            @if ($isSchoolCopy)
                 <tr>
-                    <th>Nom de l'élève</th>
-                    <td>{{ $student->firstName }} {{ $student->lastName }}</td>
+                    <td class="label">Prix du pack :</td>
+                    <td class="value"><span class="amount">{{ number_format((float) $invoice->totalAmount, 2, ',', ' ') }} DH</span></td>
                 </tr>
-                
-                <tr>
-                    <th>Nom de l'offre</th>
-                    <td>{{ $offerName }}</td>
-                </tr>
-                <tr>
-                    <th>Date de facturation</th>
-                    <td>{{ $invoice->billDate->format('Y-m') }}</td>
-                </tr>
-                <tr>
-                    <th>Mois</th>
-                    <td>{{ $invoice->months }}</td>
-                </tr>
-                <tr>
-                    <th>Montant total</th>
-                    <td><span class="currency">{{ number_format($invoice->totalAmount, 2) }} DH</span></td>
-                </tr>
-                <tr>
-                    <th>Montant payé</th>
-                    <td><span class="currency">{{ number_format($invoice->amountPaid, 2) }} DH</span></td>
-                </tr>
-                <tr>
-                    <th>Reste</th>
-                    <td><span class="currency">{{ number_format($invoice->rest, 2) }} DH</span></td>
-                </tr>
-            </table>
-        </div>
+            @endif
+            <tr>
+                <td class="label">Montant payé :</td>
+                <td class="value"><span class="amount">{{ number_format((float) $invoice->amountPaid, 2, ',', ' ') }} DH</span></td>
+            </tr>
+            <tr>
+                <td class="label">Offre :</td>
+                <td class="value">{{ $offerName }}</td>
+            </tr>
+            <tr class="last">
+                <td class="label">Matières :</td>
+                <td class="value">
+                    @forelse ($subjects as $subject)
+                        • {{ $subject }}@if(! $loop->last)  @endif
+                    @empty
+                        —
+                    @endforelse
+                </td>
+            </tr>
+        </table>
     </div>
 
-    <!-- Ligne de séparation -->
-    <div class="separator"></div>
+    @if ($loop->first)
+        <div class="cut"></div>
+    @endif
+@endforeach
 
-    <!-- Copie Élève -->
-    <div class="copy">
-        <div class="print-date">
-            <span class="print-date-label">Imprimé le:</span> {{ now()->format('d/m/Y à H:i') }}
-        </div>
-        <div class="logo">
-            <img src="{{ public_path('logo.png') }}" alt="Logo de l'école">
-        </div>
-        <div class="invoice-header">
-            <p>ID Facture : {{ $invoice->id }}</p>
-            <p>Date : {{ $invoice->creationDate->format('Y-m-d') }}</p>
-        </div>
-        <div class="invoice-details">
-            <table>
-                <tr>
-                    <th>Nom de l'élève</th>
-                    <td>{{ $student->firstName }} {{ $student->lastName }}</td>
-                </tr>
-               
-                <tr>
-                    <th>Nom de l'offre</th>
-                    <td>{{ $offerName }}</td>
-                </tr>
-                <tr>
-                    <th>Date de facturation</th>
-                    <td>{{ $invoice->billDate->format('Y-m') }}</td>
-                </tr>
-                <tr>
-                    <th>Mois</th>
-                    <td>{{ $invoice->months }}</td>
-                </tr>
-                <tr>
-                    <th>Montant total</th>
-                    <td><span class="currency">{{ number_format($invoice->totalAmount, 2) }} DH</span></td>
-                </tr>
-                <tr>
-                    <th>Montant payé</th>
-                    <td><span class="currency">{{ number_format($invoice->amountPaid, 2) }} DH</span></td>
-                </tr>
-                <tr>
-                    <th>Reste</th>
-                    <td><span class="currency">{{ number_format($invoice->rest, 2) }} DH</span></td>
-                </tr>
-            </table>
-        </div>
-    </div>
-
-    <div class="footer">
-        Merci pour votre confiance !
-    </div>
 </body>
 </html>

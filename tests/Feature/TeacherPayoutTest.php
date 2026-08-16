@@ -91,7 +91,7 @@ test('a fully paid multi-month invoice never leaves months queued for the monthl
         now()->addMonths(2)->format('Y-m'),
     ]);
 
-    $service = new TeacherMembershipPaymentService();
+    $service = new TeacherMembershipPaymentService;
     $service->processInvoicePayment($invoice, validatedPayloadFor($invoice));
     $service->reconcilePaidMonthsForInvoice($invoice);
 
@@ -123,7 +123,7 @@ test('a teacher is never paid more than their computed commission', function () 
         now()->addMonth()->format('Y-m'),
     ]);
 
-    $service = new TeacherMembershipPaymentService();
+    $service = new TeacherMembershipPaymentService;
     $service->processInvoicePayment($invoice, validatedPayloadFor($invoice));
     $service->reconcilePaidMonthsForInvoice($invoice);
 
@@ -134,8 +134,8 @@ test('a teacher is never paid more than their computed commission', function () 
 });
 
 test('deleting an OLD multi-month invoice does not claw back the whole wallet', function () {
-    // The 10-day rule: a full reversal is only allowed within 10 days of the billing date.
-    // After that only the UNEARNED future months may be clawed back.
+    // The deadline rule: a full reversal is only allowed within REVERSAL_DEADLINE_DAYS of
+    // the PAYMENT. After that only the UNEARNED future months may be clawed back.
     //
     // Three months (past / current / future), reconciled so the teacher has been paid in
     // full. That is what separates the two behaviours: the correct path reverses only the
@@ -146,12 +146,13 @@ test('deleting an OLD multi-month invoice does not claw back the whole wallet', 
 
     [$teacher, , , $invoice] = makePayableInvoice([$lastMonth, $thisMonth, $nextMonth]);
 
-    $service = new TeacherMembershipPaymentService();
+    $service = new TeacherMembershipPaymentService;
     $service->processInvoicePayment($invoice, validatedPayloadFor($invoice));
     $service->reconcilePaidMonthsForInvoice($invoice);
 
-    // Backdate the bill well past the 10-day window.
-    $invoice->update(['billDate' => now()->subDays(90)]);
+    // Backdate the PAYMENT well past the window — that is what the rule measures now.
+    // billDate is included only to keep the "old invoice" shape the comment describes.
+    $invoice->update(['billDate' => now()->subDays(90), 'last_payment_date' => now()->subDays(90)]);
     $invoice->refresh();
 
     $record = TeacherMembershipPayment::where('invoice_id', $invoice->id)->firstOrFail();
@@ -171,14 +172,14 @@ test('deleting an OLD multi-month invoice does not claw back the whole wallet', 
     expect($reversed)->toBeLessThan(
         $paidToTeacher,
         'An invoice past the 10-day window reversed the full paid-to-date amount; '
-        . 'the billing-date comparison is signed the wrong way round.'
+        .'the billing-date comparison is signed the wrong way round.'
     );
 });
 
 test('a wallet is never driven negative by a reversal', function () {
     [$teacher, , , $invoice] = makePayableInvoice(['2025-09']);
 
-    $service = new TeacherMembershipPaymentService();
+    $service = new TeacherMembershipPaymentService;
     $service->processInvoicePayment($invoice, validatedPayloadFor($invoice));
 
     // Force the wallet to zero, then reverse — the reversal must clamp, not go negative.
@@ -261,7 +262,7 @@ test('a teacher with no percentage left to allocate is paid nothing, not an inve
         'includePartialMonth' => false,
     ]);
 
-    (new TeacherMembershipPaymentService())
+    (new TeacherMembershipPaymentService)
         ->processInvoicePayment($invoice, validatedPayloadFor($invoice));
 
     $teacherA->refresh();
@@ -276,7 +277,7 @@ test('a teacher with no percentage left to allocate is paid nothing, not an inve
 test('a zero-total invoice does not raise DivisionByZeroError', function () {
     [, , , $invoice] = makePayableInvoice(['2025-09'], total: 0.0, paid: 0.0);
 
-    $service = new TeacherMembershipPaymentService();
+    $service = new TeacherMembershipPaymentService;
 
     // DivisionByZeroError extends Error, not Exception, so it would escape every
     // `catch (\Exception)` in the call chain and surface as a 500.

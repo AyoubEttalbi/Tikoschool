@@ -158,6 +158,29 @@ class HandleInertiaRequests extends Middleware
             ->count();
     }
 
+    /**
+     * Absence notices waiting for approval, for the sidebar badge.
+     *
+     * NULL for teachers: they record and correct, they never release — a count of work
+     * they cannot see or perform would be noise. Edged by the same school scope the
+     * release uses, so the badge and the "valider et envoyer tout" button always agree
+     * on what is awaiting.
+     */
+    protected function pendingAbsenceNoticesCount($user): int
+    {
+        if (! $user || ! in_array($user->role, ['admin', 'assistant'], true)) {
+            return 0;
+        }
+
+        $schoolIds = SchoolScope::schoolIdsFor($user);
+
+        return \App\Models\OutboundMessage::query()
+            ->awaitingApproval()
+            ->whereHas('attendance')
+            ->when($schoolIds !== null, fn ($q) => $q->whereIn('school_id', $schoolIds))
+            ->count();
+    }
+
     public function share(Request $request): array
     {
         $user = $request->user();
@@ -198,6 +221,7 @@ class HandleInertiaRequests extends Middleware
                 'name' => session('school_name'),
             ] : null,
             'unreadCount' => fn () => $this->unreadAnnouncementCount($user),
+            'pendingNoticesCount' => fn () => $this->pendingAbsenceNoticesCount($user),
         ];
     }
 }

@@ -60,7 +60,6 @@
 
 {!! $rtl !!}👨‍🏫 *المعلم:* {!! $teacherName !!}
 {!! $rtl !!}📅 *الفصل:* {!! $className !!}
-{!! $rtl !!}📊 *معدل الحضور لهذا العام:* {!! $attendanceRate !!}٪
 
 {!! $rtl !!}📞 *للاستفسار والتواصل:*
 @if($schoolPhone)

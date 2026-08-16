@@ -19,6 +19,11 @@ export default function DashboardLayout({ children }) {
         const saved = localStorage.getItem("totalUnreadCount");
         return saved ? parseInt(saved, 10) : 0;
     });
+    // Absence notices awaiting approval — the sidebar badge on "Présences". Seeded from
+    // the page-load prop, then refreshed by the 60s reconciliation poll below.
+    const [pendingNotices, setPendingNotices] = useState(
+        () => props.pendingNoticesCount ?? 0,
+    );
     const { props } = usePage();
     const user = props.auth.user;
 
@@ -37,6 +42,9 @@ export default function DashboardLayout({ children }) {
                     response.data.unread_count,
                 ).reduce((sum, count) => sum + count, 0);
                 updateUnreadCount(totalCount);
+                if (typeof response.data.pending_notices === "number") {
+                    setPendingNotices(response.data.pending_notices);
+                }
             } catch (error) {
                 console.error("Failed to fetch unread count", error);
                 // If fetch fails, try to use cached count
@@ -155,7 +163,7 @@ export default function DashboardLayout({ children }) {
                         TIKO SCHOOL
                     </span>
                 </Link>
-                <Menu />
+                <Menu pendingNotices={pendingNotices} />
             </div>
 
             {/* RIGHT - Main Content */}

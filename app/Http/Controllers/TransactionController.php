@@ -101,15 +101,26 @@ class TransactionController extends Controller
     private function getAvailableYears()
     {
         try {
-            $years = DB::table('invoices')
+            // Invoice years AND spend years: a year that only holds expenses is a year
+            // the accounts still need to show, or its costs become unreachable from
+            // the year selector while still existing in the database.
+            $invoiceYears = DB::table('invoices')
                 ->select(DB::raw('DISTINCT YEAR(billDate) as year'))
                 ->whereNull('deleted_at')
-                ->orderBy('year', 'desc')
-                ->pluck('year')
-                ->toArray();
+                ->pluck('year');
 
-            // Convert to integers
-            $years = array_map('intval', $years);
+            $transactionYears = DB::table('transactions')
+                ->select(DB::raw('DISTINCT YEAR(payment_date) as year'))
+                ->whereIn('type', ['salary', 'payment', 'expense'])
+                ->whereNotNull('payment_date')
+                ->pluck('year');
+
+            $years = $invoiceYears->merge($transactionYears)
+                ->map(fn ($year) => (int) $year)
+                ->unique()
+                ->sortDesc()
+                ->values()
+                ->toArray();
 
             // If no years found, use current year
             if (empty($years)) {
@@ -381,7 +392,12 @@ class TransactionController extends Controller
         $monthlyExpenses = 0;
 
         try {
-            $monthlyExpenses = DB::table('transactions')
+            // Transaction::query() — NOT DB::table(). The inMonth() scope lives on the
+            // model and never on the query builder; on DB::table() it throws
+            // BadMethodCallException, this catch silently turned it into 0, and every
+            // caller rendered "Dépenses totales 0,00 DH" next to a Résumé mensuel that
+            // counted the same transactions.
+            $monthlyExpenses = Transaction::query()
                 ->where(function ($query) {
                     $query->where('type', 'salary')
                         ->orWhere('type', 'payment')
@@ -406,16 +422,11 @@ class TransactionController extends Controller
         // Get all available years from the database
         $availableYears = $this->getAvailableYears();
 
-        // Create a simple array with hardcoded data based on our database check
         $processedEarnings = [];
-
-        // Current month and year
-        $currentMonth = now()->month;
-        $currentYear = now()->year;
 
         // Get the actual invoice data with multi-month distribution
         $invoiceData = DB::table('invoices')
-            ->select('id', 'billDate', 'totalAmount', 'amountPaid', 'selected_months', 'months')
+            ->select('id', 'billDate', 'totalAmount', 'amountPaid', 'selected_months', 'months', 'includePartialMonth', 'partialMonthAmount')
             ->whereNull('deleted_at')
             ->get();
 
@@ -440,6 +451,18 @@ class TransactionController extends Controller
                 $selectedMonths = [$date->format('Y-m')];
             }
 
+            /*
+             * Partial-month invoices: the billDate's month carries the partial amount, so
+             * it joins the distribution. This mirrors getFilteredMonthlyStats exactly —
+             * the two panels used to attribute the same invoice to different months and
+             * the "Résumé mensuel" disagreed with the cards beside it.
+             */
+            $billMonth = Carbon::parse($invoice->billDate)->format('Y-m');
+            if ((bool) $invoice->includePartialMonth && (float) $invoice->partialMonthAmount > 0
+                && ! in_array($billMonth, $selectedMonths, true)) {
+                array_unshift($selectedMonths, $billMonth);
+            }
+
             // Distribute amount across selected months
             $amountPerMonth = count($selectedMonths) > 0 ? (float) $invoice->amountPaid / count($selectedMonths) : (float) $invoice->amountPaid;
 
@@ -458,11 +481,39 @@ class TransactionController extends Controller
                         'year' => $year,
                         'month' => $month,
                         'totalRevenue' => 0,
-                        'totalExpenses' => 0,
                     ];
                 }
 
                 $monthlyData[$key]['totalRevenue'] += $amountPerMonth;
+            }
+        }
+
+        /*
+         * Months that carry spend must exist in the map even when no invoice lands in
+         * them.
+         *
+         * The first version queried expenses only for months an invoice had already
+         * keyed, and the 12-month backfill below hardcodes totalExpenses = 0 — so a
+         * month with no revenue summed, charted and card-ed as zero spend while the
+         * Résumé mensuel, which filters transactions directly, told the truth. That is
+         * the "Dépenses totales 0,00 DH" the screen showed next to a month holding
+         * 600 DH of recorded expenses.
+         */
+        $expenseMonths = DB::table('transactions')
+            ->whereIn('type', ['salary', 'payment', 'expense'])
+            ->whereNotNull('payment_date')
+            ->selectRaw('DISTINCT YEAR(payment_date) as y, MONTH(payment_date) as m')
+            ->get();
+
+        foreach ($expenseMonths as $expenseMonth) {
+            $key = $expenseMonth->y.'-'.$expenseMonth->m;
+
+            if (! isset($monthlyData[$key])) {
+                $monthlyData[$key] = [
+                    'year' => (int) $expenseMonth->y,
+                    'month' => (int) $expenseMonth->m,
+                    'totalRevenue' => 0,
+                ];
             }
         }
 
@@ -483,7 +534,12 @@ class TransactionController extends Controller
             $monthlyData[$key]['monthName'] = $this->formatMonthInFrench($data['month']);
         }
 
-        // Make sure we have entries for the last 12 months
+        /*
+         * Backfill the last 12 months so the chart has no holes — then emit EVERY month
+         * in the map. The previous code pushed only the 12 most recent months, so a year
+         * offered by the dropdown showed just its tail; the yearly cards summed an
+         * incomplete list and called it "total".
+         */
         for ($i = 0; $i < 12; $i++) {
             $date = now()->subMonths($i);
             $year = $date->year;
@@ -500,11 +556,10 @@ class TransactionController extends Controller
                     'profit' => 0,
                 ];
             }
+        }
 
-            // Add yearMonth key needed by frontend
+        foreach ($monthlyData as $key => $data) {
             $monthlyData[$key]['yearMonth'] = $key;
-
-            // Add to processed earnings
             $processedEarnings[] = $monthlyData[$key];
         }
 
@@ -721,7 +776,12 @@ class TransactionController extends Controller
             // Get existing monthly expenses
             $monthlyExpenses = 0;
             try {
-                $monthlyExpenses = DB::table('transactions')
+                // Transaction::query() — NOT DB::table(). The inMonth() scope lives on the
+                // model and never on the query builder: this used to throw
+                // BadMethodCallException, the catch below swallowed it into 0, and every
+                // month on the payments screen reported "Dépenses totales 0,00 DH" while the
+                // Résumé mensuel next to it counted the same transactions.
+                $monthlyExpenses = Transaction::query()
                     ->where(function ($query) {
                         $query->where('type', 'salary')
                             ->orWhere('type', 'payment')

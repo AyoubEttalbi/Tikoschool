@@ -49,6 +49,22 @@ class Invoice extends Model
         'assurance_amount' => 'decimal:2',
     ];
 
+    /**
+     * Deleting an invoice withdraws its money from the daily register.
+     *
+     * Soft deletes never fire the `invoice_id` cascade on invoice_payment_logs, so a
+     * deleted invoice's payment events stayed live and the cashier kept counting them.
+     * The model event — not the controller — carries this so every delete path is
+     * covered: the destroy route, its /students/invoices alias, and whatever comes next.
+     * It runs inside the caller's transaction when there is one.
+     */
+    protected static function booted(): void
+    {
+        static::deleted(function (Invoice $invoice): void {
+            InvoicePaymentLog::voidForInvoice($invoice->id);
+        });
+    }
+
     // Relationship with Membership.
     //
     // withTrashed() is REQUIRED: Membership uses SoftDeletes, and without this the relation

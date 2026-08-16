@@ -95,7 +95,6 @@ const AdminEarningsSection = ({ adminEarnings }) => {
         revenueChange,
         expensesChange,
         profitChange,
-        expenseBreakdown,
     } = useMemo(() => {
         const chartData = filteredEarnings.map((item) => ({
             name: item.monthName,
@@ -165,14 +164,6 @@ const AdminEarningsSection = ({ adminEarnings }) => {
         const expensesChange = calculateChange(totalExpenses, prevYearExpenses);
         const profitChange = calculateChange(totalProfit, prevYearProfit);
 
-        const expenseBreakdown = [
-            { name: "Salaries", value: totalExpenses * 0.45 },
-            { name: "Instructor Payments", value: totalExpenses * 0.25 },
-            { name: "Operations", value: totalExpenses * 0.15 },
-            { name: "Marketing", value: totalExpenses * 0.1 },
-            { name: "Miscellaneous", value: totalExpenses * 0.05 },
-        ];
-
         return {
             chartData,
             yearlyData,
@@ -182,7 +173,6 @@ const AdminEarningsSection = ({ adminEarnings }) => {
             revenueChange,
             expensesChange,
             profitChange,
-            expenseBreakdown,
         };
     }, [filteredEarnings, previousYearEarnings]);
 

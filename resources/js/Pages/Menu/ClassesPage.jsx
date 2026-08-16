@@ -4,7 +4,7 @@ import TableSearch from "../../Components/TableSearch";
 import Table from "../../Components/Table";
 import Pagination from "../../Components/Pagination";
 import DashboardLayout from "@/Layouts/DashboardLayout";
-import { Eye, RotateCcw } from "lucide-react";
+import { Eye, RotateCcw, Download } from "lucide-react";
 import { useState } from "react";
 import useFilterNavigation from "@/Hooks/useFilterNavigation";
 
@@ -103,6 +103,19 @@ const ClassesPage = ({ classes, schools, levels, filters: initialFilters }) => {
                             <Eye className="w-4 h-4 text-white" />
                         </button>
                     </Link>
+                    {/* The class roster PDF — same document as the level roster, scoped to
+                        this class's active pupils in this class's school. Opens in a new
+                        tab so the list keeps its filters and page. */}
+                    <a
+                        href={`/classes/${classe.id}/students/download`}
+                        target="_blank"
+                        rel="noopener"
+                        title="Liste des élèves (PDF)"
+                    >
+                        <button className="w-7 h-7 flex items-center justify-center rounded-full bg-emerald-500 hover:bg-emerald-600">
+                            <Download className="w-4 h-4 text-white" />
+                        </button>
+                    </a>
                     {isAdmin && (
                         <>
                             <FormModal

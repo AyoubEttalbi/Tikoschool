@@ -41,7 +41,7 @@ test('deleting a stale invoice puts a warning in the session for the dialog', fu
     $s->bill(months: ['2026-08'], total: 1000, paid: 1000, billDate: '2026-08-01');
 
     // Past the claw-back deadline: the teacher keeps 500 DH and somebody must be told.
-    Carbon::setTestNow(Carbon::parse('2026-08-01')
+    Carbon::setTestNow(now()->copy()
         ->addDays(TeacherMembershipPaymentService::REVERSAL_DEADLINE_DAYS + 3)
         ->setTime(9, 0));
 
@@ -63,7 +63,7 @@ test('the notice names the teacher, the amount and why it was kept', function ()
     $s = PaymentScenario::make(['Math' => 50]);
     $s->bill(months: ['2026-08'], total: 1000, paid: 1000, billDate: '2026-08-01');
 
-    Carbon::setTestNow(Carbon::parse('2026-08-01')
+    Carbon::setTestNow(now()->copy()
         ->addDays(TeacherMembershipPaymentService::REVERSAL_DEADLINE_DAYS + 3)
         ->setTime(9, 0));
 
@@ -104,7 +104,7 @@ test('the notice is shared to the front end as flash.payment', function () {
     $s = PaymentScenario::make(['Math' => 50]);
     $s->bill(months: ['2026-08'], total: 1000, paid: 1000, billDate: '2026-08-01');
 
-    Carbon::setTestNow(Carbon::parse('2026-08-01')
+    Carbon::setTestNow(now()->copy()
         ->addDays(TeacherMembershipPaymentService::REVERSAL_DEADLINE_DAYS + 3)
         ->setTime(9, 0));
 
@@ -127,7 +127,7 @@ test('every message the dialog will show is a complete French sentence', functio
     $s = PaymentScenario::make(['Math' => 40, 'Physique' => 30]);
     $s->bill(months: ['2026-08'], total: 1000, paid: 1000, billDate: '2026-08-01');
 
-    Carbon::setTestNow(Carbon::parse('2026-08-01')
+    Carbon::setTestNow(now()->copy()
         ->addDays(TeacherMembershipPaymentService::REVERSAL_DEADLINE_DAYS + 1)
         ->setTime(9, 0));
 
@@ -173,7 +173,7 @@ function staleInvoiceScenario(): PaymentScenario
     $s = PaymentScenario::make(['Math' => 50]);
     $s->bill(months: ['2026-08'], total: 1000, paid: 1000, billDate: '2026-08-01');
 
-    Carbon::setTestNow(Carbon::parse('2026-08-01')
+    Carbon::setTestNow(now()->copy()
         ->addDays(TeacherMembershipPaymentService::REVERSAL_DEADLINE_DAYS + 3)
         ->setTime(9, 0));
 

@@ -96,6 +96,17 @@ class CheckNotificationHealth extends Command
         }
 
         /*
+         * 3b. Notices waiting for a person, not a machine.
+         *
+         * Reported as a fact, deliberately not an alarm: a pile of them at 14:00 on a
+         * school day is the approval workflow working, and alarming on it would train
+         * somebody to ignore this command. Only their AGE is actionable, and age is
+         * already handled — the sweep expires them at whatsapp.max_age_days.
+         */
+        $awaitingCount = OutboundMessage::where('status', OutboundMessage::STATUS_AWAITING_APPROVAL)->count();
+        $facts[] = ['Awaiting approval', $awaitingCount];
+
+        /*
          * 4. Jobs that gave up entirely. Distinct from a `failed` message, which is a
          *    delivery that was attempted and refused; a failed JOB is our own code throwing.
          */
@@ -139,6 +150,7 @@ class CheckNotificationHealth extends Command
             'stalled_minutes' => $stalled,
             'stranded_pending' => $stranded,
             'held' => $heldCount,
+            'awaiting' => $awaitingCount,
             'failed_jobs' => $failedJobs,
         ]);
 

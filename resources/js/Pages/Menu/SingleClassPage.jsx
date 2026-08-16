@@ -9,7 +9,7 @@ import DashboardLayout from "@/Layouts/DashboardLayout";
 
 import React, { useState } from "react";
 import { Link, usePage } from "@inertiajs/react";
-import { Eye } from "lucide-react";
+import { Eye, Download } from "lucide-react";
 
 export default function SingleClassPage({
     className,
@@ -22,6 +22,8 @@ export default function SingleClassPage({
 }) {
     const { auth } = usePage().props;
     const role = auth.user.role;
+    // `class` is a reserved word in JS, so it arrives in props but is not destructured.
+    const classId = usePage().props.class?.id ?? null;
     const [showPromotionTools, setShowPromotionTools] = useState(false);
     const [showPromotionSetup, setShowPromotionSetup] = useState(false);
 
@@ -172,6 +174,20 @@ export default function SingleClassPage({
                 <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
                     <TableSearch />
                     <div className="flex items-center gap-4 self-end">
+                        {/* The class roster PDF, same document as on the classes list —
+                            this class's active pupils, this class's school. */}
+                        {classId && (
+                            <a
+                                href={`/classes/${classId}/students/download`}
+                                target="_blank"
+                                rel="noopener"
+                                title="Liste des élèves (PDF)"
+                            >
+                                <button className="w-8 h-8 flex items-center justify-center rounded-full bg-emerald-500 hover:bg-emerald-600">
+                                    <Download className="w-4 h-4 text-white" />
+                                </button>
+                            </a>
+                        )}
                         <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
                             <img
                                 src="/filter.png"

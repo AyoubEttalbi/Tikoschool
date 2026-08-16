@@ -30,6 +30,10 @@ use Illuminate\Support\Facades\Log;
  * abandons a message is AGE — past whatever `whatsapp.max_age_days` says, telling a parent
  * about it stops being useful and it is recorded as `expired` rather than deleted.
  *
+ * `awaiting_approval` rows are never released here, at any age. They wait for a human by
+ * design; this command rescues machines, not decisions. They age out with everything
+ * else so an unnoticed notice cannot wait forever.
+ *
  * Runs every 30 minutes rather than once a morning. A gateway that reconnects at 10:15
  * should not wait until tomorrow, and holding a whole day's absences to release them in
  * one burst is exactly the pattern that gets a WhatsApp number banned.
@@ -65,13 +69,19 @@ class RetryFailedNotifications extends Command
          * from the outside those are the same thing.
          */
         $hasWork = OutboundMessage::query()
-            ->where(function ($query) {
+            ->where(function ($query) use ($cutoff) {
                 $query->whereIn('status', [
                     OutboundMessage::STATUS_HELD,
                     OutboundMessage::STATUS_FAILED,
                 ])->orWhere(function ($stranded) {
                     $stranded->where('status', OutboundMessage::STATUS_PENDING)
                         ->where('scheduled_at', '<', now()->subHours(2));
+                })->orWhere(function ($unapproved) use ($cutoff) {
+                    // Only the AGE-expiry of a waiting row is this sweep's business.
+                    // Fresh awaiting_approval rows are deliberately absent from this
+                    // query: they are waiting for a person, not for this command.
+                    $unapproved->where('status', OutboundMessage::STATUS_AWAITING_APPROVAL)
+                        ->where('created_at', '<', $cutoff);
                 });
             })
             ->exists();
@@ -80,9 +90,17 @@ class RetryFailedNotifications extends Command
             return self::SUCCESS;
         }
 
-        // 1. Abandon what is too old to be worth sending — held or failed alike. Done
-        //    FIRST so the passes below never release something that should have expired.
-        $expired = OutboundMessage::recoverable()
+        // 1. Abandon what is too old to be worth sending — held, failed or never
+        //    approved alike. Done FIRST so the passes below never release something that
+        //    should have expired. An awaiting row expires rather than being released
+        //    because nobody approved it in the window — the sweep must never be the
+        //    approver.
+        $expired = OutboundMessage::query()
+            ->whereIn('status', [
+                OutboundMessage::STATUS_HELD,
+                OutboundMessage::STATUS_FAILED,
+                OutboundMessage::STATUS_AWAITING_APPROVAL,
+            ])
             ->where('created_at', '<', $cutoff)
             ->limit($limit)
             ->get();

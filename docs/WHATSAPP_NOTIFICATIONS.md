@@ -13,9 +13,16 @@ throws.
 ## 1. What it does
 
 A teacher saves a register. For every student marked absent, the app records one message,
-renders it, and hands it to a queue. A worker delivers them one at a time, spaced, through
-a self-hosted WhatsApp gateway. Everything that happens after that — success, failure,
-refusal, delay — is written back to the same row and shown on one screen.
+renders it, and **stops** — the notice waits in `awaiting_approval` until an admin or
+assistant releases it, one row at a time from the absence log or for the whole day at
+once. Only then does a worker deliver them, one at a time, spaced, through a self-hosted
+WhatsApp gateway. Everything that happens after that — success, failure, refusal, delay —
+is written back to the same row and shown on one screen.
+
+**The register records; a person sends.** A wrong checkbox on a teacher's screen used to
+reach a parent within seconds, from the school's own number. Now it costs a row that
+nobody approves. Correcting the mistake — marking the student present or late, deleting
+the absence — withdraws the waiting notice automatically.
 
 **Send-only.** Nothing receives, reads or replies. The gateway registers no message
 handler and exposes no read endpoint: every capability it does not have is one that cannot
@@ -47,9 +54,12 @@ be abused if its key leaks.
                                      ▼
                           outbound_messages  (the record)
                                      │
-                          dispatch ->afterCommit()
+              register: awaiting_approval — NOTHING DISPATCHED
+              manual button: pending — dispatched ->afterCommit()
+                                     │
+              Admin releases (per row, or "tout" for the day)
                                      ▼
-                        queue "whatsapp"  (one line, FIFO)
+                          queue "whatsapp"  (one line, FIFO)
                                      ▼
                           SendOutboundMessage
         ┌────────────────────────────┴────────────────────────────┐
@@ -57,14 +67,15 @@ be abused if its key leaks.
         │  number dead?        → yes: SKIP (breaker open)          │
         │  pacing lock         → reserve a slot, release the lock  │
         │  send (outside lock) → sent / failed(permanent|transient)│
-        └────────────────────────────┬────────────────────────────┘
+        └────────────────────────────┴────────────────────────────┘
                                      ▼
                           WhatsAppChannel → App\Support\WhatsApp
                                      ▼
                     gateway (Baileys)  →  WhatsApp  →  parent
 
-   every 30 min:  notifications:retry-failed   (release held, retry failed, expire stale)
-   weekly:        whatsapp:audit-numbers       (which parents are unreachable)
+   every minute:    notifications:retry-failed  (release held, retry failed,
+                                                 expire stale — never approve)
+   weekly:          whatsapp:audit-numbers       (which parents are unreachable)
 ```
 
 ### 2.2 Layers, and what each one is not allowed to know
@@ -97,7 +108,7 @@ five files buying swappability that already exists. The interface exists for the
 | `student_id`, `school_id`, `attendance_id` | joins and scoping; **never** in a unique index |
 | `recipient` | E.164 digits, **snapshotted** — the student's number may change tomorrow |
 | `message` | the rendered text, **snapshotted** — the template may be reworded tomorrow |
-| `status` | `pending · held · sent · failed · skipped · expired` |
+| `status` | `awaiting_approval · pending · held · sent · failed · skipped · expired` |
 | `skip_reason` / `hold_reason` | why nothing was sent, in a form a screen can explain |
 | `attempts`, `last_error` | what was tried and what came back |
 | `provider`, `provider_message_id` | which driver delivered it; the id a future webhook will match on |
@@ -118,18 +129,23 @@ reserves that table name.
 
 ```
                     ┌──────────► skipped   (decided before sending: no number,
-                    │                        opted out, archived, breaker open)
-   created ─► pending ─► sent
+                    │                        opted out, archived, breaker open,
+                    │                        or cancelled during review)
+   created ─► awaiting_approval ─► pending ─► sent
+                    │                │
+                    │                ├──► held ──► pending  (system was down; released automatically)
+                    │                │
+                    │                └──► failed ─► pending  (attempted; retried inside a short window)
                     │
-                    ├──► held ──► pending   (system was down; released automatically)
-                    │
-                    ├──► failed ─► pending  (attempted; retried inside a short window)
-                    │
-                    └──► expired            (too old to be worth delivering)
+                    └──────────► expired      (too old to be worth delivering — the only
+                                             way awaiting_approval ever leaves its wait)
 ```
 
-`held` is the one that earns its keep: **not attempted, no attempt spent**. Collapsing it
-into `failed` is what loses a Friday outage that lasts until Tuesday.
+`awaiting_approval` and `held` both mean "deliberately not sending yet", and they are
+opposites in the one way that matters: `held` waits for the SYSTEM and is released the
+moment the gateway returns; `awaiting_approval` waits for a PERSON and is never released
+by the recovery sweep. Both expire with age. Collapsing the two would let a machine
+approve what only a human may.
 
 ---
 
@@ -139,11 +155,16 @@ into `failed` is what loses a Friday outage that lasts until Tuesday.
 
 `/attendances?class_id=…&teacher_id=…` → `AttendanceController::store()`.
 
-For each student marked absent, one `outbound_messages` row and one queued job. **One
-message per absence**, delivered **one at a time** by the pacer.
+For each student marked absent, one `outbound_messages` row — recorded `awaiting_approval`,
+**nothing dispatched**, whatever role saved the sheet. **One message per absence**,
+delivered **one at a time** by the pacer, **once a human releases the day**.
 
 A student absent from **Maths and French on the same day gets two messages** — two
 absences, two facts, two notices. Only the *same* absence is deduplicated.
+
+Saving the sheet is not the approval, and re-saving it must not become one either: a
+teacher correcting a typo re-saves the identical sheet, and the duplicate key leaves the
+waiting notice exactly as it was.
 
 ### 3.2 The manual "Notifier le parent" button
 
@@ -152,11 +173,50 @@ per day**, so a double-click sends nothing twice while a genuine second subject 
 through. `subject` is validated (`max:120`) and stripped of WhatsApp's formatting
 characters before it reaches a parent's phone.
 
+The button is also the per-row approval. When the register already recorded the notice as
+`awaiting_approval`, the press releases that row instead of refusing it as a duplicate —
+"this parent has already been notified" is the one wrong answer for a message that never
+left the building. The refusal stands for a notice that actually went out.
+
+### 3.3 "Valider et envoyer tout" — the end-of-day release
+
+`POST /absence-notifications/release` `{date}`, admin + assistant, from the bar the
+absence log shows when the day has waiting notices. Releases every `awaiting_approval`
+row **for that date's absences** (selected by the attendance's date, not the row's
+creation date — a register saved today can be backfilling yesterday). Scoped to the
+caller's schools like every write here.
+
+Release re-resolves the guardian number at that moment: a number corrected — or an
+opt-out — between the register and the approval wins over the snapshot, and a number
+that became unusable is recorded as a skip rather than sent into the void.
+
+Fixing a wrong absence needs no release-time exclusion list: mark the student present or
+late on a re-save, or delete the absence, and the waiting notice is withdrawn
+(`skipped`, reason `cancelled`) before the release ever sees it.
+
 ---
 
 ## 4. Scenarios
 
 Everything below is covered by a test. The test names are quoted so you can find them.
+
+### 4.0 The teacher gets it wrong
+
+The scenario the whole gate exists for. A teacher ticks "absent" for a student who was in
+class, saves, and realises ten seconds later. Before the gate, the message was already in
+the queue — within seconds a parent read an official school notice that was false, and
+nothing in the app could unsay it.
+
+Now the mistake is a **row nobody has approved**. The teacher fixes the sheet (present,
+or late) on a re-save and the waiting notice is withdrawn automatically; nothing needs to
+be known about notifications by anyone who was only trying to record attendance. If the
+day's release already happened before anyone noticed, the correction has nothing left to
+withdraw — but the school finds out from the screen, not from the parent.
+
+> *"records absent notices without dispatching anything"*
+> *"cancels the waiting notice when the student is marked present on re-save"*
+> *"cancels the waiting notice when a re-save downgrades absent to late"*
+> *"leaves a cancelled notice cancelled when the day is released"*
 
 ### 4.1 The same register saved twice
 
@@ -462,15 +522,21 @@ it.
   the click. Polls only while a QR is on screen (codes expire in ~20s).
 - **Réglages du service** — driver, session, queue depth, failed jobs, pacing, daily cap
   used/total, sending hours, abandon thresholds.
-- **Six status tabs**, each also the filter for its own count. `held` counts **all days**,
+- **Seven status tabs**, each also the filter for its own count. `held` counts **all days**,
   not just the one being viewed — a four-day backlog would be invisible on a today-only
-  screen.
+  screen. `À valider` is the approval queue: its rows carry **Envoyer** (the release,
+  one at a time) rather than Renvoyer.
 - **Table** — student, status, reason, attempts, time, retry. Guardian numbers and message
   bodies are never sent to the browser.
 
-Retry is offered on `failed`, `skipped` and `expired` only. Never on `pending` (a job is
-already coming — a second one double-sends) and never on `held` (released automatically;
-a manual nudge would only re-hold it).
+Retry is offered on `failed`, `skipped`, `awaiting_approval` and `expired` only. Never on
+`pending` (a job is already coming — a second one double-sends) and never on `held`
+(released automatically; a manual nudge would only re-hold it).
+
+**The absence log is the review surface** (`/absence-log`, admin + assistant): each absent
+row's WhatsApp button reads **À valider** while its notice waits, and pressing it approves
+that one row. When the day has anything waiting, a bar above the table offers
+**Valider et envoyer tout** for the day being viewed.
 
 ---
 
@@ -564,10 +630,12 @@ Children's attendance data and guardians' mobile numbers.
 
 | File | Covers |
 |---|---|
+| `tests/Feature/AbsenceApprovalTest.php` | the approval gate: register records without dispatching, per-row and whole-day release, scoping, the double-approval race, correction cancels, the sweep's refusal to approve, expiry |
 | `tests/Feature/OutboundMessageTest.php` | the record: dedup, snapshots, skips, quiet hours, retry, template branding, bidi isolates |
 | `tests/Feature/WhatsAppSendingTest.php` | the gateway call: endpoint, auth, failure classification, normalisation, pacing, lock-not-held-across-send, daily cap |
 | `tests/Feature/NotificationRecoveryTest.php` | the scenarios in §4: two subjects, the train, disconnection, multi-day outages, expiry, the breaker, stranded jobs |
 | `tests/Feature/NotificationsPageTest.php` | the admin screen: access, PII, gateway panel, retry rules |
+| `tests/Feature/ManualNotifyTest.php` | the manual button: creation, duplicate refusals, releasing the register's waiting copy |
 
 ```bash
 php artisan test --filter="Notification|WhatsApp|Outbound"

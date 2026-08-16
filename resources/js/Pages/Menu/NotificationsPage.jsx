@@ -7,6 +7,7 @@ import {
     CheckCircle2,
     ChevronDown,
     Clock,
+    Hourglass,
     MinusCircle,
     PauseCircle,
     Power,
@@ -47,6 +48,14 @@ const STATUS = {
         chip: "bg-sky-50 text-sky-700 ring-sky-600/20",
         tone: "text-sky-600",
         Icon: Clock,
+    },
+    // The approval gate: recorded by the register, waiting for a person to send it.
+    // Violet, so it never reads as "held" (waiting for the machine) at a glance.
+    awaiting_approval: {
+        label: "À valider",
+        chip: "bg-violet-50 text-violet-700 ring-violet-600/20",
+        tone: "text-violet-600",
+        Icon: Hourglass,
     },
     held: {
         label: "En pause",
@@ -97,6 +106,13 @@ const TABS = [
         on: "border-emerald-300 bg-emerald-50 ring-emerald-200",
         num: "text-emerald-700",
         txt: "text-emerald-800",
+    },
+    {
+        key: "awaiting_approval",
+        label: "À valider",
+        on: "border-violet-300 bg-violet-50 ring-violet-200",
+        num: "text-violet-700",
+        txt: "text-violet-800",
     },
     {
         key: "pending",
@@ -593,7 +609,11 @@ export default function NotificationsPage({
             <div className="flex flex-wrap gap-2">
                 {TABS.map((tab) => {
                     const value =
-                        tab.key === "all" ? total : (counts[tab.key] ?? 0);
+                        tab.key === "all"
+                            ? total
+                            : tab.key === "awaiting_approval"
+                              ? (counts.awaitingApproval ?? 0)
+                              : (counts[tab.key] ?? 0);
                     const active = filters.status === tab.key;
 
                     return (
@@ -697,13 +717,19 @@ export default function NotificationsPage({
                                             type="button"
                                             onClick={() => retry(m.id)}
                                             disabled={retrying === m.id}
-                                            title="Renvoyer cette notification"
+                                            title={
+                                                m.status === "awaiting_approval"
+                                                    ? "Valider et envoyer cette notification"
+                                                    : "Renvoyer cette notification"
+                                            }
                                             className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-slate-400"
                                         >
                                             <RotateCcw
                                                 className={`h-4 w-4 ${retrying === m.id ? "animate-spin" : ""}`}
                                             />
-                                            Renvoyer
+                                            {m.status === "awaiting_approval"
+                                                ? "Envoyer"
+                                                : "Renvoyer"}
                                         </button>
                                     )}
                                 </td>

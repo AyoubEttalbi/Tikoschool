@@ -30,8 +30,15 @@ class OutboundMessageService
      *
      * Returns the row in every case — sent, queued, or skipped — or null when this exact
      * notice already exists, which is the signal that nothing new was queued.
+     *
+     * $awaitApproval is the register path: the notice is recorded (rendered, snapshotted,
+     * deduplicated) as `awaiting_approval` and NOTHING is dispatched. A teacher's wrong
+     * checkbox must not reach a parent without a human in between; an admin or assistant
+     * releases the day's notices from the absence log when they are satisfied they are
+     * right. The manual "notifier le parent" button keeps the default — the person
+     * pressing it IS the approval.
      */
-    public function createForAbsence(Attendance $attendance, array $context = []): ?OutboundMessage
+    public function createForAbsence(Attendance $attendance, array $context = [], bool $awaitApproval = false): ?OutboundMessage
     {
         $student = $attendance->student ?: Student::find($attendance->student_id);
 
@@ -77,6 +84,7 @@ class OutboundMessageService
                 'teacher_id' => $attendance->teacher_id,
                 'class_id' => $attendance->classId,
             ],
+            awaitApproval: $awaitApproval,
         );
     }
 
@@ -101,7 +109,7 @@ class OutboundMessageService
         );
     }
 
-    private function create(Student $student, ?Attendance $attendance, string $key, array $context): ?OutboundMessage
+    private function create(Student $student, ?Attendance $attendance, string $key, array $context, bool $awaitApproval = false): ?OutboundMessage
     {
         $channel = OutboundMessage::CHANNEL_WHATSAPP;
         $key .= ':'.$channel;
@@ -132,12 +140,40 @@ class OutboundMessageService
             // Snapshot, not a reference. The template can be reworded tomorrow and the
             // student can be renamed; neither may change what this parent was told.
             'message' => $this->render($student, $context),
-            'status' => OutboundMessage::STATUS_PENDING,
+            // `scheduled_at` on an awaiting row is provisional — release() recomputes it
+            // from the moment a human actually approves, quiet hours included.
+            'status' => $awaitApproval
+                ? OutboundMessage::STATUS_AWAITING_APPROVAL
+                : OutboundMessage::STATUS_PENDING,
             'scheduled_at' => $scheduledAt,
         ]);
 
         if ($message === null) {
-            return null;   // already queued by an earlier request
+            /*
+             * Someone already recorded this exact notice.
+             *
+             * For the register that is the whole answer: the re-save changes nothing — and
+             * it must NOT release the existing row. A teacher correcting one typo on a
+             * sheet is not approving anything; leaving the release here would make every
+             * re-save the de-facto end-of-day validation.
+             *
+             * For the manual button it is different. The register's copy may be sitting in
+             * `awaiting_approval` — nobody has been told anything — and the person who
+             * just pressed "Notifier le parent" is explicitly asking for it to go out.
+             * Telling them "déjà notifié" for a message that never left the building is
+             * the one wrong answer, so the press becomes the approval.
+             */
+            if (! $awaitApproval) {
+                $existing = OutboundMessage::where('idempotency_key', $key)->first();
+
+                if ($existing !== null && $existing->status === OutboundMessage::STATUS_AWAITING_APPROVAL) {
+                    $this->release($existing);
+
+                    return $existing->refresh();
+                }
+            }
+
+            return null;   // already sent, queued or refused by an earlier request
         }
 
         /*
@@ -153,7 +189,9 @@ class OutboundMessageService
          * because "row missing" is indistinguishable from "already handled". The parent is
          * then never told, with no error and no retry.
          */
-        $this->dispatchFor($message);
+        if (! $awaitApproval) {
+            $this->dispatchFor($message);
+        }
 
         return $message;
     }
@@ -173,6 +211,135 @@ class OutboundMessageService
             ->delay($message->scheduled_at && $message->scheduled_at->isFuture()
                 ? $message->scheduled_at
                 : $this->nextSendableMoment());
+    }
+
+    /**
+     * Approve one waiting notice and put it on the queue.
+     *
+     * The status change is a guarded UPDATE — `WHERE status = 'awaiting_approval'` — and
+     * only the call that changes a row dispatches. Two people validating the same day at
+     * the same moment, or a double-click on the button, must produce one job, not two:
+     * unlike `held`, this state is left by humans acting in parallel, so the race is not
+     * theoretical.
+     *
+     * The recipient is re-resolved rather than trusted from the snapshot: the guardian's
+     * number may have been corrected (or the family opted out) between the register save
+     * and the approval, and the approval means "send it now", not "send what we knew
+     * hours ago". A refusal there is recorded as a skip so the screen can say why.
+     */
+    public function release(OutboundMessage $message): bool
+    {
+        if ($message->status !== OutboundMessage::STATUS_AWAITING_APPROVAL) {
+            return false;
+        }
+
+        // The FK is cascadeOnDelete so this predates it — a legacy row with no student
+        // can never be sent, and recording why beats returning a button that refuses.
+        if (! $message->student) {
+            $message->update([
+                'status' => OutboundMessage::STATUS_SKIPPED,
+                'skip_reason' => OutboundMessage::SKIP_STUDENT_ARCHIVED,
+            ]);
+
+            return false;
+        }
+
+        [$recipient, $skipReason] = $this->resolveRecipient($message->student);
+
+        if ($skipReason !== null) {
+            OutboundMessage::where('id', $message->id)
+                ->where('status', OutboundMessage::STATUS_AWAITING_APPROVAL)
+                ->update([
+                    'status' => OutboundMessage::STATUS_SKIPPED,
+                    'skip_reason' => $skipReason,
+                ]);
+
+            $message->refresh();
+
+            return false;
+        }
+
+        $claimed = OutboundMessage::where('id', $message->id)
+            ->where('status', OutboundMessage::STATUS_AWAITING_APPROVAL)
+            ->update([
+                'recipient' => $recipient,
+                'status' => OutboundMessage::STATUS_PENDING,
+                'skip_reason' => null,
+                'scheduled_at' => $this->nextSendableMoment(),
+            ]);
+
+        if ($claimed === 0) {
+            // Somebody released it between our read and our write. Their dispatch is the
+            // one that counts; reporting a refusal here would send the reader hunting
+            // for a problem that does not exist.
+            $message->refresh();
+
+            return false;
+        }
+
+        $this->dispatchFor($message->refresh());
+
+        Log::info('Outbound message released after approval', ['id' => $message->id]);
+
+        return true;
+    }
+
+    /**
+     * The end-of-day motion: approve every waiting notice for one day's absences.
+     *
+     * Selected by the ABSENCE's date, not the row's created_at. A register saved today
+     * can be backfilling yesterday's sheet, and the reviewer validating "yesterday" is
+     * looking at yesterday's absences — the two dates only coincide when nothing was
+     * recorded late, which is exactly when the distinction is invisible.
+     *
+     * @param  \DateTimeInterface|string  $date
+     * @param  array<int, int>|null  $schoolIds  null means no restriction (an admin).
+     * @return array{released: int, skipped: int, refused: int}
+     */
+    public function releaseAwaitingForDate($date, ?array $schoolIds = null): array
+    {
+        $released = 0;
+        $skipped = 0;
+        $refused = 0;
+
+        OutboundMessage::query()
+            ->awaitingApproval()
+            ->whereHas('attendance', fn ($query) => $query->whereDate('date', $date))
+            ->when($schoolIds !== null, fn ($query) => $query->whereIn('school_id', $schoolIds))
+            ->orderBy('id')
+            ->chunkById(200, function ($rows) use (&$released, &$skipped, &$refused): void {
+                foreach ($rows as $row) {
+                    if ($this->release($row)) {
+                        $released++;
+                    } elseif ($row->refresh()->status === OutboundMessage::STATUS_SKIPPED) {
+                        $skipped++;
+                    } else {
+                        $refused++;
+                    }
+                }
+            });
+
+        return ['released' => $released, 'skipped' => $skipped, 'refused' => $refused];
+    }
+
+    /**
+     * Withdraw the waiting notices for one absence — the "the teacher got this wrong"
+     * half of review.
+     *
+     * Called when an attendance row is deleted or corrected away from 'absent'. The
+     * notice is not deleted: "we decided not to tell this parent, and here is why" is a
+     * row like any other decision, and deleting it would let the same absence re-mint
+     * the same key and look like it had never been reviewed.
+     */
+    public function cancelForAttendance(int $attendanceId): int
+    {
+        return OutboundMessage::query()
+            ->where('attendance_id', $attendanceId)
+            ->awaitingApproval()
+            ->update([
+                'status' => OutboundMessage::STATUS_SKIPPED,
+                'skip_reason' => OutboundMessage::SKIP_CANCELLED,
+            ]);
     }
 
     /**
@@ -277,7 +444,6 @@ class OutboundMessageService
             'date' => self::isolate($date->locale('ar')->isoFormat('dddd، D MMMM YYYY')),
             'teacherName' => self::isolate($teacher ? trim($teacher->first_name.' '.$teacher->last_name) : 'غير محدد'),
             'className' => self::isolate($class?->name) ?: self::isolate('غير محدد'),
-            'attendanceRate' => self::isolate((string) $this->attendanceRate($student)),
 
             /*
              * BRAND from config, BRANCH from the row — and the split is the point.
@@ -361,35 +527,8 @@ class OutboundMessageService
         return $value === '' ? '' : "\u{2068}".$value."\u{2069}";
     }
 
-    /** Attendance rate for the current school year (August to August). */
-    private function attendanceRate(Student $student): int
-    {
-        $year = now()->year;
-        $start = now()->month < 8
-            ? Carbon::create($year - 1, 8, 1)
-            : Carbon::create($year, 8, 1);
-        $end = $start->copy()->addYear()->subDay();
-
-        $counts = $student->attendances()
-            ->whereBetween('date', [$start, $end])
-            ->selectRaw("SUM(status = 'absent') as absent, SUM(status = 'late') as late")
-            ->first();
-
-        $absent = (int) ($counts->absent ?? 0);
-        $late = (int) ($counts->late ?? 0);
-
-        $totalDays = $start->diffInDays(now()->min($end)) + 1;
-
-        if ($totalDays <= 0) {
-            return 100;
-        }
-
-        return max(0, (int) round((($totalDays - $absent - $late) / $totalDays) * 100));
-    }
-
     /**
      * Put a failed or skipped row back in the queue.
-     *
      * One logical notice stays one row for its whole life — the same id, a bumped attempt
      * count. Minting a new key with a nonce would defeat the idempotency it exists for.
      */
@@ -409,8 +548,19 @@ class OutboundMessageService
             OutboundMessage::STATUS_SKIPPED,
             OutboundMessage::STATUS_HELD,
             OutboundMessage::STATUS_EXPIRED,
+            OutboundMessage::STATUS_AWAITING_APPROVAL,
         ], true)) {
             return false;
+        }
+
+        /*
+         * Awaiting is not a failure to recover — it is the approval gate, and the
+         * guarded claim in release() is what keeps two parallel approvals from
+         * dispatching twice. Everything the retry body does (re-resolve, schedule,
+         * dispatch) is what release() does; only the claim differs.
+         */
+        if ($message->status === OutboundMessage::STATUS_AWAITING_APPROVAL) {
+            return $this->release($message);
         }
 
         // The relation is withTrashed(), but a student can still be hard-deleted or the

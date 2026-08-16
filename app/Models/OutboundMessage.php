@@ -11,6 +11,16 @@ class OutboundMessage extends Model
 
     public const STATUS_PENDING = 'pending';
 
+    /**
+     * Recorded, rendered, deduplicated — and deliberately NOT dispatched.
+     *
+     * The register creates notices in this state so a wrong checkbox on a teacher's
+     * screen never reaches a parent on its own. A human moves it to `pending`, per row
+     * from the absence log or for the whole day at once. The recovery sweep must never
+     * release it: waiting for a person is the entire point of the state.
+     */
+    public const STATUS_AWAITING_APPROVAL = 'awaiting_approval';
+
     public const STATUS_SENT = 'sent';
 
     public const STATUS_FAILED = 'failed';
@@ -37,6 +47,13 @@ class OutboundMessage extends Model
 
     /** The number failed too many times in a row. Somebody has to fix it. */
     public const SKIP_UNREACHABLE_NUMBER = 'recipient_unreachable';
+
+    /**
+     * Withdrawn before sending, by a human, during review. The absence was wrong (or
+     * corrected) after the register saved it — cancelling is the review working, so it
+     * is recorded like any other decision not to send.
+     */
+    public const SKIP_CANCELLED = 'cancelled';
 
     protected $fillable = [
         'school_id', 'student_id', 'attendance_id', 'idempotency_key',
@@ -96,6 +113,15 @@ class OutboundMessage extends Model
         return $query->whereIn('status', [self::STATUS_HELD, self::STATUS_FAILED]);
     }
 
+    /**
+     * Rows a human has not approved yet. Deliberately NOT part of scopeRecoverable():
+     * the sweep must not rescue these — waiting for a person is the state, not a bug.
+     */
+    public function scopeAwaitingApproval($query)
+    {
+        return $query->where('status', self::STATUS_AWAITING_APPROVAL);
+    }
+
     /** A human answer for the admin screen, never the provider's raw response. */
     public function reason(): ?string
     {
@@ -105,11 +131,14 @@ class OutboundMessage extends Model
             self::SKIP_OPTED_OUT => 'Notifications désactivées pour cet élève',
             self::SKIP_STUDENT_ARCHIVED => 'Élève archivé — aucune notification envoyée',
             self::SKIP_UNREACHABLE_NUMBER => 'Numéro injoignable après plusieurs essais — à corriger',
+            self::SKIP_CANCELLED => 'Annulée avant envoi',
 
             // Not a skip: a state. `held` is the important one — it must read as "waiting
             // for the service", never as a failure, because nothing was attempted and
-            // nothing was lost.
+            // nothing was lost. `awaiting_approval` is the same courtesy for "waiting
+            // for a person": the notice is ready and nothing has been sent yet.
             default => match ($this->status) {
+                self::STATUS_AWAITING_APPROVAL => 'En attente de validation — à envoyer depuis le journal des absences',
                 self::STATUS_HELD => match ($this->hold_reason) {
                     'gateway_disconnected' => 'En attente : WhatsApp est déconnecté',
                     'gateway_unreachable' => 'En attente : la passerelle ne répond pas',

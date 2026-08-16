@@ -25,7 +25,7 @@ class OutboundMessageController extends Controller
     {
         $filters = $request->validate([
             'date' => 'nullable|date',
-            'status' => 'nullable|in:all,pending,held,sent,failed,skipped,expired',
+            'status' => 'nullable|in:all,pending,awaiting_approval,held,sent,failed,skipped,expired',
         ]);
 
         $date = ! empty($filters['date']) ? $filters['date'] : now()->toDateString();
@@ -77,13 +77,13 @@ class OutboundMessageController extends Controller
             'heldSince' => $m->held_since?->toIso8601String(),
             'sentAt' => $m->sent_at?->toIso8601String(),
             'createdAt' => $m->created_at?->toIso8601String(),
-            // Matches OutboundMessageService::retry()'s allow-list. Offering it on a
-            // PENDING row invited a second job for a message already queued.
             // Matches OutboundMessageService::retry()'s allow-list. NOT offered on a
             // pending row (a job is already coming) and NOT on a held one — those are
             // released automatically the moment the gateway returns, and a manual nudge
-            // would only re-hold them.
+            // would only re-hold them. An awaiting row IS offered: on this screen that
+            // button is the approval, one row at a time.
             'canRetry' => in_array($m->status, [
+                OutboundMessage::STATUS_AWAITING_APPROVAL,
                 OutboundMessage::STATUS_FAILED,
                 OutboundMessage::STATUS_SKIPPED,
                 OutboundMessage::STATUS_EXPIRED,
@@ -126,6 +126,7 @@ class OutboundMessageController extends Controller
             'counts' => [
                 'sent' => (int) ($counts['sent'] ?? 0),
                 'pending' => (int) ($counts['pending'] ?? 0),
+                'awaitingApproval' => (int) ($counts['awaiting_approval'] ?? 0),
                 'held' => $heldTotal,
                 'failed' => (int) ($counts['failed'] ?? 0),
                 'skipped' => (int) ($counts['skipped'] ?? 0),

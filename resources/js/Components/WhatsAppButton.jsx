@@ -39,6 +39,17 @@ const VIEW = {
         note: "text-sky-700",
         icon: "clock",
     },
+    /*
+     * The register records notices without sending them (the approval gate), so this
+     * state is not a fact to display but an action waiting to happen: pressing the
+     * button is the approval, and the server releases exactly this notice.
+     */
+    awaiting_approval: {
+        label: "À valider",
+        button: "bg-amber-100 text-amber-800 border border-amber-300",
+        note: "text-amber-700",
+        icon: "clock",
+    },
     held: {
         label: "En attente",
         button: "bg-amber-100 text-amber-800 border border-amber-300",
@@ -73,6 +84,7 @@ const WhatsAppButton = ({
     studentName,
     attendanceId = null,
     notification = null,
+    onSettled,
     className = "",
 }) => {
     const [isLoading, setIsLoading] = useState(false);
@@ -89,8 +101,18 @@ const WhatsAppButton = ({
           }
         : null;
 
-    const settled = outcome ?? fromServer;
-    const view = settled ? (VIEW[settled.kind] ?? VIEW.failed) : null;
+    /*
+     * An awaiting notice is the one server state that is NOT settled: it exists to be
+     * pressed. Everything else the server knows (sent, skipped, failed…) is a fact that
+     * must not be re-clicked, so it locks the button.
+     */
+    const awaiting = fromServer?.kind === "awaiting_approval";
+    const settled = awaiting ? null : (outcome ?? fromServer);
+    const view = awaiting
+        ? VIEW.awaiting_approval
+        : settled
+          ? (VIEW[settled.kind] ?? VIEW.failed)
+          : null;
 
     const handleSendWhatsApp = () => {
         if (isLoading || settled) return;
@@ -123,6 +145,10 @@ const WhatsAppButton = ({
                     } else {
                         setOutcome({ kind: "pending", text: null });
                     }
+
+                    // The page above (the waiting bar's count, other rows) only knows
+                    // the truth from the server; this settles it without a reload.
+                    if (typeof onSettled === "function") onSettled();
                 },
                 onError: (errors) => {
                     const first = errors && Object.values(errors)[0];
@@ -148,19 +174,23 @@ const WhatsAppButton = ({
                     transition-all duration-200 ease-in-out
                     focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2
                     ${
-                        view
-                            ? `${view.button} cursor-default`
-                            : isLoading
-                              ? "cursor-not-allowed bg-green-500 text-white opacity-75"
-                              : "transform bg-green-500 text-white shadow-md hover:scale-105 hover:bg-green-600 hover:shadow-lg active:scale-95"
+                        awaiting
+                            ? `${VIEW.awaiting_approval.button} transform cursor-pointer shadow-md hover:scale-105 hover:shadow-lg active:scale-95`
+                            : view
+                              ? `${view.button} cursor-default`
+                              : isLoading
+                                ? "cursor-not-allowed bg-green-500 text-white opacity-75"
+                                : "transform bg-green-500 text-white shadow-md hover:scale-105 hover:bg-green-600 hover:shadow-lg active:scale-95"
                     }
                     ${className}
                 `}
                 title={
                     settled?.text ||
-                    (view
-                        ? view.label
-                        : `Envoyer un message WhatsApp au parent de ${studentName}`)
+                    (awaiting
+                        ? `Valider l'envoi au parent de ${studentName}`
+                        : view
+                          ? view.label
+                          : `Envoyer un message WhatsApp au parent de ${studentName}`)
                 }
             >
                 <svg

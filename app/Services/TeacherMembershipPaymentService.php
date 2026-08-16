@@ -15,12 +15,19 @@ use Illuminate\Support\Facades\Log;
 class TeacherMembershipPaymentService
 {
     /**
-     * How long after the billing date a deleted invoice may still be clawed back out of the
-     * teachers' wallets.
+     * How long after the LAST PAYMENT a deleted invoice may still be clawed back out of
+     * the teachers' wallets.
      *
      * Deleting the invoice is ALWAYS allowed. What expires is the claw-back: past this many
      * days the teachers keep what they have already been paid, and whoever pressed delete is
      * told so explicitly (see reverseInvoicePayments()).
+     *
+     * The clock starts when the MONEY MOVED (last_payment_date, falling back to the
+     * invoice's creation for pay-on-create rows) — never at billDate. billDate anchors the
+     * billing PERIOD (the 1st of the month, however late the pupil actually paid), so a
+     * pupil paying on the 13th for a month billed on the 1st used to read as "13 days
+     * since billing" on day one: every deletion was already past the deadline and no
+     * wallet was ever corrected, which is precisely the window the rule exists for.
      *
      * ONE definition. The rule used to be written as a bare `<= 10` in two separate branches
      * of reverseTeacherPayment(), which is how the single-month and multi-month paths came to
@@ -1542,7 +1549,7 @@ class TeacherMembershipPaymentService
      * @return array{
      *     reversed: bool,
      *     total_reversed: float,
-     *     days_since_billing: int|null,
+     *     days_since_payment: int|null,
      *     deadline_days: int,
      *     within_deadline: bool,
      *     applied: array<int, array<string, mixed>>,
@@ -1562,7 +1569,7 @@ class TeacherMembershipPaymentService
      * that promised one thing and a delete that did another would be worse than no preview.
      *
      * @return array{
-     *     reversed: bool, total_reversed: float, days_since_billing: int|null,
+     *     reversed: bool, total_reversed: float, days_since_payment: int|null,
      *     deadline_days: int, within_deadline: bool,
      *     applied: array<int, array<string, mixed>>, blocked: array<int, array<string, mixed>>,
      *     messages: array<int, string>
@@ -1570,9 +1577,9 @@ class TeacherMembershipPaymentService
      */
     public function previewInvoiceReversal(Invoice $invoice): array
     {
-        [$daysSinceBilling, $withinDeadline] = $this->reversalDeadlineState($invoice);
+        [$daysSincePayment, $withinDeadline] = $this->reversalDeadlineState($invoice);
 
-        $outcome = $this->emptyReversalOutcome($daysSinceBilling, $withinDeadline);
+        $outcome = $this->emptyReversalOutcome($daysSincePayment, $withinDeadline);
 
         foreach ($this->reversibleRecords($invoice) as $record) {
             $teacher = Teacher::find($record->teacher_id);
@@ -1630,29 +1637,31 @@ class TeacherMembershipPaymentService
     }
 
     /**
-     * How long ago this invoice was billed, and whether that is still inside the window.
+     * How long ago this invoice's money actually moved, and whether that is still inside
+     * the window.
      *
      * @return array{0: int|null, 1: bool}
      */
     private function reversalDeadlineState(Invoice $invoice): array
     {
-        $billingDate = $invoice->billDate;
+        // The payment moment, not the billing anchor: last_payment_date is stamped by
+        // every amountPaid change, and created_at covers pay-on-create. See
+        // REVERSAL_DEADLINE_DAYS for why billDate must never decide this.
+        $paymentAt = $invoice->last_payment_date ?: $invoice->created_at;
 
-        // Carbon 3 returns a SIGNED difference, so `now()->diffInDays($past)` is NEGATIVE.
-        // That made the old `<= 10` checks always true, which reversed a teacher's entire
-        // paid-to-date balance whenever ANY old invoice was deleted. Measuring FORWARD from
-        // the billing date gives a positive number for past bills, which is what the rule is
-        // stated in. A negative value means a post-dated bill — comfortably inside the
-        // window, and handled by the same comparison without a special case.
-        $daysSinceBilling = $billingDate
-            ? (int) \Carbon\Carbon::parse($billingDate)->startOfDay()->diffInDays(now()->startOfDay(), false)
+        // Carbon 3 returns a SIGNED difference, so measuring FORWARD from the payment
+        // gives a positive number of elapsed days. A negative value means a post-dated
+        // payment — comfortably inside the window, handled by the same comparison.
+        $daysSincePayment = $paymentAt
+            ? (int) \Carbon\Carbon::parse($paymentAt)->startOfDay()->diffInDays(now()->startOfDay(), false)
             : null;
 
-        // No billing date means the deadline cannot be measured. The safe answer is to leave
-        // the teachers' money alone rather than guess, so it is treated as expired.
+        // No payment moment at all means the deadline cannot be measured. The safe answer
+        // is to leave the teachers' money alone rather than guess, so it is treated as
+        // expired.
         return [
-            $daysSinceBilling,
-            $daysSinceBilling !== null && $daysSinceBilling <= self::REVERSAL_DEADLINE_DAYS,
+            $daysSincePayment,
+            $daysSincePayment !== null && $daysSincePayment <= self::REVERSAL_DEADLINE_DAYS,
         ];
     }
 
@@ -1673,12 +1682,12 @@ class TeacherMembershipPaymentService
     }
 
     /** @return array<string, mixed> */
-    private function emptyReversalOutcome(?int $daysSinceBilling, bool $withinDeadline): array
+    private function emptyReversalOutcome(?int $daysSincePayment, bool $withinDeadline): array
     {
         return [
             'reversed' => false,
             'total_reversed' => 0.0,
-            'days_since_billing' => $daysSinceBilling,
+            'days_since_payment' => $daysSincePayment,
             'deadline_days' => self::REVERSAL_DEADLINE_DAYS,
             'within_deadline' => $withinDeadline,
             'applied' => [],
@@ -1689,9 +1698,9 @@ class TeacherMembershipPaymentService
 
     public function reverseInvoicePayments(Invoice $invoice, ?array $oldData = null): array
     {
-        [$daysSinceBilling, $withinDeadline] = $this->reversalDeadlineState($invoice);
+        [$daysSincePayment, $withinDeadline] = $this->reversalDeadlineState($invoice);
 
-        $outcome = $this->emptyReversalOutcome($daysSinceBilling, $withinDeadline);
+        $outcome = $this->emptyReversalOutcome($daysSincePayment, $withinDeadline);
 
         foreach ($this->reversibleRecords($invoice) as $record) {
             $this->reverseTeacherPayment($record, $invoice, $withinDeadline, $outcome);
@@ -1703,8 +1712,8 @@ class TeacherMembershipPaymentService
 
         Log::info('Invoice reversal completed', [
             'invoice_id' => $invoice->id,
-            'bill_date' => $invoice->billDate?->format('Y-m-d'),
-            'days_since_billing' => $daysSinceBilling,
+            'payment_at' => $invoice->last_payment_date?->format('Y-m-d H:i') ?? $invoice->created_at?->toDateTimeString(),
+            'days_since_payment' => $daysSincePayment,
             'within_deadline' => $withinDeadline,
             'total_reversed' => $outcome['total_reversed'],
             'blocked_count' => count($outcome['blocked']),
@@ -1731,7 +1740,7 @@ class TeacherMembershipPaymentService
         ) !== [];
 
         if ($hasReason(['deadline_passed'])) {
-            $messages[] = 'Facture de plus de '.$outcome['deadline_days']
+            $messages[] = 'Dernier paiement de plus de '.$outcome['deadline_days']
                 .' jours : les enseignants gardent ce qui leur a été versé.';
         }
 

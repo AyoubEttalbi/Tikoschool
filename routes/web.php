@@ -78,6 +78,11 @@ Route::middleware('auth')->group(function () {
     // routes reachable regardless of registration order.
     Route::get('/classes', [ClassesController::class, 'index'])->name('classes.index');
     Route::get('/classes/{class}', [ClassesController::class, 'show'])->name('classes.show')->where('class', '[0-9]+');
+    // The class roster PDF, from the Actions column of /classes. Digit-constrained like
+    // its siblings so it can never shadow (or be shadowed by) a literal sibling route.
+    Route::get('/classes/{class}/students/download', [ClassesController::class, 'downloadStudents'])
+        ->where('class', '[0-9]+')
+        ->name('classes.students.download');
     Route::get('/students', [StudentsController::class, 'index'])->name('students.index');
     Route::get('/students/{student}', [StudentsController::class, 'show'])->name('students.show')->where('student', '[0-9]+');
     Route::get('/students/{student}/download-pdf', [StudentsController::class, 'downloadPdf'])->name('students.downloadPdf')->where('student', '[0-9]+');
@@ -375,6 +380,10 @@ Route::middleware('auth')->group(function () {
         Route::get('/absence-log', [AttendanceController::class, 'absenceLogPage'])->name('absence.log.page');
         Route::get('/api/absence-log', [AttendanceController::class, 'absenceLogData'])->name('absence.log.data');
         Route::post('/absence/{student}/notify', [AttendanceController::class, 'notifyParent'])->name('absence.notify');
+        // Approve and queue every waiting notice for one day — the register records
+        // notices without sending them; this is the human who says they may go out.
+        Route::post('/absence-notifications/release', [AttendanceController::class, 'releaseNotifications'])
+            ->name('absence.notifications.release');
 
         // Absence List page (frontend selection)
         Route::get('/absence-list', [AttendanceController::class, 'absenceListPage'])->name('absence-list');

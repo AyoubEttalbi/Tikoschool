@@ -215,9 +215,27 @@ class MessageController extends Controller
             ->groupBy('sender_id')
             ->pluck('total', 'sender_id');
 
+        $user = auth()->user();
+
+        // The sidebar badge for the absence log: the same awaiting-approval count, so it
+        // can refresh on the 60s reconciliation poll the chat already runs. Nil for
+        // teachers without querying — they never see the log.
+        $schoolIds = $user && in_array($user->role, ['admin', 'assistant'], true)
+            ? \App\Support\SchoolScope::schoolIdsFor($user)
+            : null;
+
+        $pendingNotices = $schoolIds !== null || $user?->role === 'admin'
+            ? \App\Models\OutboundMessage::query()
+                ->awaitingApproval()
+                ->whereHas('attendance')
+                ->when($schoolIds !== null, fn ($q) => $q->whereIn('school_id', $schoolIds))
+                ->count()
+            : 0;
+
         // The frontend reduces over the values, so senders with nothing unread can be omitted.
         return response()->json([
             'unread_count' => $counts->map(fn ($n) => (int) $n),
+            'pending_notices' => $pendingNotices,
         ]);
     }
 

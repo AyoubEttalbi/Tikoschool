@@ -455,6 +455,7 @@ class AttendanceController extends Controller
 
             // Process ALL attendance records, including present ones
             $processedStudentIds = [];
+            $noticesRecorded = 0;
 
             // Always get teacher_id from validated or request
             $teacherId = $validated['teacher_id'] ?? $request->input('teacher_id');
@@ -500,6 +501,12 @@ class AttendanceController extends Controller
                 if ($attendance['status'] === 'present') {
                     // If status is present and a record exists, delete it
                     if ($attendanceModel) {
+                        // The waiting notice, if any, described an absence this save now
+                        // declares never happened. Withdrawn before the row goes — after
+                        // the delete the FK would orphan it to a null attendance_id and
+                        // "release everything for the day" would happily send it anyway.
+                        $messages->cancelForAttendance($attendanceModel->id);
+
                         $attendanceModel->delete();
                         Log::info('Deleted attendance record (marked as present)', [
                             'student_id' => $studentId,
@@ -514,6 +521,13 @@ class AttendanceController extends Controller
 
                 // Only absent or late are recorded
                 if ($attendanceModel) {
+                    // absent → late: the absence the waiting notice describes has been
+                    // downgraded by the person re-saving the sheet. It is not "held', it
+                    // is wrong — withdraw it (a no-op when no notice is waiting).
+                    if ($attendanceModel->status === 'absent' && $attendance['status'] !== 'absent') {
+                        $messages->cancelForAttendance($attendanceModel->id);
+                    }
+
                     $attendanceModel->update([
                         'status' => $attendance['status'],
                         'reason' => $attendance['reason'],
@@ -557,6 +571,12 @@ class AttendanceController extends Controller
                      *
                      * It also dropped students with no guardian number into a Log::warning
                      * nobody reads. Those are recorded as skipped rows now.
+                     *
+                     * AWAITING APPROVAL: the notice is recorded, not sent. One wrong
+                     * checkbox on this screen used to reach a real parent within seconds,
+                     * from the school's own number; now an admin or assistant releases
+                     * the day's notices from the absence log once they are satisfied the
+                     * sheet is right.
                      */
                     $record = Attendance::where('student_id', $studentId)
                         ->where('classId', $validated['class_id'])
@@ -566,7 +586,7 @@ class AttendanceController extends Controller
                         ->first();
 
                     if ($record) {
-                        $messages->createForAbsence($record);
+                        $noticesRecorded += $messages->createForAbsence($record, awaitApproval: true) !== null;
                     }
                 }
             }
@@ -598,7 +618,9 @@ class AttendanceController extends Controller
                 'class_id' => $validated['class_id'],
                 'teacher_id' => $teacherId,
                 '_timestamp' => time(),
-            ])->with('success', 'Attendance saved successfully');
+            ])->with('success', $noticesRecorded > 0
+                ? 'Registre enregistré. Les notifications aux parents attendent la validation de l\'administration.'
+                : 'Attendance saved successfully');
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error saving attendance', [
@@ -662,7 +684,7 @@ class AttendanceController extends Controller
         }
     }
 
-    public function update(Request $request, $id)
+    public function update(Request $request, $id, OutboundMessageService $messages)
     {
         // Validate the request data
         $validated = $request->validate([
@@ -686,10 +708,19 @@ class AttendanceController extends Controller
 
             // If status is "present", delete the record
             if ($validated['status'] === 'present') {
+                // A waiting notice for an absence now declared not to have happened must
+                // be withdrawn before the row goes — see the identical call in store().
+                $messages->cancelForAttendance($attendance->id);
                 $attendance->delete();
                 $this->logActivity('deleted', $attendance, $oldData, null);
 
                 return redirect()->back()->with('success', 'Attendance record removed (marked as present)');
+            }
+
+            // Absent downgraded to late: the waiting notice says "absent" and would send
+            // a wrong message if the day were released after this edit.
+            if ($attendance->status === 'absent' && $validated['status'] !== 'absent') {
+                $messages->cancelForAttendance($attendance->id);
             }
 
             // Update the record for "absent" or "late"
@@ -719,7 +750,7 @@ class AttendanceController extends Controller
         }
     }
 
-    public function destroy($id)
+    public function destroy($id, OutboundMessageService $messages)
     {
         $attendance = Attendance::with(['student', 'class'])->findOrFail($id);
         $this->authorizeAttendance($attendance);
@@ -727,6 +758,10 @@ class AttendanceController extends Controller
         try {
             // Log the activity before deletion
             $this->logActivity('deleted', $attendance, $attendance->toArray(), null);
+
+            // The correction path of the approval workflow: deleting the wrong absence
+            // withdraws its waiting notice so releasing the day cannot send it.
+            $messages->cancelForAttendance($attendance->id);
 
             // Delete the record
             $attendance->delete();
@@ -861,12 +896,33 @@ class AttendanceController extends Controller
         if (! in_array($user->role, ['admin', 'assistant'])) {
             return response()->json(['error' => 'Forbidden'], 403);
         }
-        $query = Attendance::with(['student', 'class', 'recordedBy', 'teacher'])
-            ->whereIn('status', ['absent', 'late']);
+        $query = Attendance::with(['student', 'class', 'recordedBy', 'teacher']);
 
-        // Date filtering: always filter by date, default to today if not provided
-        $date = $request->input('date', now()->toDateString());
-        $query->whereDate('date', $date);
+        // Status filter: narrow to one status, or (default) show absent + late.
+        $status = $request->input('status');
+        if (in_array($status, ['absent', 'late', 'present'], true)) {
+            $query->where('status', $status);
+        } else {
+            $query->whereIn('status', ['absent', 'late']);
+        }
+
+        /*
+         * The caller's schools, as a boundary. This endpoint predates the approval
+         * workflow and showed every school's absences to any assistant; that was a
+         * tolerable read gap until "valider et envoyer tout" made the page the source of
+         * a send decision — the rows and the release must agree on scope or a reviewer
+         * releases absences they cannot even see.
+         */
+        $allowedSchoolIds = SchoolScope::schoolIdsFor();
+        if ($allowedSchoolIds !== null) {
+            $query->whereHas('class', fn ($q) => $q->whereIn('school_id', $allowedSchoolIds));
+        }
+
+        // Date filtering: optional — when omitted the log shows all days, newest first.
+        $date = $request->input('date');
+        if ($date) {
+            $query->whereDate('date', $date);
+        }
 
         // Optional: class or student filter
         if ($request->filled('class_id')) {
@@ -877,7 +933,7 @@ class AttendanceController extends Controller
         }
 
         $perPage = $request->input('per_page', 20);
-        $absences = $query->orderByDesc('date')->paginate($perPage);
+        $absences = $query->orderByDesc('date')->orderByDesc('id')->paginate($perPage);
 
         /*
          * Whether each of these absences has already been reported to the parent.
@@ -909,8 +965,19 @@ class AttendanceController extends Controller
             ];
         });
 
+        // How many notices wait for approval — drives the "valider et envoyer tout" bar.
+        // When no date is selected the count covers today (the actionable set); when a
+        // specific date is picked the bar matches the visible rows.
+        $awaitingDate = $date ?? now()->toDateString();
+        $awaitingCount = OutboundMessage::query()
+            ->awaitingApproval()
+            ->whereHas('attendance', fn ($q) => $q->whereDate('date', $awaitingDate))
+            ->when($allowedSchoolIds !== null, fn ($q) => $q->whereIn('school_id', $allowedSchoolIds))
+            ->count();
+
         return response()->json([
             'data' => $data,
+            'awaiting' => $awaitingCount,
             'current_page' => $absences->currentPage(),
             'last_page' => $absences->lastPage(),
             'per_page' => $absences->perPage(),
@@ -995,6 +1062,41 @@ class AttendanceController extends Controller
         }
 
         return back()->with('success', 'Notification envoyée au parent (mise en file d\'attente).');
+    }
+
+    /**
+     * The end-of-day motion: approve and queue every waiting notice for one day.
+     *
+     * The route is admin+assistant like the notify button — releasing a day's notices is
+     * the same decision, made once instead of row by row. Scoped to the caller's
+     * schools for the same reason notifyParent is: an assistant of school A does not
+     * send messages to school B's parents, however correct school B's register is.
+     */
+    public function releaseNotifications(Request $request, OutboundMessageService $messages)
+    {
+        $validated = $request->validate([
+            'date' => 'nullable|date',
+        ]);
+
+        $date = $validated['date'] ?? now()->toDateString();
+
+        $result = $messages->releaseAwaitingForDate($date, SchoolScope::schoolIdsFor());
+
+        if ($result['released'] === 0 && $result['skipped'] === 0) {
+            return back()->with('warning', 'Aucune notification en attente pour cette journée.');
+        }
+
+        $message = $result['released'].' notification'.($result['released'] > 1 ? 's' : '').' envoyée'
+            .($result['released'] > 1 ? 's' : '').' (mise'.($result['released'] > 1 ? 's' : '').' en file d\'attente).';
+
+        // Not an error — but a row that could not go out needs its reason on the screen,
+        // or "valider tout" looks like it worked while a parent was silently not told.
+        if ($result['skipped'] > 0) {
+            $message .= ' '.$result['skipped'].' ignorée'.($result['skipped'] > 1 ? 's' : '')
+                .' (numéro manquant, invalide ou notifications désactivées).';
+        }
+
+        return back()->with('success', $message);
     }
 
     /**

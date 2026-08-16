@@ -834,16 +834,18 @@ const CashierPage = ({
                         </button>
                         {activeDropdown === invoice.id && (
                           <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-10">
+                            {/* invoice_id, not the row id: rows are payment EVENTS now,
+                                and details/receipt live on the invoice. */}
                             <button
-                                onClick={() => handleShowDetails(invoice.id)}
-                                className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                              onClick={() => handleShowDetails(invoice.invoice_id)}
+                              className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
                             >
                               <EyeIcon className="h-4 w-4" />
                               Voir détails
                             </button>
                             <button
-                                onClick={() => handlePrintReceipt(invoice.id)}
-                                className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                              onClick={() => handlePrintReceipt(invoice.invoice_id)}
+                              className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
                             >
                               <ReceiptIcon className="h-4 w-4" />
                               Imprimer reçu

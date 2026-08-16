@@ -1,6 +1,7 @@
 {{--
     Level roster: every active student in one level, with what they pay for and whether
-    they have paid it.
+    they have paid it. Also renders the per-class roster (ClassesController::downloadStudents):
+    pass $class instead of relying on the level heading, everything else is shared.
 
     Styled to match absence_list_pdf so the two documents read as one family — same header
     block, same red rule, same ✓ / ✗ vocabulary for paid and assured. DejaVu Sans is not
@@ -11,13 +12,15 @@
 <html lang="fr">
 <head>
     <meta charset="utf-8">
-    <title>Liste des élèves — {{ $level->name }}</title>
+    <title>Liste des élèves — {{ isset($class) ? $class->name : $level->name }}</title>
     <style>
         @page { margin: 18px 22px; }
         body { font-family: DejaVu Sans, sans-serif; }
         .header-table { width: 100%; }
         .header-table td { vertical-align: top; }
-        .logo { height: 70px; }
+        /* The horizontal lockup is ~2.75:1; 60px of height keeps its width inside the
+           30% header column, where 70px (the old square logo's size) would overflow. */
+        .logo { height: 60px; max-width: 100%; }
         .school-title { font-size: 1.3em; font-weight: bold; text-align: right; }
         .school-slogan { font-size: 0.95em; color: #444; text-align: right; }
         .red-line { border-top: 2px solid #a00; margin: 8px 0 6px 0; }
@@ -50,7 +53,7 @@
     <table class="header-table">
         <tr>
             <td style="width: 30%;">
-                <img src="{{ public_path('logo.png') }}" class="logo" alt="Logo">
+                <img src="{{ public_path('logo-tiko-horizontal.png') }}" class="logo" alt="Logo">
             </td>
             <td style="width: 70%; text-align: right;">
                 {{-- Always the brand, never the branch: "Tiko School C1" is a site, the
@@ -65,7 +68,9 @@
     <table class="info-row">
         <tr>
             <td style="text-align:left;">Liste des élèves</td>
-            <td style="text-align:center;">Niveau : {{ $level->name }}</td>
+            <td style="text-align:center;">
+                {{ isset($class) ? 'Classe : '.$class->name : 'Niveau : '.$level->name }}
+            </td>
             <td style="text-align:center;">
                 Établissement : {{ $school->name ?? 'Tous' }}
             </td>
@@ -78,6 +83,7 @@
             <tr>
                 <th style="width: 26px;">N°</th>
                 <th class="name">Nom complet</th>
+                <th style="width: 78px;">Date d'inscription</th>
                 <th class="offer">Offre</th>
                 <th style="width: 90px;">Statut</th>
                 <th style="width: 60px;">Assurance</th>
@@ -88,6 +94,11 @@
                 <tr>
                     <td>{{ $i + 1 }}</td>
                     <td class="name">{{ strtoupper($student->lastName) }} {{ $student->firstName }}</td>
+                    {{-- billingDate is the date the school inscribed the pupil — the same
+                         value the movements system records as the inscription movement. --}}
+                    <td>
+                        {{ $student->billingDate ? \Illuminate\Support\Carbon::parse($student->billingDate)->format('d/m/Y') : '—' }}
+                    </td>
 
                     {{-- One student can hold several memberships — Maths with one teacher,
                          Physics with another. Both cells stack their lines in the same
@@ -134,8 +145,8 @@
                 </tr>
             @empty
                 <tr>
-                    <td colspan="5" style="padding: 18px; color:#666;">
-                        Aucun élève actif dans ce niveau.
+                    <td colspan="6" style="padding: 18px; color:#666;">
+                        Aucun élève actif {{ isset($class) ? 'dans cette classe.' : 'dans ce niveau.' }}
                     </td>
                 </tr>
             @endforelse

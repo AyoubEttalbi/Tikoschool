@@ -64,20 +64,37 @@ function absenceRow(Student $student, string $subject, string $date = '2026-08-1
 }
 
 /*
- * THE DUPLICATE THE BUTTON USED TO SEND
+ * THE REGISTER'S COPY, WAITING FOR THIS PRESS
  *
- * The register reports an absence automatically. Somebody then opens the absence log, sees
- * a plain green "Envoyer WhatsApp" with no indication it had already gone out, and presses
- * it. The manual path used its own key — pupil + today + subject — which never collided
- * with the register's key, so a real parent received the same notice twice.
- *
- * Both paths now key on the absence itself, so the second one is refused.
+ * The register records notices without sending them (the approval gate), so the button
+ * meeting an existing row no longer means "already sent" — it can mean "waiting for
+ * exactly this press". The two outcomes must not share a message: one releases the
+ * notice, the other refuses a duplicate.
  */
-it('refuses to re-report an absence the register already reported', function () {
+it('approves and sends the register’s waiting notice instead of calling it a duplicate', function () {
     $student = notifiableStudent();
     $absence = absenceRow($student, 'Mathématiques');
 
-    app(OutboundMessageService::class)->createForAbsence($absence);
+    // What the register path leaves behind: recorded, keyed, not sent.
+    app(OutboundMessageService::class)->createForAbsence($absence, awaitApproval: true);
+
+    test()->actingAs(notifyingAdmin())
+        ->post(route('absence.notify', $student->id), ['attendance_id' => $absence->id])
+        ->assertRedirect()
+        ->assertSessionHas('success');
+
+    $notice = OutboundMessage::where('student_id', $student->id)->sole();
+
+    expect($notice->status)->toBe(OutboundMessage::STATUS_PENDING)
+        ->and(OutboundMessage::count())->toBe(1);
+});
+
+it('still refuses a re-report once the notice has actually gone out', function () {
+    $student = notifiableStudent();
+    $absence = absenceRow($student, 'Mathématiques');
+
+    $sent = app(OutboundMessageService::class)->createForAbsence($absence);
+    $sent->update(['status' => OutboundMessage::STATUS_SENT, 'sent_at' => now()]);
 
     test()->actingAs(notifyingAdmin())
         ->post(route('absence.notify', $student->id), ['attendance_id' => $absence->id])
@@ -135,12 +152,14 @@ it('tells the absence log what each parent already knows', function () {
     $reported = absenceRow($student, 'Mathématiques');
     $untouched = absenceRow($student, 'Français');
 
-    app(OutboundMessageService::class)->createForAbsence($reported);
+    // The register's own path: recorded as waiting, which is what the log needs to say —
+    // the row button reads "À valider", not "En file".
+    app(OutboundMessageService::class)->createForAbsence($reported, awaitApproval: true);
 
     $summary = OutboundMessage::summaryForAttendances([$reported->id, $untouched->id]);
 
     expect($summary)->toHaveKey($reported->id)
-        ->and($summary[$reported->id]['status'])->toBe(OutboundMessage::STATUS_PENDING)
+        ->and($summary[$reported->id]['status'])->toBe(OutboundMessage::STATUS_AWAITING_APPROVAL)
         ->and($summary)->not->toHaveKey($untouched->id);
 });
 
