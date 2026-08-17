@@ -61,7 +61,11 @@ COPY --from=build /app/public/build /app/public/build
 # Install PHP dependencies
 # --prefer-dist only: --prefer-source needs git, which this image does not ship, so the
 # first attempt always failed and re-downloaded every package from dist anyway — twice.
-RUN composer install --no-dev --optimize-autoloader --prefer-dist \
+# Packagist dist archives are served from codeload.github.com, which rate-limits
+# unauthenticated builds (HTTP 429 after ~60 requests); the aliyun composer mirror
+# re-hosts the same metadata and dist archives without that cap.
+RUN composer config repo.packagist composer https://mirrors.aliyun.com/composer/ \
+    && composer install --no-dev --optimize-autoloader --prefer-dist \
     && php artisan storage:link \
     && chown -R www-data:www-data /app/storage /app/bootstrap/cache /app/public/storage
 
