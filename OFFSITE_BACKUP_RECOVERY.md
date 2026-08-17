@@ -3,17 +3,21 @@
 Nightly DB backup flow on the VPS (`tikoschool-vps`):
 
 ```
-MySQL → mysqldump (every user database) → gzip → [rclone crypt] → Google Drive (TIKSCHOOL-BACKUPS)
+MySQL → mysqldump (in-use databases only) → gzip → [rclone crypt] → Google Drive (TIKSCHOOL-BACKUPS)
 ```
 
-- **What is backed up:** ALL user databases, one file each — currently `tikoschool` (the live
-  one, ~1.1 MB dump) and `tikoschool_vide` (small side schema). System schemas
-  (`mysql`, `information_schema`, `performance_schema`, `sys`) are excluded.
-  New databases are picked up automatically; none can be missed silently.
+- **What is backed up:** only the database(s) the app actually uses — `DB_DATABASE` from
+  `.env` (currently: `tikoschool`, ~1.1 MB dump). `tikoschool_vide` (a leftover demo
+  schema with sample data and zero app references) is deliberately excluded; older
+  `tikoschool_vide` files already on Drive age out via the 30-day prune.
 - **Local:** `/var/backups/tikoschool/daily|weekly/` — 14 dailies + 8 weeklies
 - **Off-site:** Google Drive, folder `TIKSCHOOL-BACKUPS`, remote `tikcrypt:` — **30 days** retention
 - **Encryption:** rclone `crypt` remote — filenames AND contents encrypted. Nobody with read
   access to the Google account (or Google itself) can read the data.
+- **Check the latest backup:** `/usr/local/bin/backup-tikoschool-latest.sh` — prints the
+  newest off-site file per database plus local counts. Backups are named
+  `<database>_YYYY-MM-DD_HHMM.sql.gz`; newest = latest timestamp (never guess from the
+  raw Drive names — those are encrypted).
 
 ## What runs where
 
