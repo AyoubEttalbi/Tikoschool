@@ -71,9 +71,11 @@ const EmployeeSummaryTable = ({
     onEdit,
     onView,
     onMakePayment,
+    selectedMonth = null,
+    selectedYear = null,
+    onMonthChange,
+    onYearChange,
 }) => {
-    const [selectedMonth, setSelectedMonth] = useState(null);
-    const [selectedYear, setSelectedYear] = useState(null);
     const [viewingEmployeeId, setViewingEmployeeId] = useState(null);
     // `filteredData` is no longer state — it is derived (see the useMemo below). Two effects
     // used to race to setFilteredData(), and the loser's work was silently discarded.
@@ -249,16 +251,6 @@ const EmployeeSummaryTable = ({
                 return true;
         }
     };
-
-    // Add useEffect to set initial month and year to current month
-    useEffect(() => {
-        if (!selectedMonth || !selectedYear) {
-            // Always default to current month/year to ensure we show current data
-            const currentDate = new Date();
-            setSelectedMonth(currentDate.getMonth());
-            setSelectedYear(currentDate.getFullYear());
-        }
-    }, [employeePayments]);
 
     // Month-scoped enrichment (monthlyPaid / monthlyExpenses / lastPayment / balance).
     //
@@ -548,7 +540,7 @@ const EmployeeSummaryTable = ({
                             className="bg-white border border-gray-300 rounded-md shadow-sm py-2 pl-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                             value={selectedMonth}
                             onChange={(e) =>
-                                setSelectedMonth(parseInt(e.target.value))
+                                onMonthChange(parseInt(e.target.value))
                             }
                         >
                             {months.map((month) => (
@@ -561,7 +553,7 @@ const EmployeeSummaryTable = ({
                             className="bg-white border border-gray-300 rounded-md shadow-sm py-2 pl-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                             value={selectedYear}
                             onChange={(e) =>
-                                setSelectedYear(parseInt(e.target.value))
+                                onYearChange(parseInt(e.target.value))
                             }
                         >
                             {years.map((year) => (

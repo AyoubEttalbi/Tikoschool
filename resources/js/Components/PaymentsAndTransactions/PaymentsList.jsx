@@ -21,6 +21,10 @@ const PaymentsList = ({
     onAddExpense,
     onEditEmployee,
     onDeleteEmployee,
+    selectedMonth,
+    selectedYear,
+    onMonthChange,
+    onYearChange,
 }) => {
     const [filterType, setFilterType] = useState("all");
     const [selectedTab, setSelectedTab] = useState(0);
@@ -181,6 +185,10 @@ const PaymentsList = ({
                             onEdit={onEditEmployee}
                             onMakePayment={onMakePayment}
                             users={safeUsers}
+                            selectedMonth={selectedMonth}
+                            selectedYear={selectedYear}
+                            onMonthChange={onMonthChange}
+                            onYearChange={onYearChange}
                         />
                     </Tab.Panel>
                     <Tab.Panel>

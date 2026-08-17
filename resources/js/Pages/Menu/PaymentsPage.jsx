@@ -51,6 +51,13 @@ const PaymentsPage = ({
         adminEarnings || [],
     );
 
+    // The "Filtrer par mois" select lives in EmployeeSummaryTable, but the annual
+    // summary cards and chart below (AdminEarningsSection) must follow the year picked
+    // there — otherwise switching year leaves the cards showing the previous one.
+    const now = new Date();
+    const [filterMonth, setFilterMonth] = useState(now.getMonth());
+    const [filterYear, setFilterYear] = useState(now.getFullYear());
+
     // Fetch admin earnings data if not provided.
     //
     // Skipped entirely on a form view: the earnings panel is not rendered there, and this
@@ -231,6 +238,10 @@ const PaymentsPage = ({
                                 onMakePayment={handleMakePayment}
                                 onEditEmployee={handleEditEmployee}
                                 adminEarnings={localAdminEarnings}
+                                selectedMonth={filterMonth}
+                                selectedYear={filterYear}
+                                onMonthChange={setFilterMonth}
+                                onYearChange={setFilterYear}
                             />
                         )}
                         {activeView === "form" && (
@@ -290,6 +301,7 @@ const PaymentsPage = ({
                         {localAdminEarnings && (
                             <AdminEarningsSection
                                 adminEarnings={localAdminEarnings}
+                                selectedYear={filterYear}
                             />
                         )}
                     </>

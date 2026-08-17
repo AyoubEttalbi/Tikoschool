@@ -3,7 +3,7 @@ import FinancialSummaryCards from "./FinancialSummaryCards";
 import EarningsChart from "./EarningsChart";
 import { calculateChange, formatCurrency } from "./Utils";
 
-const AdminEarningsSection = ({ adminEarnings }) => {
+const AdminEarningsSection = ({ adminEarnings, selectedYear: controlledYear }) => {
     const earningsData = Array.isArray(adminEarnings?.earnings)
         ? adminEarnings.earnings
         : [];
@@ -24,12 +24,17 @@ const AdminEarningsSection = ({ adminEarnings }) => {
         (!earningsData || earningsData.length === 0);
 
     const [viewMode, setViewMode] = useState("monthly");
-    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+    const [internalYear, setInternalYear] = useState(new Date().getFullYear());
     const [visualizationType, setVisualizationType] = useState("bar");
     const [page, setPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(6);
     const [showTrend, setShowTrend] = useState(false);
     const [showDebug, setShowDebug] = useState(false);
+
+    // The year picked in the "Filtrer par mois" select wins when provided — the yearly
+    // cards, chart and tables all follow it. Without a prop, fall back to the newest
+    // year that has data (the old behaviour).
+    const selectedYear = controlledYear ?? internalYear;
 
     useEffect(() => {
         // Remove all console.log debug statements
@@ -43,10 +48,11 @@ const AdminEarningsSection = ({ adminEarnings }) => {
     }, [earningsData]);
 
     useEffect(() => {
+        if (controlledYear !== undefined) return;
         if (earningsData.length > 0 && availableYears.length > 0) {
-            setSelectedYear(availableYears[0]);
+            setInternalYear(availableYears[0]);
         }
-    }, [earningsData, availableYears]);
+    }, [controlledYear, earningsData, availableYears]);
 
     const monthOrder = [
         "Janvier",
