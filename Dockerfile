@@ -59,7 +59,9 @@ COPY . .
 COPY --from=build /app/public/build /app/public/build
 
 # Install PHP dependencies
-RUN composer install --no-dev --optimize-autoloader --prefer-source || composer install --no-dev --optimize-autoloader --prefer-dist \
+# --prefer-dist only: --prefer-source needs git, which this image does not ship, so the
+# first attempt always failed and re-downloaded every package from dist anyway — twice.
+RUN composer install --no-dev --optimize-autoloader --prefer-dist \
     && php artisan storage:link \
     && chown -R www-data:www-data /app/storage /app/bootstrap/cache /app/public/storage
 
