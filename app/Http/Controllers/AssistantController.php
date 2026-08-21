@@ -14,17 +14,14 @@ use App\Models\Student;
 use App\Models\Subject;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Services\ProfileImageService;
 use Carbon\Carbon;
-// use CloudinaryLabs\CloudinaryLaravel\Facades\Cloudinary;
-use Cloudinary\Cloudinary;
-use Cloudinary\Configuration\Configuration;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\URL;
 use Illuminate\Validation\Rules;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
@@ -32,88 +29,7 @@ use Spatie\Activitylog\Models\Activity;
 
 class AssistantController extends Controller
 {
-    // Helper function to get Cloudinary
-    private function getCloudinary()
-    {
-        return new Cloudinary(
-            Configuration::instance([
-                'cloud' => [
-                    'cloud_name' => env('CLOUDINARY_CLOUD_NAME'),
-                    'api_key' => env('CLOUDINARY_API_KEY'),
-                    'api_secret' => env('CLOUDINARY_API_SECRET'),
-                ],
-                'url' => [
-                    'secure' => true,
-                ],
-            ])
-        );
-    }
-
-    /**
-     * @param  \Illuminate\Http\UploadedFile  $file
-     * @param  string  $folder
-     * @param  int  $width
-     * @param  int  $height
-     * @return array
-     */
-    private function uploadToCloudinary($file, $folder = 'assistants', $width = 300, $height = 300)
-    {
-        $cloudinary = $this->getCloudinary();
-        $uploadApi = $cloudinary->uploadApi();
-
-        // Get file info
-        $fileSize = $file->getSize(); // Size in bytes
-        $fileExtension = $file->extension();
-
-        // Set quality based on file size to optimize
-        $quality = 'auto';
-
-        // For large images, we can be more aggressive with compression
-        if ($fileSize > 1000000) { // 1MB
-            $quality = 'auto:low';
-        }
-
-        // Upload parameters
-        $options = [
-            'folder' => $folder,
-            'transformation' => [
-                // Resize to fit within dimensions while maintaining aspect ratio
-                [
-                    'width' => $width,
-                    'height' => $height,
-                    'crop' => 'fill',
-                    'gravity' => 'auto', // Smart cropping
-                ],
-                // Quality and format optimization
-                [
-                    'quality' => $quality,
-                    'fetch_format' => 'auto', // Auto select best format (webp when possible)
-                ],
-            ],
-            // Add public_id for better organization (optional)
-            'public_id' => 'assistant_'.time().'_'.random_int(1000, 9999),
-            // Optional: Add these for even more optimization
-            'resource_type' => 'image',
-            'flags' => 'lossy', // Apply lossy compression
-            // Add metadata for better tracking
-            'context' => 'source=laravel-app|user=assistant',
-        ];
-
-        // Upload to Cloudinary
-        $result = $uploadApi->upload($file->getRealPath(), $options);
-
-        // Return the results with all URLs and data
-        return [
-            'secure_url' => $result['secure_url'],
-            'public_id' => $result['public_id'],
-            'format' => $result['format'],
-            'width' => $result['width'],
-            'height' => $result['height'],
-            'bytes' => $result['bytes'],
-            'resource_type' => $result['resource_type'],
-            'created_at' => $result['created_at'],
-        ];
-    }
+    public function __construct(private ProfileImageService $profileImages) {}
 
     /**
      * Display a listing of the resource.
@@ -221,26 +137,16 @@ class AssistantController extends Controller
                 'email' => 'required|string|email|max:255|unique:assistants,email',
                 'phone_number' => 'nullable|string|max:20',
                 'address' => 'nullable|string|max:255',
-                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120', // Increased to 5MB
+                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120', // Increased to 5MB
                 'salary' => 'required|numeric|min:0',
                 'status' => 'required|in:active,inactive',
                 'schools' => 'required|array',
                 'schools.*' => 'exists:schools,id',
             ]);
 
-            // Handle profile image upload to Cloudinary
             if ($request->hasFile('profile_image')) {
-                $uploadedFile = $request->file('profile_image');
-
-                // Use our optimized upload method
-                $uploadResult = $this->uploadToCloudinary($uploadedFile);
-
-                // Store only the secure URL in the database
-                $validatedData['profile_image'] = $uploadResult['secure_url'];
-
-                // Optionally, you can store more metadata in your database
-                // $validatedData['profile_image_public_id'] = $uploadResult['public_id'];
-                // $validatedData['profile_image_bytes'] = $uploadResult['bytes'];
+                // May throw ValidationException — caught below by the dedicated handler.
+                $validatedData['profile_image'] = $this->profileImages->store($request->file('profile_image'), 'assistants');
             }
 
             // Create the assistant record
@@ -836,7 +742,7 @@ class AssistantController extends Controller
                 ],
                 'phone_number' => 'nullable|string|max:20',
                 'address' => 'nullable|string|max:255',
-                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120',
+                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
                 'salary' => 'required|numeric|min:0',
                 'status' => 'required|in:active,inactive',
                 'schools' => 'array',
@@ -856,15 +762,30 @@ class AssistantController extends Controller
                     ->withInput();
             }
 
-            // Handle profile image upload to Cloudinary
+            $newImagePath = null;
+            $oldRawImage = $assistant->getRawOriginal('profile_image');
             if ($request->hasFile('profile_image')) {
-                $uploadedFile = $request->file('profile_image');
-                $uploadResult = $this->uploadToCloudinary($uploadedFile);
-                $validatedData['profile_image'] = $uploadResult['secure_url'];
-                if ($assistant->profile_image && $assistant->profile_image_public_id) {
-                    $cloudinary = $this->getCloudinary();
-                    $cloudinary->uploadApi()->destroy($assistant->profile_image_public_id);
+                $newImagePath = $this->profileImages->store($request->file('profile_image'), 'assistants');
+
+                // Optimistic concurrency: swap the reference only if it still holds the value
+                // this request was rendered with. Two simultaneous replaces cannot both win;
+                // the loser discards its freshly stored file instead of leaving an orphan leak.
+                $swapped = Assistant::whereKey($assistant->getKey())
+                    ->when($oldRawImage === null,
+                        fn ($q) => $q->whereNull('profile_image'),
+                        fn ($q) => $q->where('profile_image', $oldRawImage))
+                    ->update(['profile_image' => $newImagePath]);
+
+                if ($swapped === 0) {
+                    $this->profileImages->discard($newImagePath);
+
+                    return redirect()->back()
+                        ->withErrors(['profile_image' => "L'image a été modifiée entre-temps. Rechargez la page et réessayez."])
+                        ->withInput();
                 }
+
+                // Reference already atomically updated; keep it out of the bulk update below.
+                unset($validatedData['profile_image']);
             }
 
             // Update the assistant record
@@ -886,6 +807,10 @@ class AssistantController extends Controller
                     'school_id' => $currentSchoolId,
                     'school_name' => $currentSchoolName,
                 ]);
+            }
+
+            if ($newImagePath !== null && $oldRawImage !== null) {
+                $this->profileImages->delete($oldRawImage);
             }
 
             $isFormUpdate = $request->has('is_form_update');
@@ -915,9 +840,8 @@ class AssistantController extends Controller
     public function destroy(Assistant $assistant)
     {
         try {
-            // if ($assistant->profile_image) {
-            //     Storage::disk('public')->delete($assistant->profile_image);
-            // }
+            // Image file intentionally kept: this is a soft delete — the row keeps its
+            // reference so a restore gets the image back. Permanent purge deletes the file.
 
             $assistant->delete();
 
@@ -949,7 +873,7 @@ class AssistantController extends Controller
                 'assistant.address' => 'required|string|max:255',
                 'assistant.status' => 'required|in:active,inactive',
                 'assistant.salary' => 'required|numeric|min:0',
-                'assistant.profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120',
+                'assistant.profile_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
                 'assistant.schools' => 'array',
                 'assistant.schools.*' => 'exists:schools,id',
             ]);
@@ -973,8 +897,8 @@ class AssistantController extends Controller
                 'salary' => $request->input('assistant.salary'),
             ];
             if ($request->hasFile('assistant.profile_image')) {
-                $uploadResult = $this->uploadToCloudinary($request->file('assistant.profile_image'));
-                $assistantDataArr['profile_image'] = $uploadResult['secure_url'];
+                // May throw ValidationException — forwarded to the form by the dedicated catch below.
+                $assistantDataArr['profile_image'] = $this->profileImages->store($request->file('assistant.profile_image'), 'assistants', 'assistant.profile_image');
             }
             // Create assistant
             $assistant = Assistant::create($assistantDataArr);

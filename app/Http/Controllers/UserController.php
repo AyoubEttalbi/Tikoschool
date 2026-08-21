@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Assistant;
 use App\Models\Teacher;
 use App\Models\User;
+use App\Services\ProfileImageService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -15,6 +16,8 @@ use Illuminate\Validation\ValidationException;
 
 class UserController extends Controller
 {
+    public function __construct(private ProfileImageService $profileImages) {}
+
     /**
      * Update the specified user in storage.
      */
@@ -30,6 +33,7 @@ class UserController extends Controller
             $validationRules = [
                 'name' => 'sometimes|string|max:255',
                 'role' => 'sometimes|in:admin,assistant,teacher',
+                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
                 // Use the app-wide policy rather than a raw min:8 string.
                 'password' => ['nullable', 'string', Password::defaults()],
             ];
@@ -77,6 +81,33 @@ class UserController extends Controller
             } else {
                 unset($validatedData['password']);
             }
+
+            $newImagePath = null;
+            $oldRawImage = $user->getRawOriginal('profile_image');
+            if ($request->hasFile('profile_image')) {
+                $newImagePath = $this->profileImages->store($request->file('profile_image'), 'admins');
+
+                // Optimistic concurrency: swap the reference only if it still holds the value
+                // this request was rendered with. Two simultaneous replaces cannot both win;
+                // the loser discards its freshly stored file instead of leaving an orphan leak.
+                $swapped = User::whereKey($user->getKey())
+                    ->when($oldRawImage === null,
+                        fn ($q) => $q->whereNull('profile_image'),
+                        fn ($q) => $q->where('profile_image', $oldRawImage))
+                    ->update(['profile_image' => $newImagePath]);
+
+                if ($swapped === 0) {
+                    $this->profileImages->discard($newImagePath);
+
+                    return redirect()->back()
+                        ->withErrors(['profile_image' => "L'image a été modifiée entre-temps. Rechargez la page et réessayez."])
+                        ->withInput();
+                }
+
+                // Reference already atomically updated; keep it out of the bulk update below.
+                unset($validatedData['profile_image']);
+            }
+
             $user->update($validatedData);
 
             // Update the related teacher or assistant record if needed
@@ -112,6 +143,10 @@ class UserController extends Controller
                 }
             }
 
+            if ($newImagePath !== null && $oldRawImage !== null) {
+                $this->profileImages->delete($oldRawImage);
+            }
+
             // French: every other string on this screen is, and this one is rendered.
             return redirect()->back()->with('success', 'Utilisateur mis à jour.');
         } catch (ValidationException $e) {
@@ -142,8 +177,14 @@ class UserController extends Controller
     public function destroy(User $user): RedirectResponse
     {
         try {
+            // Capture the raw path BEFORE delete(): users hard-delete, so the file goes
+            // with the row and there is no restore to bring it back for.
+            $rawProfileImage = $user->getRawOriginal('profile_image');
+
             // Delete the user
             $user->delete();
+
+            $this->profileImages->delete($rawProfileImage);
 
             // Redirect with success message
             return redirect()->back()->with('success', 'Utilisateur supprimé.');

@@ -16,6 +16,7 @@ use App\Http\Controllers\OfferController;
 use App\Http\Controllers\OutboundMessageController;
 use App\Http\Controllers\PerformanceController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\ProfileImageController;
 use App\Http\Controllers\ResultsController;
 use App\Http\Controllers\SchoolController;
 use App\Http\Controllers\SchoolYearController;
@@ -67,6 +68,14 @@ Route::middleware('auth')->group(function () {
         Route::get('/select-profile', 'select')->name('profiles.select');
         Route::post('/select-profile', 'store')->name('profiles.store');
     });
+
+    // Profile images — PRIVATE: served through this authed, record-scoped controller,
+    // never as static files. The regex admits only <type>/<40hex>.webp and the
+    // controller re-applies each record's existing visibility rules before streaming
+    // bytes. Registered early so no wildcard route can shadow it.
+    Route::get('/profile-images/{path}', [ProfileImageController::class, 'show'])
+        ->where('path', '(?:students|teachers|assistants|admins)/[a-f0-9]{40}\.webp')
+        ->name('profile-images.show');
 
     // Main resource routes - accessible by all authenticated users based on Menu.jsx
     //

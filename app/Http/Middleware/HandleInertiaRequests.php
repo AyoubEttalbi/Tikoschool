@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Models\User;
 use App\Support\SchoolScope;
+use App\Support\ProfileImageUrl;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
@@ -24,15 +25,15 @@ class HandleInertiaRequests extends Middleware
             return null;
         }
 
-        $table = match ($user->role) {
-            'assistant' => 'assistants',
-            'teacher' => 'teachers',
+        // Admins live only on users (no staff record); teachers/assistants join by email.
+        $raw = match ($user->role) {
+            'assistant' => DB::table('assistants')->where('email', $user->email)->value('profile_image'),
+            'teacher' => DB::table('teachers')->where('email', $user->email)->value('profile_image'),
+            'admin' => User::where('email', $user->email)->value('profile_image'),
             default => null
         };
 
-        return $table
-            ? DB::table($table)->where('email', $user->email)->value('profile_image')
-            : null;
+        return ProfileImageUrl::resolve($raw);
     }
 
     /**
@@ -109,7 +110,9 @@ class HandleInertiaRequests extends Middleware
 
         $emails = $users->pluck('email')->all();
 
-        // One query per table instead of one per user.
+        // One query per table instead of one per user. Admins resolve from users,
+        // staff from their own tables; every raw value goes through the URL resolver
+        // so the SPA receives ready-to-render <img> sources.
         $images = DB::table('teachers')
             ->whereIn('email', $emails)
             ->pluck('profile_image', 'email')
@@ -117,10 +120,13 @@ class HandleInertiaRequests extends Middleware
                 DB::table('assistants')
                     ->whereIn('email', $emails)
                     ->pluck('profile_image', 'email')
+            )
+            ->union(
+                User::whereIn('email', $emails)->pluck('profile_image', 'email')
             );
 
         return $users->map(function ($user) use ($images) {
-            $user->profile_image = $images[$user->email] ?? null;
+            $user->profile_image = ProfileImageUrl::resolve($images[$user->email] ?? null);
 
             return $user;
         })->values()->toArray();

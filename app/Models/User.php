@@ -22,6 +22,7 @@ class User extends Authenticatable
         'email',
         'password',
         'role',
+        'profile_image',
     ];
 
     /**
@@ -46,9 +47,20 @@ class User extends Authenticatable
             'password' => 'hashed',
         ];
     }
+
     public function transactions()
     {
         return $this->hasMany(Transaction::class);
+    }
+
+    /**
+     * Raw storage is a logical relative path ("admins/<hex>.webp") or a legacy
+     * absolute URL; consumers always get a renderable URL back.
+     * Internal code needing the stored value must use getRawOriginal('profile_image').
+     */
+    public function getProfileImageAttribute($value)
+    {
+        return \App\Support\ProfileImageUrl::resolve($value);
     }
 
     public function teacher()
@@ -75,5 +87,4 @@ class User extends Authenticatable
     {
         return $this->role === 'admin';
     }
-
 }

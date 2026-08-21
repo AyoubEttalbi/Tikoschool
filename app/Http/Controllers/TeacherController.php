@@ -12,11 +12,10 @@ use App\Models\Subject;
 use App\Models\Teacher;
 use App\Models\TeacherWalletEntry;
 use App\Models\User;
+use App\Services\ProfileImageService;
 use App\Support\OfferPercentages;
 use App\Support\SchoolScope;
 use Carbon\Carbon;
-use Cloudinary\Cloudinary;
-use Cloudinary\Configuration\Configuration;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -29,55 +28,7 @@ use Inertia\Inertia;
 
 class TeacherController extends Controller
 {
-    private function getCloudinary()
-    {
-        return new Cloudinary(
-            Configuration::instance([
-                'cloud' => [
-                    'cloud_name' => env('CLOUDINARY_CLOUD_NAME'),
-                    'api_key' => env('CLOUDINARY_API_KEY'),
-                    'api_secret' => env('CLOUDINARY_API_SECRET'),
-                ],
-                'url' => [
-                    'secure' => true,
-                ],
-            ])
-        );
-    }
-
-    /**
-     * Upload file to Cloudinary
-     */
-    private function uploadToCloudinary($file, $folder = 'teachers', $width = 300, $height = 300)
-    {
-        $cloudinary = $this->getCloudinary();
-        $uploadApi = $cloudinary->uploadApi();
-
-        $options = [
-            'folder' => $folder,
-            'transformation' => [
-                [
-                    'width' => $width,
-                    'height' => $height,
-                    'crop' => 'fill',
-                    'gravity' => 'auto',
-                ],
-                [
-                    'quality' => 'auto',
-                    'fetch_format' => 'auto',
-                ],
-            ],
-            'public_id' => 'teacher_'.time().'_'.random_int(1000, 9999),
-            'resource_type' => 'image',
-        ];
-
-        $result = $uploadApi->upload($file->getRealPath(), $options);
-
-        return [
-            'secure_url' => $result['secure_url'],
-            'public_id' => $result['public_id'],
-        ];
-    }
+    public function __construct(private ProfileImageService $profileImages) {}
 
     /**
      * Display a listing of the resource.
@@ -258,7 +209,7 @@ class TeacherController extends Controller
                 'phone_number' => 'nullable|string|max:20',
                 'email' => 'required|string|email|max:255|unique:teachers,email',
                 'status' => 'required|in:active,inactive',
-                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120',
+                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
                 'schools' => 'array',
                 'schools.*' => 'exists:schools,id',
                 'subjects' => 'array',
@@ -278,12 +229,9 @@ class TeacherController extends Controller
             // like it does something.
             unset($validatedData['wallet']);
 
-            // Handle profile image upload
             if ($request->hasFile('profile_image')) {
-                $uploadResult = $this->uploadToCloudinary($request->file('profile_image'));
-                $validatedData['profile_image'] = $uploadResult['secure_url'];
-                // If you want to store public_id for future management:
-                // $validatedData['profile_image_public_id'] = $uploadResult['public_id'];
+                // May throw ValidationException — rethrown below so the form renders the field error.
+                $validatedData['profile_image'] = $this->profileImages->store($request->file('profile_image'), 'teachers');
             }
 
             event(new CheckEmailUnique($request->email));
@@ -297,6 +245,8 @@ class TeacherController extends Controller
             $teacher->schools()->sync($request->schools ?? []);
 
             return redirect()->route('teachers.index')->with('success', 'Teacher created successfully.');
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\Exception $e) {
             Log::error('Error creating teacher: '.$e->getMessage());
 
@@ -1045,7 +995,7 @@ class TeacherController extends Controller
                     'unique:teachers,email,'.$teacher->id,
                 ],
                 'status' => 'required|in:active,inactive',
-                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120',
+                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
                 'subjects' => 'array',
                 'subjects.*' => 'exists:subjects,id',
                 'classes' => 'array',
@@ -1080,16 +1030,30 @@ class TeacherController extends Controller
                     ->withInput();
             }
 
-            // Handle profile image update
+            $newImagePath = null;
+            $oldRawImage = $teacher->getRawOriginal('profile_image');
             if ($request->hasFile('profile_image')) {
-                if ($teacher->profile_image) {
-                    $publicId = $teacher->profile_image_public_id ?? null;
-                    if ($publicId) {
-                        $this->getCloudinary()->uploadApi()->destroy($publicId);
-                    }
+                $newImagePath = $this->profileImages->store($request->file('profile_image'), 'teachers');
+
+                // Optimistic concurrency: swap the reference only if it still holds the value
+                // this request was rendered with. Two simultaneous replaces cannot both win;
+                // the loser discards its freshly stored file instead of leaving an orphan leak.
+                $swapped = Teacher::whereKey($teacher->getKey())
+                    ->when($oldRawImage === null,
+                        fn ($q) => $q->whereNull('profile_image'),
+                        fn ($q) => $q->where('profile_image', $oldRawImage))
+                    ->update(['profile_image' => $newImagePath]);
+
+                if ($swapped === 0) {
+                    $this->profileImages->discard($newImagePath);
+
+                    return redirect()->back()
+                        ->withErrors(['profile_image' => "L'image a été modifiée entre-temps. Rechargez la page et réessayez."])
+                        ->withInput();
                 }
-                $uploadResult = $this->uploadToCloudinary($request->file('profile_image'));
-                $validatedData['profile_image'] = $uploadResult['secure_url'];
+
+                // Reference already atomically updated; keep it out of the bulk update below.
+                unset($validatedData['profile_image']);
             }
 
             event(new CheckEmailUnique($request->email, $teacher->id));
@@ -1117,6 +1081,10 @@ class TeacherController extends Controller
                 ]);
             }
 
+            if ($newImagePath !== null && $oldRawImage !== null) {
+                $this->profileImages->delete($oldRawImage);
+            }
+
             $isFormUpdate = $request->has('is_form_update');
             if ($isFormUpdate) {
                 return redirect()->route('teachers.show', $teacher->id)->with('success', 'Teacher updated successfully.');
@@ -1127,6 +1095,8 @@ class TeacherController extends Controller
             } else {
                 return redirect()->route('teachers.show', $teacher->id)->with('success', 'Teacher updated successfully.');
             }
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\Exception $e) {
             Log::error('Error updating teacher: '.$e->getMessage());
 
@@ -1225,13 +1195,8 @@ class TeacherController extends Controller
     public function destroy(Teacher $teacher)
     {
         try {
-            // Delete profile image from Cloudinary if exists
-            if ($teacher->profile_image) {
-                $publicId = $teacher->profile_image_public_id ?? null;
-                if ($publicId) {
-                    $this->getCloudinary()->uploadApi()->destroy($publicId);
-                }
-            }
+            // Image file intentionally kept: this is a soft delete — the row keeps its
+            // reference so a restore gets the image back. Permanent purge deletes the file.
 
             // Detach relationships
             $teacher->subjects()->detach();
@@ -1272,7 +1237,7 @@ class TeacherController extends Controller
                 'teacher.phone_number' => 'nullable|string|max:20',
                 'teacher.email' => 'required|string|email|max:255|unique:teachers,email',
                 'teacher.status' => 'required|in:active,inactive',
-                'teacher.profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120',
+                'teacher.profile_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
                 'teacher.schools' => 'array',
                 'teacher.schools.*' => 'exists:schools,id',
                 'teacher.subjects' => 'array',
@@ -1302,8 +1267,8 @@ class TeacherController extends Controller
             ];
 
             if ($request->hasFile('teacher.profile_image')) {
-                $uploadResult = $this->uploadToCloudinary($request->file('teacher.profile_image'));
-                $teacherDataArr['profile_image'] = $uploadResult['secure_url'];
+                // May throw ValidationException — forwarded to the form by the dedicated catch below.
+                $teacherDataArr['profile_image'] = $this->profileImages->store($request->file('teacher.profile_image'), 'teachers', 'teacher.profile_image');
             }
 
             // Create teacher

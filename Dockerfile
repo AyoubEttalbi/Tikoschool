@@ -23,15 +23,24 @@ RUN npm run build
 FROM php:8.2-fpm-alpine AS php
 
 # System dependencies + PHP extensions (merged to clean up build deps)
+#
+# GD codecs matter: with only libpng-dev, docker-php-ext-install gd compiles a PNG-only
+# build (no JPEG, no WebP) while local Windows PHP has both enabled — so profile-image
+# processing worked locally and 500'd in production. libjpeg-turbo-dev + libwebp-dev +
+# freetype-dev plus the matching --with-* flags give JPEG/WebP/text parity with local.
 RUN apk add --no-cache \
     supervisor \
     bash \
     curl \
     libpng-dev \
+    libjpeg-turbo-dev \
+    libwebp-dev \
+    freetype-dev \
     libxml2-dev \
     libzip-dev \
     oniguruma-dev \
     $PHPIZE_DEPS \
+    && docker-php-ext-configure gd --with-jpeg --with-webp --with-freetype \
     && docker-php-ext-install -j$(nproc) \
     pdo_mysql \
     mbstring \

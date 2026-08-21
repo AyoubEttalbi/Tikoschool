@@ -47,6 +47,20 @@ return [
             'report' => false,
         ],
 
+        /*
+        | Profile images live OUTSIDE the public disk on purpose: they are served through
+        | an authenticated, school-scoped controller route (see ProfileImageController),
+        | never as static files. In production the root resolves inside /app/storage,
+        | which is the persistent app_storage volume — so images survive redeploys and
+        | nginx (which only exposes storage/app/public) cannot serve them directly.
+        */
+        'profile-images' => [
+            'driver' => 'local',
+            'root' => env('PROFILE_IMAGES_ROOT', storage_path('app/private/profile-images')),
+            'visibility' => 'private',
+            'throw' => true,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),

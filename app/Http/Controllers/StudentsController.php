@@ -13,18 +13,20 @@ use App\Models\School;
 use App\Models\Student;
 use App\Models\StudentMovement;
 use App\Models\Teacher;
+use App\Services\ProfileImageService;
 use App\Support\PdfBudget;
 use App\Support\SchoolScope;
 use Barryvdh\DomPDF\Facade\Pdf;
-use Cloudinary\Cloudinary;
-use Cloudinary\Configuration\Configuration;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 
 class StudentsController extends Controller
 {
+    public function __construct(private ProfileImageService $profileImages) {}
+
     /**
      * Download a student's information as a PDF.
      */
@@ -45,81 +47,6 @@ class StudentsController extends Controller
         $fileName = 'student_'.$student->id.'_'.now()->format('Ymd_His').'.pdf';
 
         return $pdf->download($fileName);
-    }
-
-    // Helper function to get Cloudinary
-    private function getCloudinary()
-    {
-        return new Cloudinary(
-            Configuration::instance([
-                'cloud' => [
-                    'cloud_name' => env('CLOUDINARY_CLOUD_NAME'),
-                    'api_key' => env('CLOUDINARY_API_KEY'),
-                    'api_secret' => env('CLOUDINARY_API_SECRET'),
-                ],
-                'url' => [
-                    'secure' => true,
-                ],
-            ])
-        );
-    }
-
-    /**
-     * @param  \Illuminate\Http\UploadedFile  $file
-     * @param  string  $folder
-     * @param  int  $width
-     * @param  int  $height
-     * @return array
-     */
-    private function uploadToCloudinary($file, $folder = 'students', $width = 300, $height = 300)
-    {
-        $cloudinary = $this->getCloudinary();
-        $uploadApi = $cloudinary->uploadApi();
-
-        // Get file info
-        $fileSize = $file->getSize();
-        $fileExtension = $file->extension();
-
-        // Set quality based on file size
-        $quality = 'auto';
-        if ($fileSize > 1000000) {
-            $quality = 'auto:low';
-        }
-
-        // Upload parameters
-        $options = [
-            'folder' => $folder,
-            'transformation' => [
-                [
-                    'width' => $width,
-                    'height' => $height,
-                    'crop' => 'fill',
-                    'gravity' => 'auto',
-                ],
-                [
-                    'quality' => $quality,
-                    'fetch_format' => 'auto',
-                ],
-            ],
-            'public_id' => 'student_'.time().'_'.random_int(1000, 9999),
-            'resource_type' => 'image',
-            'flags' => 'lossy',
-            'context' => 'source=laravel-app|user=student',
-        ];
-
-        // Upload to Cloudinary
-        $result = $uploadApi->upload($file->getRealPath(), $options);
-
-        return [
-            'secure_url' => $result['secure_url'],
-            'public_id' => $result['public_id'],
-            'format' => $result['format'],
-            'width' => $result['width'],
-            'height' => $result['height'],
-            'bytes' => $result['bytes'],
-            'resource_type' => $result['resource_type'],
-            'created_at' => $result['created_at'],
-        ];
     }
 
     /**
@@ -451,7 +378,7 @@ class StudentsController extends Controller
                 'medication' => 'nullable',
                 'assurance' => 'required',
                 'assuranceAmount' => 'nullable|numeric|min:0',
-                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120', // Added for image upload
+                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120', // Added for image upload
             ]);
 
             // `exists:schools,id` proves the school is real, not that the caller may write
@@ -483,11 +410,9 @@ class StudentsController extends Controller
                 $validatedData['assurance'] = 0;
             }
 
-            // Handle profile image upload to Cloudinary
             if ($request->hasFile('profile_image')) {
-                $uploadedFile = $request->file('profile_image');
-                $uploadResult = $this->uploadToCloudinary($uploadedFile);
-                $validatedData['profile_image'] = $uploadResult['secure_url'];
+                // May throw ValidationException — rethrown below so the form renders the field error.
+                $validatedData['profile_image'] = $this->profileImages->store($request->file('profile_image'), 'students');
             }
 
             // If hasDisease is false (0), set diseaseName and medication to NULL
@@ -531,6 +456,8 @@ class StudentsController extends Controller
             }
 
             return redirect()->route('students.show', $student->id)->with('success', 'Student created successfully.');
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return redirect()->back()->with('error', 'Failed to create student. Please try again.');
         }
@@ -864,7 +791,7 @@ class StudentsController extends Controller
                 'hasDisease' => 'sometimes',
                 'diseaseName' => 'nullable|string|max:255',
                 'medication' => 'nullable|string',
-                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png|max:5120',
+                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
             ]);
 
             // Process hasDisease field - ensure it's always an integer 0 or 1
@@ -914,20 +841,30 @@ class StudentsController extends Controller
                 }
             }
 
-            // Handle profile image upload to Cloudinary
+            $newImagePath = null;
+            $oldRawImage = $student->getRawOriginal('profile_image');
             if ($request->hasFile('profile_image')) {
-                $uploadedFile = $request->file('profile_image');
-                $uploadResult = $this->uploadToCloudinary($uploadedFile);
-                $validatedData['profile_image'] = $uploadResult['secure_url'];
+                $newImagePath = $this->profileImages->store($request->file('profile_image'), 'students');
 
-                // Delete old image if it exists
-                if ($student->profile_image) {
-                    $publicId = $student->profile_image_public_id ?? null;
-                    if ($publicId) {
-                        $cloudinary = $this->getCloudinary();
-                        $cloudinary->uploadApi()->destroy($publicId);
-                    }
+                // Optimistic concurrency: swap the reference only if it still holds the value
+                // this request was rendered with. Two simultaneous replaces cannot both win;
+                // the loser discards its freshly stored file instead of leaving an orphan leak.
+                $swapped = Student::whereKey($student->getKey())
+                    ->when($oldRawImage === null,
+                        fn ($q) => $q->whereNull('profile_image'),
+                        fn ($q) => $q->where('profile_image', $oldRawImage))
+                    ->update(['profile_image' => $newImagePath]);
+
+                if ($swapped === 0) {
+                    $this->profileImages->discard($newImagePath);
+
+                    return redirect()->back()
+                        ->withErrors(['profile_image' => "L'image a été modifiée entre-temps. Rechargez la page et réessayez."])
+                        ->withInput();
                 }
+
+                // Reference already atomically updated; keep it out of the bulk update below.
+                unset($validatedData['profile_image']);
             }
 
             // Update the student using Eloquent to trigger events
@@ -995,7 +932,13 @@ class StudentsController extends Controller
                 }
             }
 
+            if ($newImagePath !== null && $oldRawImage !== null) {
+                $this->profileImages->delete($oldRawImage);
+            }
+
             return redirect()->route('students.show', $student->id)->with('success', 'Student updated successfully.');
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return redirect()->back()->with('error', 'Failed to update student: '.$e->getMessage());
         }
@@ -1012,14 +955,8 @@ class StudentsController extends Controller
             // Save class ID before deleting student
             $classId = $student->classId;
 
-            // Delete the profile image from Cloudinary if it exists
-            if ($student->profile_image) {
-                $publicId = $student->profile_image_public_id ?? null;
-                if ($publicId) {
-                    $cloudinary = $this->getCloudinary();
-                    $cloudinary->uploadApi()->destroy($publicId);
-                }
-            }
+            // Image file intentionally kept: this is a soft delete — the row keeps its
+            // reference so a restore gets the image back. Permanent purge deletes the file.
 
             // Delete the student
             $student->delete();

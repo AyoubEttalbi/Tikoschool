@@ -145,6 +145,16 @@ class Student extends Model
         });
     }
 
+    /**
+     * Raw storage is a logical relative path ("students/<hex>.webp") or a legacy
+     * absolute Cloudinary URL; consumers always get a renderable URL back.
+     * Internal code needing the stored value must use getRawOriginal('profile_image').
+     */
+    public function getProfileImageAttribute($value)
+    {
+        return \App\Support\ProfileImageUrl::resolve($value);
+    }
+
     // Relationship to Level
     public function level()
     {
