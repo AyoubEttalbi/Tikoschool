@@ -8,7 +8,6 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Intervention\Image\Drivers\Gd\Driver as GdDriver;
-use Intervention\Image\Encoders\WebpEncoder;
 use Intervention\Image\ImageManager;
 
 /**
@@ -92,10 +91,12 @@ class ProfileImageService
 
             // Decode + process. orient() applies EXIF rotation (phone photos);
             // scaleDown() preserves aspect ratio and never upscales.
-            $image = $this->manager->decodePath($file->getRealPath());
+            // NOTE: pinned to intervention/image ^3.11 — v4 requires PHP >= 8.3 and
+            // production runs PHP 8.2, so the v4-only decodePath()/encode() APIs are off-limits.
+            $image = $this->manager->read($file->getRealPath());
             $image->orient();
             $image->scaleDown(self::TARGET, self::TARGET);
-            $binary = (string) $image->encode(new WebpEncoder(self::WEBP_QUALITY));
+            $binary = (string) $image->toWebp(self::WEBP_QUALITY);
 
             if ($binary === '') {
                 throw new \RuntimeException('WebP encoding produced empty output');
