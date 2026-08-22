@@ -1,15 +1,20 @@
 # TikoSchool — Off-Site Backup & Recovery (Google Drive, encrypted)
 
-Nightly DB backup flow on the VPS (`tikoschool-vps`):
+Nightly backup flow on the VPS (`tikoschool-vps`):
 
 ```
 MySQL → mysqldump (in-use databases only) → gzip → [rclone crypt] → Google Drive (TIKSCHOOL-BACKUPS)
+profile-images/ → rclone copy (incremental, never sync) → same crypt remote → Drive
 ```
 
 - **What is backed up:** only the database(s) the app actually uses — `DB_DATABASE` from
   `.env` (currently: `tikoschool`, ~1.1 MB dump). `tikoschool_vide` (a leftover demo
   schema with sample data and zero app references) is deliberately excluded; older
   `tikoschool_vide` files already on Drive age out via the 30-day prune.
+  PLUS the profile images (`storage/app/private/profile-images/` inside the app_storage
+  volume — students/teachers/assistants/admins subdirectories). The DB stores only the
+  logical paths; without the files every image reference is dead. Images are copied with
+  `rclone copy` (only new/changed files transfer) into `tikcrypt:profile-images/`.
 - **Local:** `/var/backups/tikoschool/daily|weekly/` — 14 dailies + 8 weeklies
 - **Off-site:** Google Drive, folder `TIKSCHOOL-BACKUPS`, remote `tikcrypt:` — **30 days** retention
 - **Encryption:** rclone `crypt` remote — filenames AND contents encrypted. Nobody with read
@@ -18,13 +23,16 @@ MySQL → mysqldump (in-use databases only) → gzip → [rclone crypt] → Goog
   newest off-site file per database plus local counts. Backups are named
   `<database>_YYYY-MM-DD_HHMM.sql.gz`; newest = latest timestamp (never guess from the
   raw Drive names — those are encrypted).
+- **Image integrity:** `php /app/artisan profile-images:integrity` inside the php
+  container checks BOTH directions — every DB reference resolves to a file, and no file
+  is unreferenced (orphan). Report-only; `--strict` exits non-zero for automation.
 
 ## What runs where
 
 | Unit | When | What |
 |---|---|---|
-| `tikoschool-backup.timer` → `backup-tikoschool.sh` | daily 03:15 UTC | dump → gzip → verify → local retention → `rclone copy` to `tikcrypt:` |
-| `tikoschool-offsite-prune.timer` → `rclone delete tikcrypt: --min-age 30d` | daily 03:30 UTC | keeps at most 30 daily backups on Drive (never deletes the newest) |
+| `tikoschool-backup.timer` → `backup-tikoschool.sh` | daily 03:15 UTC | dump → gzip → verify → local retention → `rclone copy` DB + profile images to `tikcrypt:` (with post-copy existence check) |
+| `tikoschool-offsite-prune.timer` → `rclone delete tikcrypt: --min-age 30d` | daily 03:30 UTC | keeps at most 30 days on Drive (never deletes the newest) |
 
 Integration point: `/etc/tikoschool-backup.env` contains one line,
 `OFFSITE_REMOTE=tikcrypt:` — the backup script already had the off-box hook; this variable
@@ -97,6 +105,27 @@ gunzip -k /tmp/restore/tikoschool_2026-08-16_2301.sql.gz
 
 Decryption happens automatically inside the `tikcrypt:` remote — what lands on disk is the
 plain `.sql.gz`. Download **one file per database** you need (`tikoschool_*`, `tikoschool_vide_*`, ...).
+
+### 4b. Restore the profile images (same drill, second copy)
+
+The images live under `tikcrypt:profile-images/<type>/<hex>.webp` and belong inside the
+app_storage volume:
+
+```bash
+# Host-side: the volume's real path (project name prefixes the volume)
+IMG=/var/lib/docker/volumes/tikoschool_app_storage/_data/app/private/profile-images
+mkdir -p "$IMG"
+rclone copy tikcrypt:profile-images "$IMG"
+
+# Fix ownership to the php container's runtime user, then verify counts match the DB:
+docker exec -it tikoschool-php-1 chown -R www-data:www-data /app/storage/app/private/profile-images
+docker exec -it tikoschool-php-1 php /app/artisan profile-images:integrity
+```
+
+`profile-images:integrity` must report `Referenced images: N / Missing files: 0 /
+Orphaned files: 0` — that proves every path stored in MySQL now resolves to a restored
+file and nothing is missing. The application serves them immediately; no cache or config
+step is involved.
 
 ### 5. Create the database and restore
 
