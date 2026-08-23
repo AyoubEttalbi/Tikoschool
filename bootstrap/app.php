@@ -107,6 +107,19 @@ return Application::configure(basePath: dirname(__DIR__))
             ->onFailure(fn () => $reportScheduledFailure('wallet:check'));
 
         /*
+         * Two-way profile-image integrity (DB -> filesystem, filesystem -> DB), daily
+         * before the wallet check. Report-only by design: --strict only flips the exit
+         * code so this schedule surfaces drift through the same three channels as
+         * wallet:check. Orphans are NEVER auto-deleted here — see ProfileImagesIntegrity.
+         */
+        $schedule->command('profile-images:integrity --strict')
+            ->dailyAt('04:10')
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->appendOutputTo(storage_path('logs/schedule.log'))
+            ->onFailure(fn () => $reportScheduledFailure('profile-images:integrity'));
+
+        /*
          * The notification recovery sweep: release what the system never attempted, retry
          * recent failures, abandon what has gone stale.
          *
