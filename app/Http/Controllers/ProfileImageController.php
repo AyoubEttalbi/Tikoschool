@@ -29,7 +29,6 @@ class ProfileImageController extends Controller
     public function show(Request $request, string $path): Response
     {
         $type = strtok($path, '/');
-        $file = basename($path);
 
         if (! in_array($type, ProfileImageUrl::TYPES, true)) {
             throw new NotFoundHttpException;
@@ -44,13 +43,20 @@ class ProfileImageController extends Controller
         // other missing image instead of leaking its bytes.
         abort_unless($this->authorizeOwner($request->user(), $type, $path), 404);
 
-        return $disk->response($path, null, [
-            // Filenames are unique per upload and never mutated in place — a
-            // replace creates a NEW file — so content for a given path is
-            // immutable and can be cached hard. `private` keeps shared proxies
-            // out of the loop.
-            'Cache-Control' => 'private, max-age=31536000, immutable',
-        ]);
+        try {
+            return $disk->response($path, null, [
+                // Filenames are unique per upload and never mutated in place — a
+                // replace creates a NEW file — so content for a given path is
+                // immutable and can be cached hard. `private` keeps shared proxies
+                // out of the loop.
+                'Cache-Control' => 'private, max-age=31536000, immutable',
+            ]);
+        } catch (\Throwable $e) {
+            // A concurrent replace/delete can remove the file between exists()
+            // and response() ('throw' => true turns that into an exception).
+            // The client should see the same 404 as any other vanished image.
+            throw new NotFoundHttpException(previous: $e);
+        }
     }
 
     private function authorizeOwner($user, string $type, string $path): bool

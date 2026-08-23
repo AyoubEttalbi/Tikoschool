@@ -19,7 +19,6 @@ use App\Support\SchoolScope;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 
@@ -67,7 +66,7 @@ class StudentsController extends Controller
             if ($teacher) {
                 // NOTE: a "debug" block used to sit here that ran the SAME unindexable
                 // JSON_CONTAINS scan over the whole memberships table and ->get() every
-                // matching row, purely to feed a Log::info — then threw the result away and
+                // matching row, purely to feed a Log::info â€” then threw the result away and
                 // ran the real filter below. It executed on every student-list page load.
                 $query->whereHas('memberships', function ($membershipQuery) use ($teacher) {
                     // Try both string and integer versions of teacher ID
@@ -109,18 +108,18 @@ class StudentsController extends Controller
         // What changed: it used to read `memberships.payment_status`, and the column the
         // admin is looking at while they pick a filter does not. The "Statut" badge comes
         // from calculateMembershipPaymentStatus(), which ignores payment_status entirely
-        // and derives the answer from invoice money — so the filter and the column
+        // and derives the answer from invoice money â€” so the filter and the column
         // disagreed by construction. Two concrete symptoms:
         //
         //   * `payment_status` is an enum of pending|paid|expired. It has never held
         //     'rest', so the old "Partiel" branch could only ever match on its fallback,
-        //     which was "the student has no memberships at all" — the one case that is
+        //     which was "the student has no memberships at all" â€” the one case that is
         //     definitively not a partial payment. Those same students also came back
-        //     under "Non payé", so one row appeared under two mutually exclusive filters.
+        //     under "Non payÃ©", so one row appeared under two mutually exclusive filters.
         //   * A membership marked 'paid' whose invoice was later edited downward still
         //     read as paid to the filter while the badge showed money outstanding.
         //
-        // "Payé" and "Tous" looked right only because InvoiceController happens to set
+        // "PayÃ©" and "Tous" looked right only because InvoiceController happens to set
         // payment_status = 'paid' on the same condition, and because "Tous" filters
         // nothing. The predicates below are the SQL translation of the badge, so every
         // row returned now carries the badge that was asked for. A student with no
@@ -137,7 +136,7 @@ class StudentsController extends Controller
                 .' where inv.membership_id = memberships.id and inv.deleted_at is null)';
 
             // Mirrors calculateMembershipPaymentStatus(): no invoices, or nothing paid
-            // against them, counts as unpaid — coalesce() makes both the same test.
+            // against them, counts as unpaid â€” coalesce() makes both the same test.
             $unpaid = fn ($q) => $q->whereRaw("$paidSum = 0");
             $partial = fn ($q) => $q->whereRaw("$paidSum > 0 and $paidSum < $dueSum");
 
@@ -178,7 +177,7 @@ class StudentsController extends Controller
             'Allschools' => School::all(),
             'search' => $request->search,
             'filters' => $request->only(['school', 'class', 'level', 'membership_status']),
-            // NOTE: an 'Allmemberships' prop used to be shared here — EVERY membership row
+            // NOTE: an 'Allmemberships' prop used to be shared here â€” EVERY membership row
             // in the database, serialized into the page on every load. StudentListPage
             // destructured it and never used it. It was also a scoping bypass: the query
             // above restricts a teacher to their own students, then this handed them the
@@ -410,9 +409,11 @@ class StudentsController extends Controller
                 $validatedData['assurance'] = 0;
             }
 
+            $newImagePath = null;
             if ($request->hasFile('profile_image')) {
-                // May throw ValidationException — rethrown below so the form renders the field error.
-                $validatedData['profile_image'] = $this->profileImages->store($request->file('profile_image'), 'students');
+                // May throw ValidationException â€” rethrown below so the form renders the field error.
+                $newImagePath = $this->profileImages->store($request->file('profile_image'), 'students');
+                $validatedData['profile_image'] = $newImagePath;
             }
 
             // If hasDisease is false (0), set diseaseName and medication to NULL
@@ -459,6 +460,12 @@ class StudentsController extends Controller
         } catch (ValidationException $e) {
             throw $e;
         } catch (\Exception $e) {
+            // The WebP was already written to disk before Student::create(); if the row
+            // never landed, discard the file instead of leaking an orphan.
+            if ($newImagePath !== null) {
+                $this->profileImages->discard($newImagePath);
+            }
+
             return redirect()->back()->with('error', 'Failed to create student. Please try again.');
         }
     }
@@ -485,7 +492,7 @@ class StudentsController extends Controller
 
         // The teacher block above was the ONLY guard in this controller. It says nothing
         // about which school the caller belongs to, so an assistant scoped to one school
-        // could read any student in the product — hasDisease, diseaseName, medication,
+        // could read any student in the product â€” hasDisease, diseaseName, medication,
         // guardianNumber, CIN, plus full invoice, attendance and result history below.
         SchoolScope::authorizeStudent($student);
 
@@ -602,7 +609,7 @@ class StudentsController extends Controller
             ->latest()
             ->get();
 
-        // Whether the parent was already told, per absence — one query for the whole list.
+        // Whether the parent was already told, per absence â€” one query for the whole list.
         // The "Envoyer WhatsApp" button on each row reads this instead of making somebody
         // press it to find out, which is how duplicate notices reached parents.
         $notifications = \App\Models\OutboundMessage::summaryForAttendances(
@@ -761,7 +768,7 @@ class StudentsController extends Controller
     {
         // BEFORE the try, not inside it: this method's `catch (\Exception $e)` would
         // otherwise turn the denial into a redirect. (SchoolScope throws an \Error
-        // subclass so it survives even a generic catch — see AccessDeniedException —
+        // subclass so it survives even a generic catch â€” see AccessDeniedException â€”
         // but placing the check outside the try keeps that from being load-bearing.)
         SchoolScope::authorizeStudent($student);
 
@@ -859,7 +866,7 @@ class StudentsController extends Controller
                     $this->profileImages->discard($newImagePath);
 
                     return redirect()->back()
-                        ->withErrors(['profile_image' => "L'image a été modifiée entre-temps. Rechargez la page et réessayez."])
+                        ->withErrors(['profile_image' => "L'image a Ã©tÃ© modifiÃ©e entre-temps. Rechargez la page et rÃ©essayez."])
                         ->withInput();
                 }
 
@@ -940,6 +947,14 @@ class StudentsController extends Controller
         } catch (ValidationException $e) {
             throw $e;
         } catch (\Exception $e) {
+            // If this fires after the optimistic swap, roll the reference back to the
+            // previous image and discard the fresh one â€” otherwise the old image orphans
+            // and the new one strands behind an error message.
+            if (($newImagePath ?? null) !== null) {
+                Student::whereKey($student->getKey())->update(['profile_image' => $oldRawImage]);
+                $this->profileImages->discard($newImagePath);
+            }
+
             return redirect()->back()->with('error', 'Failed to update student: '.$e->getMessage());
         }
     }
@@ -955,7 +970,7 @@ class StudentsController extends Controller
             // Save class ID before deleting student
             $classId = $student->classId;
 
-            // Image file intentionally kept: this is a soft delete — the row keeps its
+            // Image file intentionally kept: this is a soft delete â€” the row keeps its
             // reference so a restore gets the image back. Permanent purge deletes the file.
 
             // Delete the student

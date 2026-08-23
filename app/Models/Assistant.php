@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -18,7 +19,7 @@ class Assistant extends Model
         'phone_number',
         'address',
         'profile_image',
-        
+
         'salary',
         'status',
     ];
@@ -41,15 +42,14 @@ class Assistant extends Model
 
     // Relationship with schools (many-to-many)
     public function schools()
-{
-    return $this->belongsToMany(School::class, 'assistant_school')->withTimestamps();
-}
+    {
+        return $this->belongsToMany(School::class, 'assistant_school')->withTimestamps();
+    }
 
-
-public function user()
-{
-    return $this->belongsTo(User::class, 'email', 'email');
-}
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'email', 'email');
+    }
 
     public function transactions()
     {

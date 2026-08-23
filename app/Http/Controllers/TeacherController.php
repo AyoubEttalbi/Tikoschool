@@ -21,7 +21,6 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rules;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
@@ -41,7 +40,7 @@ class TeacherController extends Controller
         $query = Teacher::with(['subjects', 'classes', 'schools']);
 
         // Hard scope first. `session('school_id')` below is a UI preference the caller picks
-        // on /select-profile — it narrows the view, it does not authorize it. Assistants and
+        // on /select-profile â€” it narrows the view, it does not authorize it. Assistants and
         // teachers see only the schools they are actually assigned to; admins are unrestricted.
         $allowedSchoolIds = SchoolScope::schoolIdsFor();
         if ($allowedSchoolIds !== null) {
@@ -229,9 +228,11 @@ class TeacherController extends Controller
             // like it does something.
             unset($validatedData['wallet']);
 
+            $newImagePath = null;
             if ($request->hasFile('profile_image')) {
-                // May throw ValidationException — rethrown below so the form renders the field error.
-                $validatedData['profile_image'] = $this->profileImages->store($request->file('profile_image'), 'teachers');
+                // May throw ValidationException â€” rethrown below so the form renders the field error.
+                $newImagePath = $this->profileImages->store($request->file('profile_image'), 'teachers');
+                $validatedData['profile_image'] = $newImagePath;
             }
 
             event(new CheckEmailUnique($request->email));
@@ -248,6 +249,12 @@ class TeacherController extends Controller
         } catch (ValidationException $e) {
             throw $e;
         } catch (\Exception $e) {
+            // The WebP was already written to disk before Teacher::create(); if the row
+            // never landed, discard the file instead of leaking an orphan.
+            if ($newImagePath !== null) {
+                $this->profileImages->discard($newImagePath);
+            }
+
             Log::error('Error creating teacher: '.$e->getMessage());
 
             return redirect()->back()->with('error', 'Failed to create teacher. Please try again.');
@@ -959,14 +966,14 @@ class TeacherController extends Controller
     public function edit(Teacher $teacher)
     {
         $subjects = Subject::all();
-        $classes = Classes::all(); // ✅ Changed from 'groups' to 'classes'
+        $classes = Classes::all(); // âœ… Changed from 'groups' to 'classes'
         $schools = School::all();
         $teacherUser = User::where('email', $teacher->email)->first();
 
         return Inertia::render('Teachers/Edit', [
             'teacher' => $teacherUser ? array_merge($teacher->toArray(), ['user_id' => $teacherUser->id]) : $teacher,
             'subjects' => $subjects,
-            'classes' => $classes, // ✅ Changed from 'groups' to 'classes'
+            'classes' => $classes, // âœ… Changed from 'groups' to 'classes'
             'schools' => $schools,
         ]);
     }
@@ -1010,7 +1017,7 @@ class TeacherController extends Controller
             // round-tripped whatever value it loaded, so if a student paid an invoice
             // between the form being opened and submitted, saving an unrelated field
             // (a phone number, a school assignment) silently reverted the teacher's
-            // earnings — a classic lost update.
+            // earnings â€” a classic lost update.
             //
             // To CHANGE a balance deliberately, use adjustWallet() below. It is a separate,
             // admin-only action that records the movement in the ledger with a reason, which
@@ -1026,7 +1033,7 @@ class TeacherController extends Controller
                 ->first();
             if ($userWithEmail || $teacherWithEmail) {
                 return redirect()->back()
-                    ->withErrors(['email' => 'Cette adresse e-mail est déjà utilisée par un autre utilisateur ou enseignant.'])
+                    ->withErrors(['email' => 'Cette adresse e-mail est dÃ©jÃ  utilisÃ©e par un autre utilisateur ou enseignant.'])
                     ->withInput();
             }
 
@@ -1048,7 +1055,7 @@ class TeacherController extends Controller
                     $this->profileImages->discard($newImagePath);
 
                     return redirect()->back()
-                        ->withErrors(['profile_image' => "L'image a été modifiée entre-temps. Rechargez la page et réessayez."])
+                        ->withErrors(['profile_image' => "L'image a Ã©tÃ© modifiÃ©e entre-temps. Rechargez la page et rÃ©essayez."])
                         ->withInput();
                 }
 
@@ -1098,6 +1105,14 @@ class TeacherController extends Controller
         } catch (ValidationException $e) {
             throw $e;
         } catch (\Exception $e) {
+            // If this fires after the optimistic swap, roll the reference back to the
+            // previous image and discard the fresh one â€” otherwise the old image orphans
+            // and the new one strands behind an error message.
+            if (($newImagePath ?? null) !== null) {
+                Teacher::whereKey($teacher->getKey())->update(['profile_image' => $oldRawImage]);
+                $this->profileImages->discard($newImagePath);
+            }
+
             Log::error('Error updating teacher: '.$e->getMessage());
 
             return redirect()->back()->with('error', 'Failed to update teacher. Please try again.');
@@ -1129,9 +1144,9 @@ class TeacherController extends Controller
             'note' => 'required|string|min:3|max:255',
         ], [
             'new_balance.required' => 'Le nouveau solde est obligatoire.',
-            'new_balance.min' => 'Le solde ne peut pas être négatif.',
+            'new_balance.min' => 'Le solde ne peut pas Ãªtre nÃ©gatif.',
             'note.required' => 'Indiquez la raison de cet ajustement.',
-            'note.min' => 'La raison doit être un peu plus explicite.',
+            'note.min' => 'La raison doit Ãªtre un peu plus explicite.',
         ]);
 
         $target = round((float) $validated['new_balance'], 2);
@@ -1151,7 +1166,7 @@ class TeacherController extends Controller
             $note = 'ajustement manuel : '.$validated['note'];
 
             // No invoice id and no month, so this is deliberately EXEMPT from the ledger's
-            // idempotency key — two genuine adjustments of the same size on the same day are
+            // idempotency key â€” two genuine adjustments of the same size on the same day are
             // both real and must both be recorded. @see CLAUDE.md on NULL semantics.
             $delta > 0
                 ? $wallet->credit($locked, $delta, TeacherWalletEntry::REASON_ADJUSTMENT, null, null, null, $note)
@@ -1172,18 +1187,18 @@ class TeacherController extends Controller
         ]);
 
         if (round($applied, 2) === 0.0) {
-            return redirect()->back()->with('success', 'Le solde était déjà à cette valeur — rien n\'a changé.');
+            return redirect()->back()->with('success', 'Le solde Ã©tait dÃ©jÃ  Ã  cette valeur â€” rien n\'a changÃ©.');
         }
 
         // The applied delta is reported rather than the requested one: debit() clamps at
         // zero, and a balance that moved between opening the form and saving means the
         // change is not the subtraction the user did in their head.
         return redirect()->back()->with('payment_notice', \App\Support\PaymentNotice::success(
-            'Portefeuille ajusté',
-            [number_format($before, 2, ',', ' ').' DH → '.number_format($after, 2, ',', ' ').' DH.'],
+            'Portefeuille ajustÃ©',
+            [number_format($before, 2, ',', ' ').' DH â†’ '.number_format($after, 2, ',', ' ').' DH.'],
             [[
                 'label' => trim($teacher->first_name.' '.$teacher->last_name),
-                'value' => ($applied > 0 ? '+' : '−').number_format(abs($applied), 2, ',', ' ').' DH',
+                'value' => ($applied > 0 ? '+' : 'âˆ’').number_format(abs($applied), 2, ',', ' ').' DH',
                 'note' => $validated['note'],
             ]],
         )->toArray());
@@ -1195,7 +1210,7 @@ class TeacherController extends Controller
     public function destroy(Teacher $teacher)
     {
         try {
-            // Image file intentionally kept: this is a soft delete — the row keeps its
+            // Image file intentionally kept: this is a soft delete â€” the row keeps its
             // reference so a restore gets the image back. Permanent purge deletes the file.
 
             // Detach relationships
@@ -1266,9 +1281,11 @@ class TeacherController extends Controller
                 // defaults to 0. See the note in store().
             ];
 
+            $newImagePath = null;
             if ($request->hasFile('teacher.profile_image')) {
-                // May throw ValidationException — forwarded to the form by the dedicated catch below.
-                $teacherDataArr['profile_image'] = $this->profileImages->store($request->file('teacher.profile_image'), 'teachers', 'teacher.profile_image');
+                // May throw ValidationException â€” forwarded to the form by the dedicated catch below.
+                $newImagePath = $this->profileImages->store($request->file('teacher.profile_image'), 'teachers', 'teacher.profile_image');
+                $teacherDataArr['profile_image'] = $newImagePath;
             }
 
             // Create teacher
@@ -1285,6 +1302,9 @@ class TeacherController extends Controller
             return redirect()->route('teachers.index')->with('success', 'User and Teacher created successfully.');
         } catch (ValidationException $e) {
             DB::rollBack();
+            if ($newImagePath !== null) {
+                $this->profileImages->discard($newImagePath);
+            }
             $errors = $e->errors();
             $userErrors = [];
             $teacherErrors = [];
@@ -1310,6 +1330,9 @@ class TeacherController extends Controller
             }
         } catch (\Exception $e) {
             DB::rollBack();
+            if ($newImagePath !== null) {
+                $this->profileImages->discard($newImagePath);
+            }
             if ($request->expectsJson() || $request->isXmlHttpRequest()) {
                 return response()->json(['error' => 'Failed to create user and teacher.'], 500);
             } else {

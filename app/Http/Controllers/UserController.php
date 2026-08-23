@@ -85,6 +85,16 @@ class UserController extends Controller
             $newImagePath = null;
             $oldRawImage = $user->getRawOriginal('profile_image');
             if ($request->hasFile('profile_image')) {
+                // users.profile_image is the admin-avatar slot only. Teacher/assistant
+                // photos live on their staff tables (managed from their own screens);
+                // storing e.g. 'admins/<hex>.webp' on a role=teacher row would 404 forever
+                // in ProfileImageController::authorizeOwner and flag as an orphan nightly.
+                if ($user->role !== 'admin') {
+                    return redirect()->back()
+                        ->withErrors(['profile_image' => "La photo de profil n'est gérée ici que pour les comptes administrateur."])
+                        ->withInput();
+                }
+
                 $newImagePath = $this->profileImages->store($request->file('profile_image'), 'admins');
 
                 // Optimistic concurrency: swap the reference only if it still holds the value
@@ -108,39 +118,51 @@ class UserController extends Controller
                 unset($validatedData['profile_image']);
             }
 
-            $user->update($validatedData);
+            try {
+                $user->update($validatedData);
 
-            // Update the related teacher or assistant record if needed
-            if ($user->role === 'teacher') {
-                $teacher = Teacher::where('email', $oldEmail)->first();
-                if ($teacher) {
-                    if (isset($validatedData['email'])) {
-                        $teacher->email = $validatedData['email'];
-                    }
-                    if (isset($validatedData['name'])) {
-                        $nameParts = explode(' ', $validatedData['name'], 2);
-                        $teacher->first_name = $nameParts[0];
-                        if (isset($nameParts[1])) {
-                            $teacher->last_name = $nameParts[1];
+                // Update the related teacher or assistant record if needed
+                if ($user->role === 'teacher') {
+                    $teacher = Teacher::where('email', $oldEmail)->first();
+                    if ($teacher) {
+                        if (isset($validatedData['email'])) {
+                            $teacher->email = $validatedData['email'];
                         }
-                    }
-                    $teacher->save();
-                }
-            } elseif ($user->role === 'assistant') {
-                $assistant = Assistant::where('email', $oldEmail)->first();
-                if ($assistant) {
-                    if (isset($validatedData['email'])) {
-                        $assistant->email = $validatedData['email'];
-                    }
-                    if (isset($validatedData['name'])) {
-                        $nameParts = explode(' ', $validatedData['name'], 2);
-                        $assistant->first_name = $nameParts[0];
-                        if (isset($nameParts[1])) {
-                            $assistant->last_name = $nameParts[1];
+                        if (isset($validatedData['name'])) {
+                            $nameParts = explode(' ', $validatedData['name'], 2);
+                            $teacher->first_name = $nameParts[0];
+                            if (isset($nameParts[1])) {
+                                $teacher->last_name = $nameParts[1];
+                            }
                         }
+                        $teacher->save();
                     }
-                    $assistant->save();
+                } elseif ($user->role === 'assistant') {
+                    $assistant = Assistant::where('email', $oldEmail)->first();
+                    if ($assistant) {
+                        if (isset($validatedData['email'])) {
+                            $assistant->email = $validatedData['email'];
+                        }
+                        if (isset($validatedData['name'])) {
+                            $nameParts = explode(' ', $validatedData['name'], 2);
+                            $assistant->first_name = $nameParts[0];
+                            if (isset($nameParts[1])) {
+                                $assistant->last_name = $nameParts[1];
+                            }
+                        }
+                        $assistant->save();
+                    }
                 }
+            } catch (\Throwable $e) {
+                if ($newImagePath !== null) {
+                    // The reference was already swapped; roll it back so the state matches
+                    // the error the user is about to see, and discard the fresh file —
+                    // otherwise the new image strands and the old one orphans.
+                    User::whereKey($user->getKey())->update(['profile_image' => $oldRawImage]);
+                    $this->profileImages->discard($newImagePath);
+                }
+
+                throw $e;
             }
 
             if ($newImagePath !== null && $oldRawImage !== null) {

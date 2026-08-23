@@ -21,7 +21,6 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rules;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
@@ -144,9 +143,11 @@ class AssistantController extends Controller
                 'schools.*' => 'exists:schools,id',
             ]);
 
+            $newImagePath = null;
             if ($request->hasFile('profile_image')) {
-                // May throw ValidationException — caught below by the dedicated handler.
-                $validatedData['profile_image'] = $this->profileImages->store($request->file('profile_image'), 'assistants');
+                // May throw ValidationException â€” caught below by the dedicated handler.
+                $newImagePath = $this->profileImages->store($request->file('profile_image'), 'assistants');
+                $validatedData['profile_image'] = $newImagePath;
             }
 
             // Create the assistant record
@@ -161,6 +162,12 @@ class AssistantController extends Controller
                 ->withErrors($e->errors())
                 ->withInput();
         } catch (\Exception $e) {
+            // The WebP was already written to disk before Assistant::create(); if the row
+            // never landed, discard the file instead of leaking an orphan.
+            if ($newImagePath !== null) {
+                $this->profileImages->discard($newImagePath);
+            }
+
             return redirect()->back()
                 ->with('error', 'An error occurred while creating the assistant: '.$e->getMessage())
                 ->withInput();
@@ -171,7 +178,7 @@ class AssistantController extends Controller
      * Admin, or the assistant looking at their own record. Nobody else.
      *
      * GET assistants/{assistant} and its /student-payments sibling were the only two
-     * assistant routes with no guard at all — PUT and DELETE both chained AdminMiddleware,
+     * assistant routes with no guard at all â€” PUT and DELETE both chained AdminMiddleware,
      * read did not. show() returns salary, phone_number, address, unpaid invoices with
      * student names and amounts, recent payments and the activity log.
      *
@@ -193,7 +200,7 @@ class AssistantController extends Controller
             return;
         }
 
-        throw new AccessDeniedException("Vous n'avez pas accès à ce profil.");
+        throw new AccessDeniedException("Vous n'avez pas accÃ¨s Ã  ce profil.");
     }
 
     /**
@@ -304,7 +311,7 @@ class AssistantController extends Controller
 
             // Get statistics
             $statistics = [
-                // Was whereIn(DB::raw('"schoolId"'), ...) — a double-quoted token is a STRING
+                // Was whereIn(DB::raw('"schoolId"'), ...) â€” a double-quoted token is a STRING
                 // LITERAL in MySQL, so this compared the constant 'schoolId' against the id
                 // list and always returned 0.
                 'students_count' => Student::whereIn('schoolId', $schoolIds)->count(),
@@ -320,7 +327,7 @@ class AssistantController extends Controller
             // NOTE: a large "diagnostic logging" block used to sit here. On every assistant
             // dashboard load it ran Student::whereNull('deleted_at')->get() (EVERY student in
             // the system), fetched a hardcoded student id 1, and wrote all of it plus every
-            // matching invoice — names, amounts, balances — into storage/logs. Removed.
+            // matching invoice â€” names, amounts, balances â€” into storage/logs. Removed.
             // It also contained the DB::raw('"schoolId"') predicate, which never matched.
 
             // FEATURE 1: Recent absences
@@ -758,7 +765,7 @@ class AssistantController extends Controller
                 ->first();
             if ($userWithEmail || $assistantWithEmail) {
                 return redirect()->back()
-                    ->withErrors(['email' => 'Cette adresse e-mail est déjà utilisée par un autre utilisateur ou assistant.'])
+                    ->withErrors(['email' => 'Cette adresse e-mail est dÃ©jÃ  utilisÃ©e par un autre utilisateur ou assistant.'])
                     ->withInput();
             }
 
@@ -780,7 +787,7 @@ class AssistantController extends Controller
                     $this->profileImages->discard($newImagePath);
 
                     return redirect()->back()
-                        ->withErrors(['profile_image' => "L'image a été modifiée entre-temps. Rechargez la page et réessayez."])
+                        ->withErrors(['profile_image' => "L'image a Ã©tÃ© modifiÃ©e entre-temps. Rechargez la page et rÃ©essayez."])
                         ->withInput();
                 }
 
@@ -828,6 +835,14 @@ class AssistantController extends Controller
                 ->withErrors($e->errors())
                 ->withInput();
         } catch (\Exception $e) {
+            // If this fires after the optimistic swap, roll the reference back to the
+            // previous image and discard the fresh one â€” otherwise the old image orphans
+            // and the new one strands behind an error message.
+            if (($newImagePath ?? null) !== null) {
+                Assistant::whereKey($assistant->getKey())->update(['profile_image' => $oldRawImage]);
+                $this->profileImages->discard($newImagePath);
+            }
+
             return redirect()->back()
                 ->with('error', 'An error occurred while updating the assistant: '.$e->getMessage())
                 ->withInput();
@@ -840,7 +855,7 @@ class AssistantController extends Controller
     public function destroy(Assistant $assistant)
     {
         try {
-            // Image file intentionally kept: this is a soft delete — the row keeps its
+            // Image file intentionally kept: this is a soft delete â€” the row keeps its
             // reference so a restore gets the image back. Permanent purge deletes the file.
 
             $assistant->delete();
@@ -896,9 +911,11 @@ class AssistantController extends Controller
                 'status' => $request->input('assistant.status'),
                 'salary' => $request->input('assistant.salary'),
             ];
+            $newImagePath = null;
             if ($request->hasFile('assistant.profile_image')) {
-                // May throw ValidationException — forwarded to the form by the dedicated catch below.
-                $assistantDataArr['profile_image'] = $this->profileImages->store($request->file('assistant.profile_image'), 'assistants', 'assistant.profile_image');
+                // May throw ValidationException â€” forwarded to the form by the dedicated catch below.
+                $newImagePath = $this->profileImages->store($request->file('assistant.profile_image'), 'assistants', 'assistant.profile_image');
+                $assistantDataArr['profile_image'] = $newImagePath;
             }
             // Create assistant
             $assistant = Assistant::create($assistantDataArr);
@@ -910,6 +927,9 @@ class AssistantController extends Controller
             return redirect()->route('assistants.index')->with('success', 'User and Assistant created successfully.');
         } catch (\Illuminate\Validation\ValidationException $e) {
             DB::rollBack();
+            if ($newImagePath !== null) {
+                $this->profileImages->discard($newImagePath);
+            }
             $errors = $e->errors();
             $userErrors = [];
             $assistantErrors = [];
@@ -933,6 +953,9 @@ class AssistantController extends Controller
             }
         } catch (\Exception $e) {
             DB::rollBack();
+            if ($newImagePath !== null) {
+                $this->profileImages->discard($newImagePath);
+            }
             if ($request->expectsJson() || $request->isXmlHttpRequest()) {
                 return response()->json(['error' => 'Failed to create user and assistant.'], 500);
             } else {

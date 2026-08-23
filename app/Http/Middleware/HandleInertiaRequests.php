@@ -3,8 +3,8 @@
 namespace App\Http\Middleware;
 
 use App\Models\User;
-use App\Support\SchoolScope;
 use App\Support\ProfileImageUrl;
+use App\Support\SchoolScope;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;

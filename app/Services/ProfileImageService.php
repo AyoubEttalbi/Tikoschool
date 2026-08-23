@@ -126,21 +126,15 @@ class ProfileImageService
     }
 
     /**
-     * Store the NEW image first, then let the caller update the DB inside its own
-     * transaction, then call deleteOld() — the order mandated by spec Phase 9:
-     * the old image is only removed once the new reference is committed. If the
-     * DB update fails, the caller removes the just-created file with discard().
-     */
-    public function replace(string $type, ?string $currentRawPath, UploadedFile $file, string $errorField = 'profile_image'): string
-    {
-        return $this->store($file, $type, $errorField);
-    }
-
-    /**
      * Idempotent, path-constrained delete. Only ever touches files that match our
      * own naming scheme under our own directories — legacy Cloudinary values,
      * absolute URLs and anything malformed are ignored, so this can never become
      * a filesystem traversal primitive.
+     *
+     * Replace ordering (spec Phase 9) lives with the callers: store() the NEW image,
+     * swap the DB reference optimistically, delete the old file only on success, and
+     * discard() the fresh file whenever a later step fails. Every controller in this
+     * repo follows that shape; keep new ones consistent.
      */
     public function delete(?string $rawValue): void
     {
