@@ -141,16 +141,17 @@ const AssistantForm = ({ type, data, schools, setOpen, selectedSchool }) => {
     const salary = watch("salary");
     const schoolsVal = watch("schools_assistant");
 
-    const isAssistantFormComplete =
-        firstName?.trim() &&
-        lastName?.trim() &&
-        email?.trim() &&
-        /^\S+@\S+\.\S+$/.test(email) &&
-        phone?.trim() &&
-        address?.trim() &&
-        status &&
-        salary !== undefined && salary !== null && salary !== "" && !isNaN(salary) && Number(salary) >= 0 &&
-        Array.isArray(schoolsVal) && schoolsVal.length > 0;
+    const emailTrimmed = (email || "").trim();
+    const missingAssistantFields = [
+        !firstName?.trim() && "prénom",
+        !lastName?.trim() && "nom",
+        (!emailTrimmed || !/^\S+@\S+\.\S+$/.test(emailTrimmed)) && "e-mail valide",
+        !phone?.trim() && "téléphone",
+        !address?.trim() && "adresse",
+        !(salary !== undefined && salary !== null && salary !== "" && !isNaN(salary) && Number(salary) >= 0) && "salaire valide",
+        !(Array.isArray(schoolsVal) && schoolsVal.length > 0) && "école(s)",
+    ].filter(Boolean);
+    const isAssistantFormComplete = missingAssistantFields.length === 0;
 
     function generateStrongPassword() {
         const length = 18;
@@ -341,6 +342,11 @@ const AssistantForm = ({ type, data, schools, setOpen, selectedSchool }) => {
                             className={`items-center mt-7 h-10 inline-flex gap-2 px-4 py-2 rounded-md shadow-sm transition-all
                                 ${isAssistantFormComplete ? "bg-blue-500 hover:bg-blue-600 text-white cursor-pointer" : "bg-gray-300 text-gray-500 cursor-not-allowed"}`}
                             disabled={!isAssistantFormComplete}
+                            title={
+                                isAssistantFormComplete
+                                    ? undefined
+                                    : `Complétez le formulaire : ${missingAssistantFields.join(", ")}`
+                            }
                         >
                             <ChevronDown className="w-4 h-4" />
                             <span>Ajouter un utilisateur</span>

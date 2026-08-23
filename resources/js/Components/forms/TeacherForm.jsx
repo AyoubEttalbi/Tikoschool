@@ -120,16 +120,20 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
     const classesVal = watch("classes");
     const schoolsVal = watch("schools");
 
-    // Check if all required fields are filled
-    const isTeacherFormComplete =
-        firstName?.trim() &&
-        lastName?.trim() &&
-        email?.trim() &&
-        /^\S+@\S+\.\S+$/.test(email) &&
-        status &&
-        Array.isArray(subjectsVal) && subjectsVal.length > 0 &&
-        Array.isArray(classesVal) && classesVal.length > 0 &&
-        Array.isArray(schoolsVal) && schoolsVal.length > 0;
+    // Check if all required fields are filled. The three multi-selects are part of
+    // the gate even though zod marks them optional — the backend syncs them and a
+    // teacher without schools/classes is useless. missingTeacherFields doubles as
+    // the disabled button's tooltip so the gate is never a mystery again.
+    const emailTrimmed = (email || "").trim();
+    const missingTeacherFields = [
+        !firstName?.trim() && "prénom",
+        !lastName?.trim() && "nom",
+        (!emailTrimmed || !/^\S+@\S+\.\S+$/.test(emailTrimmed)) && "e-mail valide",
+        !(Array.isArray(subjectsVal) && subjectsVal.length > 0) && "matière(s)",
+        !(Array.isArray(classesVal) && classesVal.length > 0) && "classe(s)",
+        !(Array.isArray(schoolsVal) && schoolsVal.length > 0) && "école(s)",
+    ].filter(Boolean);
+    const isTeacherFormComplete = missingTeacherFields.length === 0;
 
     // Prepare user data for the Register component
     const userData = {
@@ -368,7 +372,9 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
                 <div className="grid grid-cols-1 lg:grid-cols-3 md:grid-cols-2 gap-4">
                     {/* Multi-sélection des écoles */}
                     <div className="flex flex-col gap-2 w-full">
-                        <label className="text-xs text-gray-600">Écoles</label>
+                        <label className="text-xs text-gray-600">
+                            Écoles <span className="text-red-400">*</span>
+                        </label>
                         <Popover>
                             <PopoverTrigger asChild>
                                 <Button
@@ -465,7 +471,9 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
                     </div>
                     {/* Multi-sélection des matières */}
                     <div className="flex flex-col gap-2 w-full ">
-                        <label className="text-xs text-gray-600">Matières</label>
+                        <label className="text-xs text-gray-600">
+                            Matières <span className="text-red-400">*</span>
+                        </label>
                         <Popover>
                             <PopoverTrigger asChild>
                                 <Button
@@ -562,7 +570,9 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
                     </div>
                     {/* Multi-sélection des classes */}
                     <div className="flex flex-col gap-2 w-full ">
-                        <label className="text-xs text-gray-600">Classes</label>
+                        <label className="text-xs text-gray-600">
+                            Classes <span className="text-red-400">*</span>
+                        </label>
                         <Popover>
                             <PopoverTrigger asChild>
                                 <Button
@@ -699,6 +709,11 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
                             className={`items-center mt-7 h-10 inline-flex gap-2 px-4 py-2 rounded-md shadow-sm transition-all
                                 ${isTeacherFormComplete ? "bg-blue-500 hover:bg-blue-600 text-white cursor-pointer" : "bg-gray-300 text-gray-500 cursor-not-allowed"}`}
                             disabled={!isTeacherFormComplete}
+                            title={
+                                isTeacherFormComplete
+                                    ? undefined
+                                    : `Complétez le formulaire : ${missingTeacherFields.join(", ")}`
+                            }
                         >
                             <ChevronDown className="w-4 h-4" />
                             <span>Ajouter un utilisateur</span>
