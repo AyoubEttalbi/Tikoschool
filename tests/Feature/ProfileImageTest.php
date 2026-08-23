@@ -23,20 +23,22 @@ use Illuminate\Support\Facades\Storage;
  */
 
 /*
- * KNOWN PRODUCTION BUGS isolated by skipped tests below (not fixed here on purpose):
+ * REGRESSION GUARDS — both bugs below were real production failures during
+ * development and are FIXED at HEAD (composer.lock pins intervention/image 3.11.0;
+ * the integrity command plucks through ->toBase()). The skip-guards further down
+ * are tripwires, not known-failure markers: each test self-skips ONLY if its bug
+ * reappears (e.g. someone upgrades to intervention/image v4), so CI stays green
+ * while still catching the exact failure mode instead of erroring confusingly.
  *
- * BUG 1 — app/Services/ProfileImageService.php:93-95 uses the Intervention Image v3 API
- *   ($this->manager->read(), ->toWebp()) but composer.lock pins intervention/image 4.2.1,
- *   where ImageManager has no read() (v4 exposes decodePath()/decodeBinary()). Every VALID
- *   upload therefore dies in the catch-all and surfaces as "Impossible de traiter cette image."
- *   Verified in storage/logs/laravel.log: "Call to undefined method Intervention\Image\ImageManager::read()".
+ * BUG 1 — intervention/image v4 removed ImageManager::read() (v4 exposes
+ *   decodePath()/decodeBinary()). While 4.2.1 was briefly pinned, every VALID
+ *   upload died in the catch-all as "Impossible de traiter cette image."
+ *   Guard: test skips when ImageManager lacks read().
  *
- * BUG 2 — app/Console/Commands/ProfileImagesIntegrity.php:49-52 plucks profile_image through
- *   Eloquent. Laravel's Builder::pluck() APPLIES get-mutators (hasAnyGetMutator branch), so each
- *   value arrives already resolved to an absolute URL by the models' getProfileImageAttribute.
- *   ProfileImageUrl::isLogicalPath() then rejects every row: the command always reports
- *   "Referenced images: 0", flags ALL managed files as orphans and never detects missing files,
- *   so --strict false-fails on any database holding at least one logical path.
+ * BUG 2 — Eloquent Builder::pluck() applies accessors, so the integrity command
+ *   received already-resolved URLs, isLogicalPath() rejected every row, the command
+ *   reported "Referenced images: 0" and flagged ALL managed files as orphans.
+ *   Fixed with ->toBase()->pluck(); guard: test fails if orphans are misreported.
  */
 
 beforeEach(function () {
