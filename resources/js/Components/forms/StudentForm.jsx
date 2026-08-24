@@ -11,7 +11,8 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/Components/ui/select";
-import { Upload, X } from "lucide-react";
+import { Upload, Camera, X } from "lucide-react";
+import CameraCaptureModal from "@/Components/CameraCaptureModal";
 
 // Phone input component for Moroccan numbers
 const PhoneInput = ({ label, name, value, onChange, error }) => (
@@ -162,6 +163,17 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
     const [imagePreview, setImagePreview] = useState(
         data?.profile_image || null,
     );
+
+    // Capture photo via la caméra — produit un File qui suit exactement
+    // le même chemin que l'upload manuel (setValue + FormData).
+    const [cameraOpen, setCameraOpen] = useState(false);
+
+    const handleCameraCapture = (file) => {
+        setValue("profile_image", file);
+        setImagePreview(URL.createObjectURL(file));
+        const input = document.getElementById("profile_image");
+        if (input) input.value = "";
+    };
 
     // State for loading
     const [loading, setLoading] = useState(false);
@@ -791,22 +803,32 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
                             />
                         </div>
                     )}
-                    <label
-                        htmlFor="profile_image"
-                        className="flex items-center gap-2 cursor-pointer p-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors duration-200 w-full"
-                    >
-                        <Upload className="w-4 h-4 text-gray-500" />
-                        <span className="text-sm text-gray-700">
-                            {imagePreview ? "Changer l'image" : "Télécharger l'image"}
-                        </span>
-                        <input
-                            id="profile_image"
-                            type="file"
-                            accept="image/png, image/jpeg, image/jpg"
-                            className="hidden"
-                            onChange={handleImageChange}
-                        />
-                    </label>
+                    <div className="flex flex-wrap gap-2">
+                        <label
+                            htmlFor="profile_image"
+                            className="flex items-center gap-2 cursor-pointer p-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors duration-200 flex-1 min-w-[140px]"
+                        >
+                            <Upload className="w-4 h-4 text-gray-500" />
+                            <span className="text-sm text-gray-700">
+                                {imagePreview ? "Changer l'image" : "Télécharger l'image"}
+                            </span>
+                            <input
+                                id="profile_image"
+                                type="file"
+                                accept="image/png, image/jpeg, image/jpg"
+                                className="hidden"
+                                onChange={handleImageChange}
+                            />
+                        </label>
+                        <button
+                            type="button"
+                            onClick={() => setCameraOpen(true)}
+                            className="flex items-center gap-2 p-2 border border-gray-300 rounded-md hover:bg-lamaSkyLight transition-colors duration-200 flex-1 min-w-[140px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lamaSky"
+                        >
+                            <Camera className="w-4 h-4 text-gray-500" />
+                            <span className="text-sm text-gray-700">Prendre une photo</span>
+                        </button>
+                    </div>
                     {errors.profile_image && (
                         <p className="text-xs text-red-400">
                             {errors.profile_image.message}
@@ -814,6 +836,12 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
                     )}
                 </div>
             </div>
+
+            <CameraCaptureModal
+                open={cameraOpen}
+                onClose={() => setCameraOpen(false)}
+                onCapture={handleCameraCapture}
+            />
             <button
                 type="submit"
                 disabled={loading}

@@ -125,8 +125,11 @@ class ProfileImageController extends Controller
     /**
      * Removes an entity's profile image: clears the reference optimistically, then
      * deletes the file. Authorization mirrors serving ("can view" implies "may
-     * remove", matching upload rights) EXCEPT students: their photos are managed
-     * by admins only — staff can view them through school scope but not erase them.
+     * remove", matching upload rights): staff may remove their own image, and an
+     * assistant may remove a STUDENT's photo exactly when they may edit that
+     * student — SchoolScope::allowsStudent, the same boundary the upload rode in
+     * on through StudentsController::store/update. Teachers have no student write
+     * access at all and stay excluded here.
      * Legacy absolute URLs (res.cloudinary.com) are cleared from the row while the
      * remote asset is left untouched.
      */
@@ -172,8 +175,17 @@ class ProfileImageController extends Controller
             return true;
         }
 
-        // Staff may remove only their own image (identity joins by email).
-        return in_array($type, ['teachers', 'assistants'], true)
-            && strcasecmp((string) $user->email, (string) $model->email) === 0;
+        // Staff may always remove their own image (identity joins by email).
+        if (in_array($type, ['teachers', 'assistants'], true)) {
+            return strcasecmp((string) $user->email, (string) $model->email) === 0;
+        }
+
+        // Students: an assistant removes a photo under the same object-level rule
+        // that let them upload it — the student must be inside their schools.
+        if ($type === 'students' && $user->role === 'assistant') {
+            return SchoolScope::allowsStudent($model, $user);
+        }
+
+        return false;
     }
 }
