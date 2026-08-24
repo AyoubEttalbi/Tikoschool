@@ -4,6 +4,72 @@ import DashboardLayout from "@/Layouts/DashboardLayout";
 import DeleteUserForm from "./Partials/DeleteUserForm";
 import UpdatePasswordForm from "./Partials/UpdatePasswordForm";
 import UpdateProfileInformationForm from "./Partials/UpdateProfileInformationForm";
+import { BriefcaseBusiness, MapPin, Phone, School } from "lucide-react";
+
+/*
+ * La carte d'identité professionnelle de l'assistant, fusionnée ici : elle
+ * n'existait que sur assistants.show, qui n'est plus leur page d'accueil.
+ * Lecture seule — les modifications passent par l'administration.
+ */
+function StaffInfoCard({ staff }) {
+    if (!staff) return null;
+
+    const rows = [
+        { icon: Phone, label: "Téléphone", value: staff.phone_number },
+        { icon: MapPin, label: "Adresse", value: staff.address },
+    ].filter((row) => row.value);
+
+    return (
+        <div className="bg-white p-4 shadow sm:rounded-lg sm:p-8">
+            <h2 className="text-lg font-medium text-gray-900 flex items-center gap-2">
+                <BriefcaseBusiness className="w-5 h-5 text-lamaSky" aria-hidden="true" />
+                Mon profil professionnel
+            </h2>
+
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+                <p className="text-base font-semibold text-gray-800">
+                    {staff.first_name} {staff.last_name}
+                </p>
+                <span
+                    className={`px-2.5 py-0.5 rounded-full text-xs font-medium border ${
+                        staff.status === "inactive"
+                            ? "bg-red-50 text-red-700 border-red-200"
+                            : "bg-green-50 text-green-700 border-green-200"
+                    }`}
+                >
+                    {staff.status === "inactive" ? "Inactif" : "Actif"}
+                </span>
+            </div>
+
+            {staff.bio && <p className="mt-2 text-sm text-gray-500">{staff.bio}</p>}
+
+            <dl className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                {rows.map((row) => (
+                    <div key={row.label} className="flex items-start gap-2">
+                        <row.icon className="w-4 h-4 mt-0.5 text-gray-400 shrink-0" aria-hidden="true" />
+                        <div>
+                            <dt className="text-xs text-gray-400">{row.label}</dt>
+                            <dd className="text-gray-700">{row.value}</dd>
+                        </div>
+                    </div>
+                ))}
+                <div className="flex items-start gap-2 sm:col-span-2">
+                    <School className="w-4 h-4 mt-0.5 text-gray-400 shrink-0" aria-hidden="true" />
+                    <div>
+                        <dt className="text-xs text-gray-400">Écoles</dt>
+                        <dd className="text-gray-700">
+                            {staff.schools?.length ? staff.schools.join(", ") : "—"}
+                        </dd>
+                    </div>
+                </div>
+            </dl>
+
+            <p className="mt-4 text-xs text-gray-400">
+                Pour corriger ces informations, contactez l'administration de votre école.
+            </p>
+        </div>
+    );
+}
 
 function AvatarCard({ avatarUrl }) {
     const photoInput = useRef(null);
@@ -106,19 +172,15 @@ function AvatarCard({ avatarUrl }) {
     );
 }
 
-export default function Edit({ mustVerifyEmail, status, avatarUrl }) {
+export default function Edit({ mustVerifyEmail, status, avatarUrl, staff = null }) {
     return (
-        <DashboardLayout
-            header={
-                <h2 className="text-xl font-semibold leading-tight text-gray-800">
-                    Profile
-                </h2>
-            }
-        >
-            <Head title="Profile" />
+        <DashboardLayout>
+            <Head title="Profil" />
 
             <div className="py-12">
                 <div className="mx-auto max-w-7xl space-y-6 sm:px-6 lg:px-8">
+                    {staff && <StaffInfoCard staff={staff} />}
+
                     <AvatarCard avatarUrl={avatarUrl} />
 
                     <div className="bg-white p-4 shadow sm:rounded-lg sm:p-8">

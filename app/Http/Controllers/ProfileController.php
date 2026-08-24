@@ -37,7 +37,31 @@ class ProfileController extends Controller
             'mustVerifyEmail' => $user instanceof MustVerifyEmail,
             'status' => session('status'),
             'avatarUrl' => $model->profile_image,
+            // Assistants see their HR card next to the account forms — it used to live
+            // only on assistants.show, which stopped being their home. Salary stays
+            // out: that is payroll data, not self-service profile data.
+            'staff' => $this->assistantStaffInfo($user),
         ]);
+    }
+
+    /** The assistant's own staff info, or null for other roles. */
+    private function assistantStaffInfo($user): ?array
+    {
+        if (! $user || $user->role !== 'assistant') {
+            return null;
+        }
+
+        $assistant = \App\Models\Assistant::where('email', $user->email)->first();
+
+        return $assistant ? [
+            'first_name' => $assistant->first_name,
+            'last_name' => $assistant->last_name,
+            'status' => $assistant->status,
+            'phone_number' => $assistant->phone_number,
+            'address' => $assistant->address,
+            'bio' => $assistant->bio ?? null,
+            'schools' => $assistant->schools()->pluck('schools.name')->all(),
+        ] : null;
     }
 
     /**
@@ -283,8 +307,10 @@ class ProfileController extends Controller
                 return redirect()->route('assistants.show', $assistant->id)->with('success', 'School selected successfully.');
             }
 
-            // Otherwise redirect to assistant profile
-            return redirect()->route('assistants.show', $assistant->id);
+            // Otherwise go to the assistant's actual home: /dashboard now renders
+            // the operations cockpit; landing on the HR profile page here was a
+            // leftover of when RoleRedirect pinned them to assistants.show.
+            return redirect()->route('dashboard');
         } else {
             abort(403, 'Unauthorized role.');
         }

@@ -119,13 +119,40 @@ const AbsenceLog = () => {
                 <div className="flex flex-wrap gap-4 items-end">
                     <div>
                         <label className="block text-sm font-medium mb-1">Date</label>
-                        <TextInput
-                            type="date"
-                            name="date"
-                            value={filters.date}
-                            onChange={handleDateChange}
-                            className="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm px-2 py-1"
-                        />
+                        <div className="flex items-center gap-2">
+                            <TextInput
+                                type="date"
+                                name="date"
+                                value={filters.date}
+                                onChange={handleDateChange}
+                                className="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm px-2 py-1"
+                            />
+                            {/* Vérifier la journée en cours doit être un clic, pas une
+                                saisie de date — c'était le reproche fait à cette page. */}
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    setFilters((prev) => ({ ...prev, date: getToday() }))
+                                }
+                                className={`text-xs font-medium px-2.5 py-2 rounded-md border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lamaSky ${
+                                    filters.date === getToday()
+                                        ? "bg-lamaSky text-white border-lamaSky"
+                                        : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
+                                }`}
+                            >
+                                Aujourd'hui
+                            </button>
+                            {filters.date && (
+                                <button
+                                    type="button"
+                                    onClick={() => setFilters((prev) => ({ ...prev, date: "" }))}
+                                    className="text-xs text-gray-400 hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 rounded px-1"
+                                    title="Afficher toutes les dates"
+                                >
+                                    Tout
+                                </button>
+                            )}
+                        </div>
                     </div>
                     <div>
                         <label className="block text-sm font-medium mb-1">Statut</label>
