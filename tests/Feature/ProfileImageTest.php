@@ -755,14 +755,15 @@ test('self-service removal is idempotent and clears the file', function () {
     $this->actingAs($admin)->delete('/profile/image')->assertRedirect('/profile');
 });
 
-test('non-admin staff cannot remove a student image', function () {
+test('teachers cannot remove a student image', function () {
     [$school, $class, $student] = schoolWithClassAndStudent();
     [$otherUser] = profileStaffUser('teacher');
     $path = seededImagePath('students');
     $student->forceFill(['profile_image' => $path])->save();
 
-    // Deliberate asymmetry vs serving: staff may VIEW student photos through
-    // school scope but only admins may erase them.
+    // Teachers have no student write access anywhere (they cannot even open a
+    // student profile), so removal stays closed to them. Assistants ARE allowed
+    // within their school scope — covered in ProfileImageRemovalTest.
     $this->actingAs($otherUser)
         ->delete('/profile-images/students/'.$student->id)
         ->assertForbidden();
