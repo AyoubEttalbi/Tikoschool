@@ -12,9 +12,11 @@ use App\Models\Membership;
 use App\Models\School;
 use App\Models\Student;
 use App\Models\Subject;
+use App\Models\Teacher;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Services\ProfileImageService;
+use App\Support\ProfileImageUrl;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -129,14 +131,28 @@ class AssistantController extends Controller
      */
     public function store(Request $request)
     {
+        $newImagePath = null;
         try {
             $validatedData = $request->validate([
                 'first_name' => 'required|string|max:100',
                 'last_name' => 'required|string|max:100',
-                'email' => 'required|string|email|max:255|unique:assistants,email',
+                // Live rows only: a soft-deleted assistant with this email is re-hired below.
+                'email' => [
+                    'required', 'string', 'email', 'max:255',
+                    function (string $attribute, mixed $value, \Closure $fail) {
+                        if (Assistant::where('email', $value)->exists()) {
+                            $fail('Cette adresse e-mail est déjà utilisée par un autre assistant.');
+                        }
+                        // Cross-table invariant kept by ValidateEmailUnique: a live
+                        // teacher owning this email blocks the create/re-hire.
+                        if (Teacher::where('email', $value)->exists()) {
+                            $fail('Cette adresse e-mail est déjà utilisée par un enseignant.');
+                        }
+                    },
+                ],
                 'phone_number' => 'nullable|string|max:20',
                 'address' => 'nullable|string|max:255',
-                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120', // Increased to 5MB
+                'profile_image' => 'nullable|mimes:jpg,jpeg,png,webp,avif|max:5120', // Increased to 5MB
                 'salary' => 'required|numeric|min:0',
                 'status' => 'required|in:active,inactive',
                 'schools' => 'required|array',
@@ -150,8 +166,18 @@ class AssistantController extends Controller
                 $validatedData['profile_image'] = $newImagePath;
             }
 
-            // Create the assistant record
-            $assistant = Assistant::create($validatedData);
+            // Re-hire: revive the soft-deleted row (same id, history intact) instead
+            // of colliding with its unique email index.
+            $rehired = Assistant::onlyTrashed()->where('email', $validatedData['email'])->first();
+
+            if ($rehired) {
+                unset($validatedData['email']);
+                $rehired->fill($validatedData)->restore();
+                $assistant = $rehired;
+            } else {
+                // Create the assistant record
+                $assistant = Assistant::create($validatedData);
+            }
 
             // Sync schools with the assistant
             $assistant->schools()->sync($request->schools);
@@ -164,7 +190,7 @@ class AssistantController extends Controller
         } catch (\Exception $e) {
             // The WebP was already written to disk before Assistant::create(); if the row
             // never landed, discard the file instead of leaking an orphan.
-            if ($newImagePath !== null) {
+            if (($newImagePath ?? null) !== null) {
                 $this->profileImages->discard($newImagePath);
             }
 
@@ -749,7 +775,7 @@ class AssistantController extends Controller
                 ],
                 'phone_number' => 'nullable|string|max:20',
                 'address' => 'nullable|string|max:255',
-                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
+                'profile_image' => 'nullable|mimes:jpg,jpeg,png,webp,avif|max:5120',
                 'salary' => 'required|numeric|min:0',
                 'status' => 'required|in:active,inactive',
                 'schools' => 'array',
@@ -760,12 +786,15 @@ class AssistantController extends Controller
             $userWithEmail = User::where('email', $validatedData['email'])
                 ->where('email', '!=', $oldEmail)
                 ->first();
-            $assistantWithEmail = Assistant::where('email', $validatedData['email'])
+            // withTrashed(): the DB unique index includes soft-deleted rows — renaming
+            // onto a trashed email must fail here with a field error, not at the index.
+            $assistantWithEmail = Assistant::withTrashed()
+                ->where('email', $validatedData['email'])
                 ->where('id', '!=', $assistant->id)
                 ->first();
             if ($userWithEmail || $assistantWithEmail) {
                 return redirect()->back()
-                    ->withErrors(['email' => 'Cette adresse e-mail est dÃ©jÃ  utilisÃ©e par un autre utilisateur ou assistant.'])
+                    ->withErrors(['email' => 'Cette adresse e-mail est dÃ©jÃ  utilisÃ©e par un autre utilisateur ou assistant.'])
                     ->withInput();
             }
 
@@ -855,10 +884,19 @@ class AssistantController extends Controller
     public function destroy(Assistant $assistant)
     {
         try {
-            // Image file intentionally kept: this is a soft delete â€” the row keeps its
+            // Image file intentionally kept: this is a soft delete â€" the row keeps its
             // reference so a restore gets the image back. Permanent purge deletes the file.
 
-            $assistant->delete();
+            // Atomic: a soft-deleted staff row with a live login (or vice versa)
+            // would leave self-service surfaces 404ing for that account.
+            DB::transaction(function () use ($assistant) {
+                $assistant->delete();
+
+                // Deleting an assistant ends their login too: recreating with the same
+                // email must not be blocked by a live users row. Role-guarded so an admin
+                // sharing the address can never be caught here.
+                User::where('email', $assistant->email)->where('role', 'assistant')->delete();
+            });
 
             return redirect()->route('assistants.index')->with('success', 'Assistant deleted successfully.');
         } catch (\Exception $e) {
@@ -870,6 +908,11 @@ class AssistantController extends Controller
     public function storeWithUser(Request $request)
     {
         DB::beginTransaction();
+        // Hoisted BEFORE try: every catch below reads these, and a ValidationException
+        // from the validate() calls fires long before the old in-try assignment ran —
+        // that undefined-variable crash masked duplicate-email errors with a 500.
+        $newImagePath = null;
+        $pendingOldImageDelete = null;
         try {
             // Validate user data
             $userData = $request->validate([
@@ -879,16 +922,30 @@ class AssistantController extends Controller
                 'user.role' => 'required|in:admin,assistant,teacher',
             ]);
 
-            // Validate assistant data
+            // Validate assistant data. Email conflicts are checked against LIVE rows
+            // only: an email held by a soft-deleted assistant re-hires that record
+            // (same id, history preserved) instead of failing on its unique index.
             $assistantData = $request->validate([
                 'assistant.first_name' => 'required|string|max:100',
                 'assistant.last_name' => 'required|string|max:100',
                 'assistant.phone_number' => 'required|string|max:20',
-                'assistant.email' => 'required|string|email|max:255|unique:assistants,email',
+                'assistant.email' => [
+                    'required', 'string', 'email', 'max:255',
+                    function (string $attribute, mixed $value, \Closure $fail) {
+                        if (Assistant::where('email', $value)->exists()) {
+                            $fail('Cette adresse e-mail est déjà utilisée par un autre assistant.');
+                        }
+                        // Cross-table invariant kept by ValidateEmailUnique: a live
+                        // teacher owning this email blocks the create/re-hire.
+                        if (Teacher::where('email', $value)->exists()) {
+                            $fail('Cette adresse e-mail est déjà utilisée par un enseignant.');
+                        }
+                    },
+                ],
                 'assistant.address' => 'required|string|max:255',
                 'assistant.status' => 'required|in:active,inactive',
                 'assistant.salary' => 'required|numeric|min:0',
-                'assistant.profile_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
+                'assistant.profile_image' => 'nullable|mimes:jpg,jpeg,png,webp,avif|max:5120',
                 'assistant.schools' => 'array',
                 'assistant.schools.*' => 'exists:schools,id',
             ]);
@@ -902,58 +959,103 @@ class AssistantController extends Controller
             ]);
 
             // Handle assistant profile image
-            $assistantDataArr = [
+            $assistantFields = [
                 'first_name' => $request->input('assistant.first_name'),
                 'last_name' => $request->input('assistant.last_name'),
                 'phone_number' => $request->input('assistant.phone_number'),
-                'email' => $request->input('assistant.email'),
                 'address' => $request->input('assistant.address'),
                 'status' => $request->input('assistant.status'),
                 'salary' => $request->input('assistant.salary'),
             ];
-            $newImagePath = null;
-            if ($request->hasFile('assistant.profile_image')) {
-                // May throw ValidationException â€” forwarded to the form by the dedicated catch below.
-                $newImagePath = $this->profileImages->store($request->file('assistant.profile_image'), 'assistants', 'assistant.profile_image');
-                $assistantDataArr['profile_image'] = $newImagePath;
+
+            // Re-hire: same email as a soft-deleted assistant revives THAT row —
+            // same id keeps salary/wallet/payout history attached.
+            $rehired = Assistant::onlyTrashed()
+                ->where('email', $request->input('assistant.email'))
+                ->first();
+
+            if ($rehired) {
+                // The identity join is by email: reviving an assistant whose staff
+                // email differs from the new login would silently break that join.
+                if ($request->input('user.email') !== $request->input('assistant.email')) {
+                    throw ValidationException::withMessages([
+                        'user.email' => 'L\'adresse e-mail du compte doit correspondre à celle de l\'assistant réintégré.',
+                    ]);
+                }
+
+                if ($request->hasFile('assistant.profile_image')) {
+                    $newImagePath = $this->profileImages->store($request->file('assistant.profile_image'), 'assistants', 'assistant.profile_image');
+
+                    // Optimistic swap, mirroring update(): only succeed if the stored
+                    // reference is what we read; loser discards its fresh file.
+                    // withTrashed(): the row is still soft-deleted right now, and
+                    // whereKey() alone would scope it out and always report 0 rows.
+                    $oldRawImage = $rehired->getRawOriginal('profile_image');
+                    $swapped = Assistant::withTrashed()
+                        ->whereKey($rehired->getKey())
+                        ->when($oldRawImage === null,
+                            fn ($q) => $q->whereNull('profile_image'),
+                            fn ($q) => $q->where('profile_image', $oldRawImage))
+                        ->update(['profile_image' => $newImagePath]);
+
+                    if ($swapped === 0) {
+                        $this->profileImages->discard($newImagePath);
+                        $newImagePath = null;
+
+                        throw ValidationException::withMessages([
+                            'assistant.profile_image' => "L'image a été modifiée entre-temps. Rechargez la page et réessayez.",
+                        ]);
+                    }
+
+                    // Old file leaves disk only after the transaction commits (spec Phase 9).
+                    $pendingOldImageDelete = ProfileImageUrl::isLogicalPath($oldRawImage) ? $oldRawImage : null;
+                }
+
+                $rehired->fill($assistantFields)->restore();
+                $assistant = $rehired;
+            } else {
+                if ($request->hasFile('assistant.profile_image')) {
+                    // May throw ValidationException â€" forwarded to the form by the dedicated catch below.
+                    $newImagePath = $this->profileImages->store($request->file('assistant.profile_image'), 'assistants', 'assistant.profile_image');
+                    $assistantFields['profile_image'] = $newImagePath;
+                }
+
+                $assistantFields['email'] = $request->input('assistant.email');
+                $assistant = Assistant::create($assistantFields);
             }
-            // Create assistant
-            $assistant = Assistant::create($assistantDataArr);
+
             // Sync schools
             $assistant->schools()->sync($request->input('assistant.schools', []));
             DB::commit();
+
+            if ($pendingOldImageDelete !== null) {
+                // Post-commit cleanup: a disk hiccup here must NOT hit the generic
+                // catch below, which would discard the NEW committed file and fake
+                // a failure flash over a successful save.
+                try {
+                    $this->profileImages->delete($pendingOldImageDelete);
+                } catch (\Throwable $cleanupError) {
+                    Log::warning('Old profile-image cleanup failed after commit', [
+                        'path' => $pendingOldImageDelete,
+                        'error' => $cleanupError->getMessage(),
+                    ]);
+                }
+            }
 
             // Always redirect to assistants.index for Inertia
             return redirect()->route('assistants.index')->with('success', 'User and Assistant created successfully.');
         } catch (\Illuminate\Validation\ValidationException $e) {
             DB::rollBack();
-            if ($newImagePath !== null) {
+            if (($newImagePath ?? null) !== null) {
                 $this->profileImages->discard($newImagePath);
             }
-            $errors = $e->errors();
-            $userErrors = [];
-            $assistantErrors = [];
-            foreach ($errors as $key => $val) {
-                if (str_starts_with($key, 'user.')) {
-                    $userErrors[$key] = $val;
-                }
-                if (str_starts_with($key, 'assistant.')) {
-                    $assistantErrors[$key] = $val;
-                }
-            }
-            if ($request->expectsJson() || $request->isXmlHttpRequest()) {
-                return response()->json(['errors' => [
-                    'user' => $userErrors,
-                    'assistant' => $assistantErrors,
-                ]], 422);
-            } else {
-                return redirect()->back()
-                    ->withErrors(['user' => $userErrors, 'assistant' => $assistantErrors])
-                    ->withInput();
-            }
+            // Rethrow: Laravel's handler renders the correct response for the caller
+            // — a 303 + session errors for Inertia, JSON for true APIs. A manual
+            // response()->json() here breaks Inertia ("plain JSON response").
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
-            if ($newImagePath !== null) {
+            if (($newImagePath ?? null) !== null) {
                 $this->profileImages->discard($newImagePath);
             }
             if ($request->expectsJson() || $request->isXmlHttpRequest()) {

@@ -354,6 +354,9 @@ class StudentsController extends Controller
 
     public function store(Request $request)
     {
+        // Hoisted before try: the catch below reads this, and any exception thrown
+        // by validate() would otherwise hit an undefined variable.
+        $newImagePath = null;
         try {
             // Validate the incoming request data
             $validatedData = $request->validate([
@@ -377,7 +380,7 @@ class StudentsController extends Controller
                 'medication' => 'nullable',
                 'assurance' => 'required',
                 'assuranceAmount' => 'nullable|numeric|min:0',
-                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120', // Added for image upload
+                'profile_image' => 'nullable|mimes:jpg,jpeg,png,webp,avif|max:5120', // Added for image upload
             ]);
 
             // `exists:schools,id` proves the school is real, not that the caller may write
@@ -409,9 +412,8 @@ class StudentsController extends Controller
                 $validatedData['assurance'] = 0;
             }
 
-            $newImagePath = null;
             if ($request->hasFile('profile_image')) {
-                // May throw ValidationException â€” rethrown below so the form renders the field error.
+                // May throw ValidationException — rethrown below so the form renders the field error.
                 $newImagePath = $this->profileImages->store($request->file('profile_image'), 'students');
                 $validatedData['profile_image'] = $newImagePath;
             }
@@ -798,7 +800,7 @@ class StudentsController extends Controller
                 'hasDisease' => 'sometimes',
                 'diseaseName' => 'nullable|string|max:255',
                 'medication' => 'nullable|string',
-                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
+                'profile_image' => 'nullable|mimes:jpg,jpeg,png,webp,avif|max:5120',
             ]);
 
             // Process hasDisease field - ensure it's always an integer 0 or 1

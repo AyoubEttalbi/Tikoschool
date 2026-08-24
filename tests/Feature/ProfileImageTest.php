@@ -554,3 +554,239 @@ test('the integrity command counts referenced, missing and orphaned files correc
     Storage::disk('profile-images')->assertExists($orphan);
     Storage::disk('profile-images')->assertMissing($missingPath);
 });
+
+/* ------------------------------------------------------------------ */
+/* Staff lifecycle: duplicate emails, re-hire, login cleanup */
+/* ------------------------------------------------------------------ */
+
+function assistantWithUserPayload(string $email, array $extra = []): array
+{
+    return array_merge([
+        'user' => [
+            'name' => 'Test Assistant',
+            'email' => $email,
+            // Rules\Password::defaults() demands 12+ characters.
+            'password' => 'Secret1234!@#$',
+            'password_confirmation' => 'Secret1234!@#$',
+            'role' => 'assistant',
+        ],
+        'assistant' => [
+            'first_name' => 'Ali',
+            'last_name' => 'Amrani',
+            'phone_number' => '0600000000',
+            'email' => $email,
+            'address' => 'Marrakech',
+            'status' => 'active',
+            'salary' => 100,
+        ],
+    ], $extra);
+}
+
+test('storeWithUser returns field errors instead of a 500 on a duplicate live email', function () {
+    [$user, $staff] = profileStaffUser('assistant');
+    $admin = User::factory()->create(['role' => 'admin']);
+
+    $response = $this->actingAs($admin)
+        ->from('/assistants')
+        ->post('/assistants-with-user', assistantWithUserPayload($user->email));
+
+    // The regression this pins: the catch blocks read $newImagePath before it was
+    // initialized, turning duplicate-email ValidationExceptions into a 500.
+    $response->assertRedirect('/assistants');
+    $response->assertSessionHasErrors('user.email');
+});
+
+test('re-hiring a soft-deleted assistant with the same email revives the same row', function () {
+    [$oldUser, $staff] = profileStaffUser('assistant');
+    $admin = User::factory()->create(['role' => 'admin']);
+    $originalId = $staff->id;
+
+    $staff->delete();
+    $oldUser->delete(); // destroy() now does this; simulated here for pre-dating rows
+
+    $this->actingAs($admin)
+        ->post('/assistants-with-user', assistantWithUserPayload($staff->email))
+        ->assertRedirect('/assistants');
+
+    $revived = \App\Models\Assistant::where('email', $staff->email)->first();
+
+    expect($revived)->not->toBeNull()
+        ->and($revived->id)->toBe($originalId)
+        ->and($revived->trashed())->toBeFalse()
+        ->and(\App\Models\User::where('email', $staff->email)->where('role', 'assistant')->exists())->toBeTrue();
+});
+
+test('re-hire swaps the image and deletes the old file after commit', function () {
+    [$oldUser, $staff] = profileStaffUser('assistant');
+    $admin = User::factory()->create(['role' => 'admin']);
+
+    $oldPath = seededImagePath('assistants');
+    $staff->forceFill(['profile_image' => $oldPath])->save();
+    $staff->delete();
+    $oldUser->delete();
+
+    $payload = assistantWithUserPayload($staff->email);
+    $payload['assistant']['profile_image'] = makeUpload('jpeg');
+
+    $this->actingAs($admin)
+        ->post('/assistants-with-user', $payload)
+        ->assertRedirect('/assistants');
+
+    $revived = \App\Models\Assistant::withTrashed()->find($staff->id);
+
+    expect($revived->getRawOriginal('profile_image'))->not->toBe($oldPath)
+        ->and($revived->getRawOriginal('profile_image'))->toMatch('/^assistants\/[a-f0-9]{40}\.webp$/');
+
+    Storage::disk('profile-images')->assertMissing($oldPath);
+    Storage::disk('profile-images')->assertExists($revived->getRawOriginal('profile_image'));
+});
+
+test('deleting a teacher also deletes their teacher-role login', function () {
+    [$user, $teacher] = profileStaffUser('teacher');
+    $admin = User::factory()->create(['role' => 'admin']);
+
+    $this->actingAs($admin)->delete('/teachers/'.$teacher->id)->assertRedirect();
+
+    expect($teacher->fresh()->trashed())->toBeTrue()
+        ->and(User::find($user->id))->toBeNull();
+});
+
+test('deleting an assistant never touches an admin who shares the email', function () {
+    [$user, $assistant] = profileStaffUser('assistant');
+    $admin = User::factory()->create(['role' => 'admin']);
+    $sharingAdmin = User::factory()->create(['role' => 'admin', 'email' => 'shared-admin@example.test']);
+    // Data-drift edge: staff row whose email belongs to an admin account.
+    $assistant->forceFill(['email' => $sharingAdmin->email])->save();
+    $user->delete();
+
+    $this->actingAs($admin)->delete('/assistants/'.$assistant->id)->assertRedirect();
+
+    expect($assistant->fresh()->trashed())->toBeTrue()
+        ->and(User::find($sharingAdmin->id))->not->toBeNull();
+});
+
+/* ------------------------------------------------------------------ */
+/* Image removal endpoint + self-service avatar */
+/* ------------------------------------------------------------------ */
+
+test('admins can remove any entity image and the file leaves disk', function () {
+    [$school, $class, $student] = schoolWithClassAndStudent();
+    $admin = User::factory()->create(['role' => 'admin']);
+    $path = seededImagePath('students');
+    $student->forceFill(['profile_image' => $path])->save();
+
+    $this->actingAs($admin)
+        ->delete('/profile-images/students/'.$student->id)
+        ->assertRedirect()
+        ->assertSessionHas('success');
+
+    expect($student->fresh()->getRawOriginal('profile_image'))->toBeNull();
+    Storage::disk('profile-images')->assertMissing($path);
+});
+
+test('legacy cloudinary values are cleared from the row without touching remote assets', function () {
+    [$user, $teacher] = profileStaffUser('teacher');
+    $admin = User::factory()->create(['role' => 'admin']);
+    $legacy = 'http://res.cloudinary.com/demo/image/upload/v1/old.jpg';
+    $teacher->forceFill(['profile_image' => $legacy])->save();
+
+    $this->actingAs($admin)->delete('/profile-images/teachers/'.$teacher->id);
+
+    expect($teacher->fresh()->getRawOriginal('profile_image'))->toBeNull();
+});
+
+test('non-admin staff can remove only their own image', function () {
+    [$ownerUser, $owner] = profileStaffUser('teacher');
+    [$otherUser, $other] = profileStaffUser('teacher');
+    $path = seededImagePath('teachers');
+    $owner->forceFill(['profile_image' => $path])->save();
+
+    $this->actingAs($otherUser)
+        ->delete('/profile-images/teachers/'.$owner->id)
+        ->assertForbidden();
+    expect($owner->fresh()->getRawOriginal('profile_image'))->toBe($path);
+
+    $this->actingAs($ownerUser)
+        ->delete('/profile-images/teachers/'.$owner->id)
+        ->assertRedirect();
+    expect($owner->fresh()->getRawOriginal('profile_image'))->toBeNull();
+    Storage::disk('profile-images')->assertMissing($path);
+});
+
+test('self-service upload routes to the right row per role and replaces cleanly', function () {
+    $admin = User::factory()->create(['role' => 'admin']);
+
+    $first = makeUpload('jpeg');
+    $this->actingAs($admin)->post('/profile/image', ['photo' => $first])->assertRedirect('/profile');
+
+    $firstPath = $admin->fresh()->getRawOriginal('profile_image');
+    expect($firstPath)->toMatch('/^admins\/[a-f0-9]{40}\.webp$/');
+    Storage::disk('profile-images')->assertExists($firstPath);
+
+    $second = makeUpload('png');
+    $this->actingAs($admin)->post('/profile/image', ['photo' => $second])->assertRedirect('/profile');
+
+    $secondPath = $admin->fresh()->getRawOriginal('profile_image');
+    expect($secondPath)->not->toBe($firstPath);
+    Storage::disk('profile-images')->assertMissing($firstPath);
+    Storage::disk('profile-images')->assertExists($secondPath);
+});
+
+test('a teacher self-service photo lands on their staff row joined by email', function () {
+    [$user, $teacher] = profileStaffUser('teacher');
+
+    $this->actingAs($user)->post('/profile/image', ['photo' => makeUpload('jpeg')])->assertRedirect('/profile');
+
+    $path = $teacher->fresh()->getRawOriginal('profile_image');
+    expect($path)->toMatch('/^teachers\/[a-f0-9]{40}\.webp$/')
+        ->and($user->fresh()->getRawOriginal('profile_image'))->toBeNull();
+    Storage::disk('profile-images')->assertExists($path);
+});
+
+test('self-service removal is idempotent and clears the file', function () {
+    $admin = User::factory()->create(['role' => 'admin']);
+    $path = seededImagePath('admins');
+    $admin->forceFill(['profile_image' => $path])->save();
+
+    $this->actingAs($admin)->delete('/profile/image')->assertRedirect('/profile');
+    expect($admin->fresh()->getRawOriginal('profile_image'))->toBeNull();
+    Storage::disk('profile-images')->assertMissing($path);
+
+    $this->actingAs($admin)->delete('/profile/image')->assertRedirect('/profile');
+});
+
+test('non-admin staff cannot remove a student image', function () {
+    [$school, $class, $student] = schoolWithClassAndStudent();
+    [$otherUser] = profileStaffUser('teacher');
+    $path = seededImagePath('students');
+    $student->forceFill(['profile_image' => $path])->save();
+
+    // Deliberate asymmetry vs serving: staff may VIEW student photos through
+    // school scope but only admins may erase them.
+    $this->actingAs($otherUser)
+        ->delete('/profile-images/students/'.$student->id)
+        ->assertForbidden();
+
+    expect($student->fresh()->getRawOriginal('profile_image'))->toBe($path);
+    Storage::disk('profile-images')->assertExists($path);
+});
+
+test('re-hire is refused while a live row in the other table owns the email', function () {
+    $admin = User::factory()->create(['role' => 'admin']);
+    $email = fake()->unique()->safeEmail();
+
+    $user = User::factory()->create(['role' => 'assistant', 'email' => $email]);
+    $assistant = \App\Models\Assistant::factory()->create(['email' => $email]);
+    Teacher::factory()->create(['email' => $email]); // LIVE cross-table owner
+
+    $assistant->delete();
+    $user->delete(); // destroy() would have removed it
+
+    $this->actingAs($admin)
+        ->from('/assistants')
+        ->post('/assistants-with-user', assistantWithUserPayload($email))
+        ->assertRedirect('/assistants')
+        ->assertSessionHasErrors('assistant.email');
+
+    expect(\App\Models\Assistant::withTrashed()->find($assistant->id)->trashed())->toBeTrue();
+});

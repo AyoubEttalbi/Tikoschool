@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Events\CheckEmailUnique;
 use App\Models\Announcement;
+use App\Models\Assistant;
 use App\Models\Classes;
 use App\Models\Invoice;
 use App\Models\Membership;
@@ -14,6 +15,7 @@ use App\Models\TeacherWalletEntry;
 use App\Models\User;
 use App\Services\ProfileImageService;
 use App\Support\OfferPercentages;
+use App\Support\ProfileImageUrl;
 use App\Support\SchoolScope;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -200,15 +202,29 @@ class TeacherController extends Controller
      */
     public function store(Request $request)
     {
+        $newImagePath = null;
         try {
             $validatedData = $request->validate([
                 'first_name' => 'required|string|max:100',
                 'last_name' => 'required|string|max:100',
                 'address' => 'nullable|string|max:255',
                 'phone_number' => 'nullable|string|max:20',
-                'email' => 'required|string|email|max:255|unique:teachers,email',
+                // Live rows only: a soft-deleted teacher with this email is re-hired below.
+                'email' => [
+                    'required', 'string', 'email', 'max:255',
+                    function (string $attribute, mixed $value, \Closure $fail) {
+                        if (Teacher::where('email', $value)->exists()) {
+                            $fail('Cette adresse e-mail est déjà utilisée par un autre enseignant.');
+                        }
+                        // Cross-table invariant kept by ValidateEmailUnique: a live
+                        // assistant owning this email blocks the create/re-hire.
+                        if (Assistant::where('email', $value)->exists()) {
+                            $fail('Cette adresse e-mail est déjà utilisée par un assistant.');
+                        }
+                    },
+                ],
                 'status' => 'required|in:active,inactive',
-                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
+                'profile_image' => 'nullable|mimes:jpg,jpeg,png,webp,avif|max:5120',
                 'schools' => 'array',
                 'schools.*' => 'exists:schools,id',
                 'subjects' => 'array',
@@ -230,15 +246,25 @@ class TeacherController extends Controller
 
             $newImagePath = null;
             if ($request->hasFile('profile_image')) {
-                // May throw ValidationException â€” rethrown below so the form renders the field error.
+                // May throw ValidationException — rethrown below so the form renders the field error.
                 $newImagePath = $this->profileImages->store($request->file('profile_image'), 'teachers');
                 $validatedData['profile_image'] = $newImagePath;
             }
 
             event(new CheckEmailUnique($request->email));
 
-            // Create the teacher record
-            $teacher = Teacher::create($validatedData);
+            // Re-hire: revive the soft-deleted row (same id, wallet/payout history
+            // intact) instead of colliding with its unique email index.
+            $rehired = Teacher::onlyTrashed()->where('email', $validatedData['email'])->first();
+
+            if ($rehired) {
+                unset($validatedData['email']);
+                $rehired->fill($validatedData)->restore();
+                $teacher = $rehired;
+            } else {
+                // Create the teacher record
+                $teacher = Teacher::create($validatedData);
+            }
 
             // Sync relationships
             $teacher->subjects()->sync($request->subjects ?? []);
@@ -247,11 +273,17 @@ class TeacherController extends Controller
 
             return redirect()->route('teachers.index')->with('success', 'Teacher created successfully.');
         } catch (ValidationException $e) {
+            // CheckEmailUnique fires AFTER the WebP is stored; a duplicate email must
+            // not leave that fresh file orphaned on disk.
+            if (($newImagePath ?? null) !== null) {
+                $this->profileImages->discard($newImagePath);
+            }
+
             throw $e;
         } catch (\Exception $e) {
             // The WebP was already written to disk before Teacher::create(); if the row
             // never landed, discard the file instead of leaking an orphan.
-            if ($newImagePath !== null) {
+            if (($newImagePath ?? null) !== null) {
                 $this->profileImages->discard($newImagePath);
             }
 
@@ -1002,7 +1034,7 @@ class TeacherController extends Controller
                     'unique:teachers,email,'.$teacher->id,
                 ],
                 'status' => 'required|in:active,inactive',
-                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
+                'profile_image' => 'nullable|mimes:jpg,jpeg,png,webp,avif|max:5120',
                 'subjects' => 'array',
                 'subjects.*' => 'exists:subjects,id',
                 'classes' => 'array',
@@ -1028,12 +1060,16 @@ class TeacherController extends Controller
             $userWithEmail = User::where('email', $validatedData['email'])
                 ->where('email', '!=', $oldEmail)
                 ->first();
-            $teacherWithEmail = Teacher::where('email', $validatedData['email'])
+            // withTrashed(): the DB unique index includes soft-deleted rows, so renaming
+            // onto a trashed teacher's email must fail HERE with a field error, not at
+            // the index with a generic QueryException.
+            $teacherWithEmail = Teacher::withTrashed()
+                ->where('email', $validatedData['email'])
                 ->where('id', '!=', $teacher->id)
                 ->first();
             if ($userWithEmail || $teacherWithEmail) {
                 return redirect()->back()
-                    ->withErrors(['email' => 'Cette adresse e-mail est dÃ©jÃ  utilisÃ©e par un autre utilisateur ou enseignant.'])
+                    ->withErrors(['email' => 'Cette adresse e-mail est dÃ©jÃ  utilisÃ©e par un autre utilisateur ou enseignant.'])
                     ->withInput();
             }
 
@@ -1210,16 +1246,25 @@ class TeacherController extends Controller
     public function destroy(Teacher $teacher)
     {
         try {
-            // Image file intentionally kept: this is a soft delete â€” the row keeps its
+            // Image file intentionally kept: this is a soft delete â€" the row keeps its
             // reference so a restore gets the image back. Permanent purge deletes the file.
 
-            // Detach relationships
-            $teacher->subjects()->detach();
-            $teacher->classes()->detach();
-            $teacher->schools()->detach();
+            // Atomic: a soft-deleted staff row with a live login (or vice versa)
+            // would leave self-service surfaces 404ing for that account.
+            DB::transaction(function () use ($teacher) {
+                // Detach relationships
+                $teacher->subjects()->detach();
+                $teacher->classes()->detach();
+                $teacher->schools()->detach();
 
-            // Delete teacher
-            $teacher->delete();
+                // Delete teacher
+                $teacher->delete();
+
+                // Deleting a teacher ends their login too: recreating with the same email
+                // must not be blocked by a live users row. Role-guarded so an admin sharing
+                // the address can never be caught here.
+                User::where('email', $teacher->email)->where('role', 'teacher')->delete();
+            });
 
             return redirect()->route('teachers.index')->with('success', 'Teacher deleted successfully.');
         } catch (\Exception $e) {
@@ -1235,6 +1280,11 @@ class TeacherController extends Controller
     public function storeWithUser(Request $request)
     {
         DB::beginTransaction();
+        // Hoisted BEFORE try: the catches below read these, and a ValidationException
+        // from validate() fires before any in-try assignment — reading an undefined
+        // variable inside a catch crashed as a 500 instead of showing field errors.
+        $newImagePath = null;
+        $pendingOldImageDelete = null;
         try {
             // Validate user data
             $userData = $request->validate([
@@ -1244,15 +1294,29 @@ class TeacherController extends Controller
                 'user.role' => 'required|in:admin,assistant,teacher',
             ]);
 
-            // Validate teacher data
+            // Validate teacher data. Email conflicts are checked against LIVE rows
+            // only: an email held by a soft-deleted teacher re-hires that record
+            // (same id, wallet/payout history preserved) instead of failing.
             $teacherData = $request->validate([
                 'teacher.first_name' => 'required|string|max:100',
                 'teacher.last_name' => 'required|string|max:100',
                 'teacher.address' => 'nullable|string|max:255',
                 'teacher.phone_number' => 'nullable|string|max:20',
-                'teacher.email' => 'required|string|email|max:255|unique:teachers,email',
+                'teacher.email' => [
+                    'required', 'string', 'email', 'max:255',
+                    function (string $attribute, mixed $value, \Closure $fail) {
+                        if (Teacher::where('email', $value)->exists()) {
+                            $fail('Cette adresse e-mail est déjà utilisée par un autre enseignant.');
+                        }
+                        // Cross-table invariant kept by ValidateEmailUnique: a live
+                        // assistant owning this email blocks the create/re-hire.
+                        if (Assistant::where('email', $value)->exists()) {
+                            $fail('Cette adresse e-mail est déjà utilisée par un assistant.');
+                        }
+                    },
+                ],
                 'teacher.status' => 'required|in:active,inactive',
-                'teacher.profile_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
+                'teacher.profile_image' => 'nullable|mimes:jpg,jpeg,png,webp,avif|max:5120',
                 'teacher.schools' => 'array',
                 'teacher.schools.*' => 'exists:schools,id',
                 'teacher.subjects' => 'array',
@@ -1270,26 +1334,71 @@ class TeacherController extends Controller
             ]);
 
             // Handle teacher profile image
-            $teacherDataArr = [
+            $teacherFields = [
                 'first_name' => $request->input('teacher.first_name'),
                 'last_name' => $request->input('teacher.last_name'),
                 'address' => $request->input('teacher.address'),
                 'phone_number' => $request->input('teacher.phone_number'),
-                'email' => $request->input('teacher.email'),
                 'status' => $request->input('teacher.status'),
                 // `wallet` is intentionally absent: it is not fillable, and the column
                 // defaults to 0. See the note in store().
             ];
 
-            $newImagePath = null;
-            if ($request->hasFile('teacher.profile_image')) {
-                // May throw ValidationException â€” forwarded to the form by the dedicated catch below.
-                $newImagePath = $this->profileImages->store($request->file('teacher.profile_image'), 'teachers', 'teacher.profile_image');
-                $teacherDataArr['profile_image'] = $newImagePath;
-            }
+            // Re-hire: same email as a soft-deleted teacher revives THAT row — same id
+            // keeps salary/wallet/payout history attached.
+            $rehired = Teacher::onlyTrashed()
+                ->where('email', $request->input('teacher.email'))
+                ->first();
 
-            // Create teacher
-            $teacher = Teacher::create($teacherDataArr);
+            if ($rehired) {
+                // The identity join is by email: reviving a teacher whose staff email
+                // differs from the new login would silently break that join.
+                if ($request->input('user.email') !== $request->input('teacher.email')) {
+                    throw ValidationException::withMessages([
+                        'user.email' => 'L\'adresse e-mail du compte doit correspondre à celle de l\'enseignant réintégré.',
+                    ]);
+                }
+
+                if ($request->hasFile('teacher.profile_image')) {
+                    $newImagePath = $this->profileImages->store($request->file('teacher.profile_image'), 'teachers', 'teacher.profile_image');
+
+                    // Optimistic swap, mirroring update(): only succeed if the stored
+                    // reference is what we read; loser discards its fresh file.
+                    // withTrashed(): the row is still soft-deleted right now, and
+                    // whereKey() alone would scope it out and always report 0 rows.
+                    $oldRawImage = $rehired->getRawOriginal('profile_image');
+                    $swapped = Teacher::withTrashed()
+                        ->whereKey($rehired->getKey())
+                        ->when($oldRawImage === null,
+                            fn ($q) => $q->whereNull('profile_image'),
+                            fn ($q) => $q->where('profile_image', $oldRawImage))
+                        ->update(['profile_image' => $newImagePath]);
+
+                    if ($swapped === 0) {
+                        $this->profileImages->discard($newImagePath);
+                        $newImagePath = null;
+
+                        throw ValidationException::withMessages([
+                            'teacher.profile_image' => "L'image a été modifiée entre-temps. Rechargez la page et réessayez.",
+                        ]);
+                    }
+
+                    // Old file leaves disk only after the transaction commits (spec Phase 9).
+                    $pendingOldImageDelete = ProfileImageUrl::isLogicalPath($oldRawImage) ? $oldRawImage : null;
+                }
+
+                $rehired->fill($teacherFields)->restore();
+                $teacher = $rehired;
+            } else {
+                if ($request->hasFile('teacher.profile_image')) {
+                    // May throw ValidationException — forwarded to the form by the dedicated catch below.
+                    $newImagePath = $this->profileImages->store($request->file('teacher.profile_image'), 'teachers', 'teacher.profile_image');
+                    $teacherFields['profile_image'] = $newImagePath;
+                }
+
+                $teacherFields['email'] = $request->input('teacher.email');
+                $teacher = Teacher::create($teacherFields);
+            }
 
             // Sync relationships
             $teacher->subjects()->sync($request->input('teacher.subjects', []));
@@ -1298,39 +1407,33 @@ class TeacherController extends Controller
 
             DB::commit();
 
+            if ($pendingOldImageDelete !== null) {
+                // Post-commit cleanup: a disk hiccup here must NOT hit the generic
+                // catch below, which would discard the NEW committed file and fake
+                // a failure flash over a successful save.
+                try {
+                    $this->profileImages->delete($pendingOldImageDelete);
+                } catch (\Throwable $cleanupError) {
+                    Log::warning('Old profile-image cleanup failed after commit', [
+                        'path' => $pendingOldImageDelete,
+                        'error' => $cleanupError->getMessage(),
+                    ]);
+                }
+            }
+
             // Always redirect to teachers.index for Inertia
             return redirect()->route('teachers.index')->with('success', 'User and Teacher created successfully.');
         } catch (ValidationException $e) {
             DB::rollBack();
-            if ($newImagePath !== null) {
+            if (($newImagePath ?? null) !== null) {
                 $this->profileImages->discard($newImagePath);
             }
-            $errors = $e->errors();
-            $userErrors = [];
-            $teacherErrors = [];
-            foreach ($errors as $key => $val) {
-                if (str_starts_with($key, 'user.')) {
-                    $userErrors[$key] = $val;
-                }
-                if (str_starts_with($key, 'teacher.')) {
-                    $teacherErrors[$key] = $val;
-                }
-            }
-            // Only return JSON for true API requests
-            if ($request->expectsJson() || $request->isXmlHttpRequest()) {
-                return response()->json(['errors' => [
-                    'user' => $userErrors,
-                    'teacher' => $teacherErrors,
-                ]], 422);
-            } else {
-                // For Inertia/browser, redirect back with errors
-                return redirect()->back()
-                    ->withErrors(['user' => $userErrors, 'teacher' => $teacherErrors])
-                    ->withInput();
-            }
+            // Rethrow: Laravel's handler renders the correct response for the caller
+            // — a 303 + session errors for Inertia, JSON for true APIs.
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
-            if ($newImagePath !== null) {
+            if (($newImagePath ?? null) !== null) {
                 $this->profileImages->discard($newImagePath);
             }
             if ($request->expectsJson() || $request->isXmlHttpRequest()) {

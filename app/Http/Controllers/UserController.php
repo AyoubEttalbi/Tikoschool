@@ -33,7 +33,7 @@ class UserController extends Controller
             $validationRules = [
                 'name' => 'sometimes|string|max:255',
                 'role' => 'sometimes|in:admin,assistant,teacher',
-                'profile_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
+                'profile_image' => 'nullable|mimes:jpg,jpeg,png,webp,avif|max:5120',
                 // Use the app-wide policy rather than a raw min:8 string.
                 'password' => ['nullable', 'string', Password::defaults()],
             ];
