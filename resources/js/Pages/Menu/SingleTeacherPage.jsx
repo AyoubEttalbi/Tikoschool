@@ -4,6 +4,7 @@ const BigCalendar = React.lazy(() => import("@/Components/BigCalender"));
 const FormModal = React.lazy(() => import("@/Components/FormModal"));
 const TeacherProfile = React.lazy(() => import("@/Components/TeacherProfile"));
 import DashboardLayout from "@/Layouts/DashboardLayout";
+import ProfileImageLightbox from "@/Components/ProfileImageLightbox";
 import { Link, usePage, router } from "@inertiajs/react";
 
 const SingleTeacherPage = ({
@@ -97,13 +98,12 @@ const SingleTeacherPage = ({
                 <div className="flex flex-col lg:flex-row gap-4">
                     {/* CARTE INFO UTILISATEUR - Responsive: mobile style only on small screens */}
                     <div className="bg-lamaSky py-4 px-2 rounded-md flex-1 flex-col flex items-center sm:bg-lamaSky sm:py-6 sm:px-4 sm:rounded-md sm:flex-row sm:items-stretch sm:gap-4 sm:flex">
-                        {/* Avatar */}
+                        {/* Avatar — click for quick view */}
                         <div className="w-full flex justify-center sm:justify-start sm:w-1/3 mb-2 sm:mb-0">
-                            <img
+                            <ProfileImageLightbox
                                 src={teacher.profile_image ? teacher.profile_image : "/teacherPrfile2.png"}
-                                alt={teacher.last_name}
-                                width={144}
-                                height={144}
+                                alt={`${teacher.first_name} ${teacher.last_name}`}
+                                enabled={Boolean(teacher.profile_image)}
                                 className="rounded-full object-cover w-16 h-16 mb-2 sm:w-36 sm:h-36 sm:mb-0"
                             />
                         </div>

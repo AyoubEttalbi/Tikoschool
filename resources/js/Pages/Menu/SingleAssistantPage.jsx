@@ -5,6 +5,7 @@ import Announcements from "@/Pages/Menu/Announcements/Announcements";
 // page's chunk. SingleTeacherPage, which does render it, lazy-loads it.
 import FormModal from "@/Components/FormModal";
 import DashboardLayout from "@/Layouts/DashboardLayout";
+import ProfileImageLightbox from "@/Components/ProfileImageLightbox";
 import { Link, usePage, router } from "@inertiajs/react";
 import Pagination from "@/Components/Pagination";
 import ActivityLogs from "@/Components/ActivityLogs";
@@ -175,15 +176,14 @@ const SingleAssistantPage = ({
                     {/* CARTE INFO UTILISATEUR */}
                     <div className="bg-lamaSky py-6 px-4 rounded-md flex-1 flex gap-4">
                         <div className="w-1/3">
-                            <img
+                            <ProfileImageLightbox
                                 src={
                                     assistant.profile_image ||
                                     // "https://images.pexels.com/photos/2888150/pexels-photo-2888150.jpeg?auto=compress&cs=tinysrgb&w=1200"
                                     "/assistantProfile.png"
                                 }
                                 alt={assistant.last_name}
-                                width={144}
-                                height={144}
+                                enabled={Boolean(assistant.profile_image)}
                                 className="w-36 h-36 rounded-full object-cover"
                             />
                         </div>

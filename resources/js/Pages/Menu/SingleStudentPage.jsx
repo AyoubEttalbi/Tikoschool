@@ -9,6 +9,7 @@ import {
     ShieldCheck,
 } from "lucide-react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
+import ProfileImageLightbox from "@/Components/ProfileImageLightbox";
 
 // Add WhatsApp SVG icon
 const WhatsAppIcon = () => (
@@ -51,15 +52,14 @@ const SingleStudentPage = ({
                     {/* CARTE INFO UTILISATEUR */}
                     <div className="bg-lamaSky py-6 px-4 rounded-md flex-1 flex gap-4">
                         <div className="w-1/3">
-                            <img
+                            <ProfileImageLightbox
                                 src={
                                     student.profile_image
                                         ? student.profile_image
                                         : "/studentProfile.png"
                                 }
                                 alt={student.name}
-                                width={144}
-                                height={144}
+                                enabled={Boolean(student.profile_image)}
                                 className="w-36 h-36 rounded-full object-cover"
                             />
                         </div>

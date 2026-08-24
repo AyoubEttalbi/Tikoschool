@@ -6,7 +6,7 @@ import { router, usePage } from "@inertiajs/react";
 import Select from "react-select";
 import { useState } from "react";
 import Register from "@/Pages/Auth/Register";
-import { ChevronDown, ChevronUp, Upload } from "lucide-react";
+import { ChevronDown, ChevronUp, Upload, X } from "lucide-react";
 import UserForm from "./UserForm";
 import UpdateUser from "@/Pages/Auth/UpdateUser";
 
@@ -33,7 +33,7 @@ const AssistantForm = ({ type, data, schools, setOpen, selectedSchool }) => {
     const [imagePreview, setImagePreview] = useState(
         data?.profile_image || null,
     );
-    const { errors: pageErrors } = usePage().props;
+    const { errors: pageErrors, chatContacts } = usePage().props;
     const [loading, setLoading] = useState(false);
     const {
         register,
@@ -41,6 +41,7 @@ const AssistantForm = ({ type, data, schools, setOpen, selectedSchool }) => {
         control,
         watch,
         setValue,
+        setError,
         formState: { errors, isSubmitting },
         getValues,
     } = useForm({
@@ -75,8 +76,42 @@ const AssistantForm = ({ type, data, schools, setOpen, selectedSchool }) => {
         }
     };
 
+    // Remove photo: server-side when editing a saved assistant's existing image,
+    // local-only when discarding a freshly picked file.
+    const handleRemoveImage = () => {
+        if (type === "update" && data?.id && imagePreview === data.profile_image) {
+            router.delete(`/profile-images/assistants/${data.id}`, {
+                preserveScroll: true,
+                onSuccess: () => setImagePreview(null),
+            });
+            return;
+        }
+        setImagePreview(null);
+        setValue("profile_image", null);
+        const input = document.getElementById("profile_image");
+        if (input) input.value = "";
+    };
+
     // Inside the onSubmit function of your AssistantForm component
     const onSubmit = handleSubmit((formData) => {
+        // Client-side duplicate-email guard (see TeacherForm): chatContacts
+        // carries every staff email globally — catch live collisions instantly.
+        const { chatContacts } = usePage().props;
+        const duplicateContact = (chatContacts || []).find(
+            (c) =>
+                c.role !== "admin" &&
+                c.email?.toLowerCase() === formData.email?.trim().toLowerCase() &&
+                !(type === "update" && c.id === data?.id),
+        );
+        if (duplicateContact) {
+            setError("email", {
+                type: "manual",
+                message: "Cette adresse e-mail est déjà utilisée par un autre assistant.",
+            });
+            setLoading(false);
+            return;
+        }
+
         // Create a FormData object to properly handle file uploads
         const formDataObj = new FormData();
 
@@ -294,6 +329,14 @@ const AssistantForm = ({ type, data, schools, setOpen, selectedSchool }) => {
                         <div className="flex flex-col gap-2">
                             {imagePreview && (
                                 <div className="relative w-24 h-24 mb-2">
+                                    <button
+                                        type="button"
+                                        onClick={handleRemoveImage}
+                                        className="absolute -top-2 -right-2 z-10 w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 transition-colors shadow-md cursor-pointer"
+                                        title="Supprimer la photo"
+                                    >
+                                        <X className="w-3.5 h-3.5" />
+                                    </button>
                                     <img
                                         src={imagePreview}
                                         alt="Aperçu du profil"
@@ -434,6 +477,20 @@ const AssistantForm = ({ type, data, schools, setOpen, selectedSchool }) => {
                                     if (!userFormData.password) { userErrors.password = "Le mot de passe est requis"; userValid = false; }
                                     if (userFormData.password !== userFormData.password_confirmation) { userErrors.password_confirmation = "Les mots de passe ne correspondent pas"; userValid = false; }
                                     if (!userFormData.role) { userErrors.role = "Le rôle est requis"; userValid = false; }
+                                    // Client-side duplicate-email guard (mirrors onSubmit).
+                                    const dupContact = (chatContacts || []).find(
+                                        (c) =>
+                                            c.role !== "admin" &&
+                                            c.email?.toLowerCase() === getValues()?.email?.trim().toLowerCase() &&
+                                            !(type === "update" && c.id === data?.id),
+                                    );
+                                    if (dupContact) {
+                                        setError("email", {
+                                            type: "manual",
+                                            message: "Cette adresse e-mail est déjà utilisée par un autre assistant.",
+                                        });
+                                        userValid = false;
+                                    }
                                     setUserFormErrors(userErrors);
                                     if (!assistantValid || !userValid) {
                                         setUserFormProcessing(false);

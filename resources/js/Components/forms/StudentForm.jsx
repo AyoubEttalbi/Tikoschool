@@ -11,7 +11,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/Components/ui/select";
-import { Upload } from "lucide-react";
+import { Upload, X } from "lucide-react";
 
 // Phone input component for Moroccan numbers
 const PhoneInput = ({ label, name, value, onChange, error }) => (
@@ -209,6 +209,22 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
             };
             reader.readAsDataURL(file);
         }
+    };
+
+    // Remove photo: server-side when editing a saved student's existing image,
+    // local-only when discarding a freshly picked file.
+    const handleRemoveImage = () => {
+        if (type === "update" && data?.id && imagePreview === data.profile_image) {
+            router.delete(`/profile-images/students/${data.id}`, {
+                preserveScroll: true,
+                onSuccess: () => setImagePreview(null),
+            });
+            return;
+        }
+        setImagePreview(null);
+        setValue("profile_image", null);
+        const input = document.getElementById("profile_image");
+        if (input) input.value = "";
     };
 
     // Set default values when data is available
@@ -760,6 +776,14 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
                 <div className="flex flex-col gap-2">
                     {imagePreview && (
                         <div className="relative w-24 h-24 mb-2">
+                            <button
+                                type="button"
+                                onClick={handleRemoveImage}
+                                className="absolute -top-2 -right-2 z-10 w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 transition-colors shadow-md cursor-pointer"
+                                title="Supprimer la photo"
+                            >
+                                <X className="w-3.5 h-3.5" />
+                            </button>
                             <img
                                 src={imagePreview}
                                 alt="Aperçu du profil"

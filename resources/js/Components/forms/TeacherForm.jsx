@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { useState } from "react";
 import InputField from "../InputField";
-import { router, Link } from "@inertiajs/react";
+import { router, Link, usePage } from "@inertiajs/react";
 import {
     Check,
     ChevronsUpDown,
@@ -58,6 +58,11 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
 
     console.log("classes", classes)
 
+    // Server-side validation errors (shared Inertia prop) — survive the page
+    // swap that follows a validation redirect, unlike local component state.
+    const { errors: pageErrors } = usePage().props;
+    const { chatContacts } = usePage().props;
+
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedStatus, setSelectedStatus] = useState(
         data?.status || "active",
@@ -92,6 +97,7 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
         handleSubmit,
         control,
         setValue,
+        setError,
         watch,
         formState: { errors },
         getValues,
@@ -155,7 +161,42 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
         }
     };
 
+    // Remove photo: server-side when editing a saved teacher's existing image,
+    // local-only when discarding a freshly picked file.
+    const handleRemoveImage = () => {
+        if (type === "update" && data?.id && imagePreview === data.profile_image) {
+            router.delete(`/profile-images/teachers/${data.id}`, {
+                preserveScroll: true,
+                onSuccess: () => setImagePreview(null),
+            });
+            return;
+        }
+        setImagePreview(null);
+        setValue("profile_image", null);
+        const input = document.getElementById("profile_image");
+        if (input) input.value = "";
+    };
+
     const onSubmit = handleSubmit((formData) => {
+        // Client-side duplicate-email guard: chatContacts carries every staff
+        // member's email globally, so a live-row collision is caught instantly —
+        // no server round-trip, no redirect, nothing to survive. The server stays
+        // authoritative (trashed rows re-hire there).
+        const duplicateContact = (chatContacts || []).find(
+            (c) =>
+                c.role !== "admin" &&
+                c.email?.toLowerCase() === formData.email?.trim().toLowerCase() &&
+                !(type === "update" && c.id === data?.id),
+        );
+        if (duplicateContact) {
+            setError("email", {
+                type: "manual",
+                message: "Cette adresse e-mail est déjà utilisée par un autre enseignant.",
+            });
+            setLoading(false);
+            return;
+        }
+
         // Create a FormData object to properly handle file uploads
         const formDataObj = new FormData();
 
@@ -308,7 +349,7 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
                         label="E-mail"
                         name="email"
                         register={register}
-                        error={errors.email}
+                        error={errors.email || pageErrors?.email || pageErrors?.["teacher.email"]}
                     />
                     {/* The wallet is no longer a form field. It is ledger-derived, and
                         re-submitting a stale value alongside a phone-number edit wiped out
@@ -335,6 +376,14 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
                         <div className="flex flex-col gap-2">
                             {imagePreview && (
                                 <div className="relative w-24 h-24 mb-2">
+                                    <button
+                                        type="button"
+                                        onClick={handleRemoveImage}
+                                        className="absolute -top-2 -right-2 z-10 w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 transition-colors shadow-md cursor-pointer"
+                                        title="Supprimer la photo"
+                                    >
+                                        <X className="w-3.5 h-3.5" />
+                                    </button>
                                     <img
                                         src={imagePreview}
                                         alt="Aperçu du profil"
@@ -800,6 +849,21 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
                                     if (!userFormData.password) { userErrors.password = "Le mot de passe est requis"; userValid = false; }
                                     if (userFormData.password !== userFormData.password_confirmation) { userErrors.password_confirmation = "Les mots de passe ne correspondent pas"; userValid = false; }
                                     if (!userFormData.role) { userErrors.role = "Le rôle est requis"; userValid = false; }
+                                    // Client-side duplicate-email guard (mirrors onSubmit):
+                                    // blocks the request before any redirect can reset the modals.
+                                    const dupContact = (chatContacts || []).find(
+                                        (c) =>
+                                            c.role !== "admin" &&
+                                            c.email?.toLowerCase() === getValues()?.email?.trim().toLowerCase() &&
+                                            !(type === "update" && c.id === data?.id),
+                                    );
+                                    if (dupContact) {
+                                        setError("email", {
+                                            type: "manual",
+                                            message: "Cette adresse e-mail est déjà utilisée par un autre enseignant.",
+                                        });
+                                        userValid = false;
+                                    }
                                     setUserFormErrors(userErrors);
                                     if (!teacherValid || !userValid) {
                                         setUserFormProcessing(false);
@@ -833,6 +897,7 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
                                     });
                                     router.post("/teachers-with-user", formDataObj, {
                                         preserveScroll: true,
+                                        preserveState: true,
                                         forceFormData: true,
                                         onSuccess: (page) => {
                                             setUserModalOpen(false);
@@ -852,7 +917,20 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
                                                 if (key.startsWith("teacher.")) teacherErrs[key.replace("teacher.", "")] = val;
                                             });
                                             setUserFormErrors(userErrs);
-                                            setError && setError(teacherErrs);
+                                            // Map teacher.* server errors onto the RHF
+                                            // field names so they render under the inputs
+                                            // (snake_case -> camelCase where needed).
+                                            const serverFieldMap = {
+                                                first_name: "firstName",
+                                                last_name: "lastName",
+                                                phone_number: "phoneNumber",
+                                            };
+                                            Object.entries(teacherErrs).forEach(([key, val]) => {
+                                                const raw = key.replace("teacher.", "");
+                                                const field = serverFieldMap[raw] || raw;
+                                                const message = Array.isArray(val) ? val[0] : val;
+                                                setError(field, { type: "server", message });
+                                            });
                                             setUserFormProcessing(false);
                                         },
                                     });
