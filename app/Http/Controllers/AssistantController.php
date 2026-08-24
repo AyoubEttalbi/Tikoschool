@@ -631,7 +631,12 @@ class AssistantController extends Controller
             ]);
 
             return Inertia::render('Menu/SingleAssistantPage', [
-                'assistant' => $assistantUser ? array_merge($assistant->toArray(), ['user_id' => $assistantUser->id]) : array_merge($assistant->toArray(), ['user_id' => null]),
+                // makeHidden: an assistant viewing this page is looking at their own HR
+                // file; the salary column must not ride along in the page props. Admin
+                // edit forms read it from the list endpoints, which stay untouched.
+                'assistant' => $assistantUser
+                    ? array_merge($assistant->makeHidden('salary')->toArray(), ['user_id' => $assistantUser->id])
+                    : array_merge($assistant->makeHidden('salary')->toArray(), ['user_id' => null]),
                 'transactions' => $transactions,
                 'announcements' => $announcements,
                 'classes' => $classes,

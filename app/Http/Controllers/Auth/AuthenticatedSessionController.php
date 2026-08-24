@@ -4,15 +4,14 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
-use App\Models\Teacher; // Import the Teacher model
-use App\Models\Assistant; // Import the Assistant model
+use App\Models\Assistant; // Import the Teacher model
+use App\Models\Teacher; // Import the Assistant model
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Inertia\Response;
-use Illuminate\Support\Facades\Log;
 
 class AuthenticatedSessionController extends Controller
 {
@@ -40,12 +39,12 @@ class AuthenticatedSessionController extends Controller
 
         // Get the authenticated user
         $user = Auth::user();
-        
+
         // Redirect based on the user's role
         if ($user->role === 'teacher') {
             // Find the teacher by email
             $teacher = Teacher::where('email', $user->email)->first();
-            
+
             if ($teacher) {
                 return redirect()->route('profiles.select');
             }
@@ -54,13 +53,13 @@ class AuthenticatedSessionController extends Controller
         if ($user->role === 'assistant') {
             // Find the assistant by email
             $assistant = Assistant::where('email', $user->email)->first();
-            
+
             if ($assistant) {
                 // Check if assistant has multiple schools
                 if ($assistant->schools->count() > 1) {
                     return redirect()->route('profiles.select');
                 }
-                
+
                 // If assistant has only one school, set it automatically
                 if ($assistant->schools->count() === 1) {
                     $school = $assistant->schools->first();
@@ -69,8 +68,10 @@ class AuthenticatedSessionController extends Controller
                         'school_name' => $school->name,
                     ]);
                 }
-                
-                return redirect()->route('assistants.show', $assistant->id);
+
+                // The cockpit on /dashboard is the assistant's home; the profile page
+                // is reachable from the menu and no longer a landing target.
+                return redirect()->route('dashboard');
             }
         }
 

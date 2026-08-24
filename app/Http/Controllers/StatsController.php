@@ -47,6 +47,14 @@ class StatsController extends Controller
      */
     public function index(Request $request)
     {
+        // Assistants get their own operations cockpit, not the owner-level analytics:
+        // none of the queries below are scoped to their schools. The branch runs before
+        // any heavy query so an assistant's dashboard render costs what it uses.
+        $currentUser = Auth::user();
+        if ($currentUser && $currentUser->role === 'assistant') {
+            return app(AssistantDashboardController::class)->index($request);
+        }
+
         $schoolId = $request->get('school_id');
         if ($schoolId === 'all' || $schoolId === '' || $schoolId === null) {
             $schoolId = null;

@@ -491,7 +491,7 @@ const SingleAssistantPage = ({
                                 ) && (
                                     <div className="mt-4 text-center">
                                         <Link
-                                            href={`/invoices?filter=unpaid&school=${selectedSchool ? selectedSchool.id : ""}`}
+                                            href={`/invoices?status=unpaid${selectedSchool ? `&school=${selectedSchool.id}` : ""}`}
                                             className="flex items-center px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-800 justify-center"
                                         >
                                             Voir toutes les factures impayées ({totalUnpaidInvoices})
@@ -555,22 +555,11 @@ const SingleAssistantPage = ({
                                         <Pagination links={expiringMembershipsLinks} />
                                     </div>
                                 )}
-                                {hasMoreItems(
-                                    expiringMemberships,
-                                    totalExpiringMemberships,
-                                ) && (
-                                    <div className="mt-4 text-center">
-                                        <Link
-                                            href={`/memberships?filter=expiring&school=${selectedSchool ? selectedSchool.id : ""}`}
-                                            className="flex items-center px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-800 justify-center"
-                                        >
-                                            Voir toutes les adhésions expirant bientôt ({totalExpiringMemberships})
-                                            <ChevronRight className="ml-1 w-4 h-4" />
-                                        </Link>
-                                    </div>
-                                )}
-                            </>
-                        )}
+                                {/* NOTE: pas de lien « Voir toutes » ici : GET /memberships
+                                    n'existe pas (ressource except index) et le lien pointait
+                                    vers Route::fallback, qui rebondissait sur cette page. */}
+                             </>
+                         )}
 
                         {activeTab === "payments" && (
                             <>

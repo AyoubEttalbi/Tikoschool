@@ -12,6 +12,7 @@ use App\Support\SchoolScope;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
@@ -55,38 +56,127 @@ class InvoiceController extends Controller
 
     /**
      * Display a listing of invoices.
+     *
+     * This method existed unrouted for years and rendered Menu/SingleStudentPage when
+     * called by hand — the dead "Voir toutes les factures impayées" link on the
+     * assistant home pointed here via GET /invoices, hit Route::fallback, and bounced
+     * the user back to where they started. It is now the real list page behind
+     * RequireRole:admin,assistant.
+     *
+     * Scope: assistants see only their schools' invoices (SchoolScope); admins get
+     * everything, optionally narrowed with ?school=. "Unpaid" is the derived rule used
+     * everywhere else: rest > 0 OR totalAmount > amountPaid.
      */
-    public function index()
+    public function index(Request $request)
     {
-        $invoices = Invoice::with(['membership' => function ($membershipQuery) {
-            $membershipQuery->withTrashed()->with(['student', 'offer']);
-        }])->paginate(10);
+        SchoolScope::authorizeRole(['admin', 'assistant']);
 
-        // Always decode selected_months and add selectedMonths as array for each invoice
-        $invoices->getCollection()->transform(function ($invoice) {
-            if (isset($invoice->selected_months)) {
-                $selectedMonths = $invoice->selected_months;
-                if (is_string($selectedMonths)) {
-                    $decoded = json_decode($selectedMonths, true);
-                    if (is_array($decoded)) {
-                        $invoice->selectedMonths = $decoded;
-                    } else {
-                        $invoice->selectedMonths = [];
-                    }
-                } elseif (is_array($selectedMonths)) {
-                    $invoice->selectedMonths = $selectedMonths;
-                } else {
-                    $invoice->selectedMonths = [];
-                }
-            } else {
-                $invoice->selectedMonths = [];
+        $user = Auth::user();
+        $schoolIds = SchoolScope::schoolIdsFor($user);
+
+        // Route-level middleware already gates the roles; this is the object-level half.
+        // Placed before any query so a denial can never be swallowed into empty data.
+        if ($schoolIds === []) {
+            // An assistant attached to no school sees an empty page, not every invoice.
+            $schoolIds = null;
+            $query = Invoice::query()->whereRaw('1 = 0');
+        } else {
+            $query = Invoice::query()
+                ->with([
+                    // withTrashed: a withdrawn student's partially paid invoice is
+                    // still receivable money — it stays listed and searchable.
+                    'student' => fn ($studentQuery) => $studentQuery->withTrashed()->with(['class', 'school']),
+                    'offer',
+                ])
+                ->where('type', 'invoice');
+
+            if ($schoolIds !== null) {
+                $query->whereHas('student', fn ($studentQuery) => $studentQuery
+                    ->withTrashed()
+                    ->whereIn('schoolId', $schoolIds));
             }
+        }
 
-            return $invoice;
+        // Object-level scope. Assistants are pinned to their schools; ?school= may
+        // only NARROW that (a multi-school assistant clicking a per-school link on
+        // their home page gets that school, never another). Admins get everything
+        // and may narrow freely.
+        if ($request->filled('school')) {
+            $requestedSchool = (int) $request->input('school');
+            $narrowedTo = $schoolIds === null
+                ? [$requestedSchool]
+                : array_values(array_intersect([$requestedSchool], array_map('intval', $schoolIds)));
+
+            // An out-of-scope school narrows to nothing — it must not widen the scope.
+            if ($narrowedTo !== []) {
+                $query->whereHas('student', fn ($studentQuery) => $studentQuery
+                    ->where('schoolId', $narrowedTo[0]));
+            } else {
+                $query->whereRaw('1 = 0');
+            }
+        }
+
+        // 'toutes' is the frontend alias for 'all': useFilterNavigation strips 'all'
+        // as an unset value, so the alias is what actually arrives in the URL.
+        $statusInput = $request->input('status');
+        $status = in_array($statusInput, ['unpaid', 'paid', 'all', 'toutes'], true)
+            ? $statusInput
+            : 'unpaid';
+
+        if ($status === 'unpaid') {
+            $query->where(function ($q) {
+                $q->whereRaw('COALESCE(rest, 0) > 0')
+                    ->orWhereRaw('COALESCE(totalAmount, 0) > COALESCE(amountPaid, 0)');
+            });
+        } elseif ($status === 'paid') {
+            $query->whereRaw('COALESCE(totalAmount, 0) > 0')
+                ->whereRaw('COALESCE(amountPaid, 0) >= COALESCE(totalAmount, 0)');
+        }
+
+        $search = trim((string) $request->input('search', ''));
+        if ($search !== '') {
+            $like = '%'.$search.'%';
+            $query->whereHas('student', fn ($studentQuery) => $studentQuery
+                ->withTrashed()
+                ->where('firstName', 'like', $like)
+                ->orWhere('lastName', 'like', $like));
+        }
+
+        $invoices = $query
+            ->orderByDesc('creationDate')
+            ->orderByDesc('billDate')
+            ->paginate(15)
+            ->withQueryString();
+
+        $rows = collect($invoices->items())->map(function (Invoice $invoice) {
+            $student = $invoice->student;
+            $total = is_numeric($invoice->totalAmount) ? (float) $invoice->totalAmount : 0.0;
+            $paid = is_numeric($invoice->amountPaid) ? (float) $invoice->amountPaid : 0.0;
+
+            return [
+                'id' => $invoice->id,
+                'student_id' => $student?->id,
+                'student_name' => $student ? $student->firstName.' '.$student->lastName : 'Unknown',
+                'student_class' => $student && $student->class ? $student->class->name : null,
+                'student_school' => $student && $student->school ? $student->school->name : null,
+                'billDate' => $invoice->billDate?->format('Y-m-d'),
+                'creationDate' => $invoice->creationDate?->format('Y-m-d'),
+                'totalAmount' => $total,
+                'amountPaid' => $paid,
+                'rest' => max(0.0, round($total - $paid, 2)),
+                'offer_name' => $invoice->offer?->offer_name,
+                'offer_id' => $invoice->offer_id,
+            ];
         });
 
-        return Inertia::render('Menu/SingleStudentPage', [
-            'invoices' => $invoices,
+        return Inertia::render('Menu/InvoicesIndexPage', [
+            'invoices' => $rows,
+            'links' => $invoices->linkCollection(),
+            'filters' => [
+                'status' => $status,
+                'search' => $search,
+                'school' => $request->input('school'),
+            ],
         ]);
     }
 
