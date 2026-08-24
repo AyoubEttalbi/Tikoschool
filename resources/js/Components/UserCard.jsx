@@ -74,9 +74,18 @@ const UserCard = ({ type, counts, totalCount, schoolId, onClick }) => {
         );
     }
 
+    // One pastel per card type — the same four tones the assistant cockpit uses.
+    // Falls back to the historical odd/even alternation when no tone is given.
+    const toneClasses = {
+        student: "bg-lamaSky",
+        teacher: "bg-lamaPurple",
+        assistant: "bg-lamaYellow",
+        combined: "bg-green-200",
+    };
+
     return (
         <div
-            className="rounded-2xl odd:bg-lamaPurple even:bg-lamaYellow p-4 flex-1 min-w-[130px] relative cursor-pointer hover:shadow-lg transition-shadow"
+            className={`rounded-2xl ${toneClasses[type] ?? "odd:bg-lamaPurple even:bg-lamaYellow"} p-4 flex-1 min-w-[130px] relative cursor-pointer hover:shadow-lg transition-shadow`}
             data-tooltip-id={`usercard-tooltip-${type}`}
             onClick={() => onClick && onClick(type, schoolId)}
         >
