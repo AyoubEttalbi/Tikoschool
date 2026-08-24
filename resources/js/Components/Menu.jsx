@@ -12,13 +12,13 @@ const menuItems = [
                 visible: ["admin", "teacher", "assistant"],
             },
             {
-                icon: "/student.png",
+                icon: "/teacher.png",
                 label: "Enseignants",
                 href: "/teachers",
                 visible: ["admin", "assistant"],
             },
             {
-                icon: "/teacher.png",
+                icon: "/student.png",
                 label: "Élèves",
                 href: "/students",
                 visible: ["admin", "teacher", "assistant"],
@@ -76,7 +76,7 @@ const menuItems = [
                         href: "/attendances",
                     },
                     {
-                        label: "Absence Log",
+                        label: "Journal des absences",
                         href: "/absence-log",
                     },
                     {
@@ -84,6 +84,12 @@ const menuItems = [
                         href: "/absence-list",
                     },
                 ],
+            },
+            {
+                icon: "/assignment.png",
+                label: "Tâches",
+                href: "/tasks",
+                visible: ["admin", "assistant"],
             },
             {
                 icon: "/announcement.png",
@@ -115,6 +121,12 @@ const menuItems = [
                 visible: ["admin", "teacher", "assistant"],
             },
             {
+                icon: "/finance.png",
+                label: "Mes paiements",
+                href: "/my-payments",
+                visible: ["assistant"],
+            },
+            {
                 icon: "/setting.png",
                 label: "Paramètres",
                 href: `/setting`,
@@ -138,6 +150,35 @@ const Menu = ({ pendingNotices = 0 }) => {
     // Add a ref to detect outside clicks
     const dropdownRef = React.useRef();
     const page = usePage();
+    const url = page.url;
+
+    /*
+     * Active-item highlighting. The sidebar previously had none: nothing told the
+     * user which page they were on. The query string is stripped first — Inertia's
+     * url includes it, and every filter keystroke would otherwise kill the highlight
+     * (/students?search=a must still light up « Élèves »). Detail pages
+     * (/students/7, /cashier/daily) keep their section lit via the prefix match.
+     */
+    const path = url.split("?")[0];
+
+    const isHrefActive = (href) =>
+        href === "/dashboard"
+            ? path === "/dashboard"
+            : path === href || path.startsWith(`${href}/`);
+
+    const isActiveItem = (item) => {
+        if (item.dropdown) {
+            return item.dropdown.some((drop) => isHrefActive(drop.href));
+        }
+        return isHrefActive(item.href);
+    };
+
+    const itemClasses = (active) =>
+        `flex items-center justify-center lg:justify-start gap-4 py-2 md:px-2 rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lamaSky ${
+            active
+                ? "bg-lamaSky text-white font-medium"
+                : "text-gray-500 hover:bg-lamaSkyLight"
+        }`;
 
     React.useEffect(() => {
         function handleClickOutside(event) {
@@ -173,7 +214,20 @@ const Menu = ({ pendingNotices = 0 }) => {
                                         ref={dropdownRef}
                                     >
                                         <div
-                                            className="flex items-center justify-center lg:justify-start gap-4 text-gray-500 py-2 md:px-2 rounded-md hover:bg-lamaSkyLight cursor-pointer"
+                                            className={`${itemClasses(isActiveItem(item))} cursor-pointer`}
+                                            role="button"
+                                            tabIndex={0}
+                                            aria-haspopup="true"
+                                            aria-expanded={openDropdown === item.label}
+                                            onKeyDown={(e) => {
+                                                if (e.key === "Enter" || e.key === " ") {
+                                                    e.preventDefault();
+                                                    setOpenDropdown(
+                                                        openDropdown === item.label ? null : item.label,
+                                                    );
+                                                }
+                                            }}
+                                            title={item.label}
                                             onClick={() => setOpenDropdown(openDropdown === item.label ? null : item.label)}
                                         >
                                             <img
@@ -199,16 +253,23 @@ const Menu = ({ pendingNotices = 0 }) => {
                                         </div>
                                         {openDropdown === item.label && (
                                             <div className="absolute left-0 mt-2 w-48 bg-white border border-gray-200 rounded shadow-lg z-10">
-                                                {item.dropdown.map((drop) => (
-                                                    <Link
-                                                        href={drop.href}
-                                                        key={drop.label}
-                                                        className="block px-4 py-2 text-gray-700 hover:bg-lamaSkyLight"
-                                                        onClick={() => setOpenDropdown(null)}
-                                                    >
-                                                        {drop.label}
-                                                    </Link>
-                                                ))}
+                                                {item.dropdown.map((drop) => {
+                                                    const dropActive = isHrefActive(drop.href);
+                                                    return (
+                                                        <Link
+                                                            href={drop.href}
+                                                            key={drop.label}
+                                                            className={`block px-4 py-2 ${
+                                                                dropActive
+                                                                    ? "bg-lamaSky text-white font-medium"
+                                                                    : "text-gray-700 hover:bg-lamaSkyLight"
+                                                            }`}
+                                                            onClick={() => setOpenDropdown(null)}
+                                                        >
+                                                            {drop.label}
+                                                        </Link>
+                                                    );
+                                                })}
                                             </div>
                                         )}
                                     </div>
@@ -220,7 +281,9 @@ const Menu = ({ pendingNotices = 0 }) => {
                                     method={item.method}
                                     href={item.href}
                                     key={item.label}
-                                    className="flex items-center justify-center lg:justify-start gap-4 text-gray-500 py-2 md:px-2 rounded-md hover:bg-lamaSkyLight"
+                                    title={item.label}
+                                    aria-current={isActiveItem(item) && !item.method ? "page" : undefined}
+                                    className={itemClasses(isActiveItem(item))}
                                 >
                                     <img
                                         src={item.icon}

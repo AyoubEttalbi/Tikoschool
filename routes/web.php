@@ -23,6 +23,7 @@ use App\Http\Controllers\SchoolYearController;
 use App\Http\Controllers\StatsController;
 use App\Http\Controllers\StudentsController;
 use App\Http\Controllers\SubjectController;
+use App\Http\Controllers\TaskController;
 use App\Http\Controllers\TeacherClassController;
 use App\Http\Controllers\TeacherController;
 use App\Http\Controllers\TeacherMembershipPaymentController;
@@ -138,6 +139,12 @@ Route::middleware('auth')->group(function () {
             'invoices' => InvoiceController::class,
             'memberships' => MembershipController::class,
         ], ['except' => ['show', 'index']]);
+
+        // The invoices LIST page (the resources above deliberately exclude index).
+        // This is the real destination of "Voir toutes les factures impayées" on the
+        // assistant home — it used to point at GET /invoices when no such route existed,
+        // hit Route::fallback and bounced the user back to where they started.
+        Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');
     });
 
     // Results and attendance ARE teacher surfaces — teachers enter grades and take the
@@ -392,6 +399,24 @@ Route::middleware('auth')->group(function () {
     Route::get('/users', [\App\Http\Controllers\UserController::class, 'index'])
         ->middleware(RequireRole::class.':admin')
         ->name('users.index');
+
+    // Task board (kanban). School-scoped inside the controller via session('school_id');
+    // RequireRole because a denied XHR must 403, not redirect like AdminMiddleware does.
+    Route::middleware(RequireRole::class.':admin,assistant')->group(function () {
+        Route::get('/tasks', [TaskController::class, 'index'])->name('tasks.index');
+        // Admin-only: pick which school's board to work on (assistants are pinned).
+        Route::post('/tasks/school', [TaskController::class, 'selectSchool'])->name('tasks.select-school');
+        Route::post('/tasks', [TaskController::class, 'store'])->name('tasks.store');
+        Route::put('/tasks/{task}', [TaskController::class, 'update'])->name('tasks.update')->where('task', '[0-9]+');
+        Route::patch('/tasks/{task}/status', [TaskController::class, 'updateStatus'])->name('tasks.status')->where('task', '[0-9]+');
+        Route::delete('/tasks/{task}', [TaskController::class, 'destroy'])->name('tasks.destroy')->where('task', '[0-9]+');
+    });
+
+    // The assistant's own salary/payments history. Assistants only: admins manage
+    // payments from /transactions; teachers have no payroll page of their own here.
+    Route::get('/my-payments', [\App\Http\Controllers\MyPaymentsController::class, 'index'])
+        ->middleware(RequireRole::class.':assistant')
+        ->name('assistant.my-payments');
 
     // Absence Log routes. The two absenceLog* methods already role-check internally; the
     // middleware makes that a route-table fact rather than something you have to read the
