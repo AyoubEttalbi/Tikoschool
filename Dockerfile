@@ -30,6 +30,9 @@ FROM php:8.2-fpm-alpine AS php
 # freetype-dev plus the matching --with-* flags give JPEG/WebP/text parity with local.
 # exif matters too: intervention/image guards orient() behind function_exists('exif_read_data'),
 # so without the extension phone photos silently upload unrotated (Windows PHP has exif).
+# avif matters for the same parity reason: ProfileImageService::convertAvifToWebp() calls
+# imagecreatefromavif() for AVIF downloads misnamed as .png — without libavif the service
+# rejects them with a clear message instead of a 500, but with it they just work.
 RUN apk add --no-cache \
     supervisor \
     bash \
@@ -37,12 +40,13 @@ RUN apk add --no-cache \
     libpng-dev \
     libjpeg-turbo-dev \
     libwebp-dev \
+    libavif-dev \
     freetype-dev \
     libxml2-dev \
     libzip-dev \
     oniguruma-dev \
     $PHPIZE_DEPS \
-    && docker-php-ext-configure gd --with-jpeg --with-webp --with-freetype \
+    && docker-php-ext-configure gd --with-jpeg --with-webp --with-freetype --with-avif \
     && docker-php-ext-install -j$(nproc) \
     pdo_mysql \
     mbstring \

@@ -6,8 +6,10 @@ use App\Models\Assistant;
 use App\Models\Student;
 use App\Models\Teacher;
 use App\Models\User;
+use App\Services\ProfileImageService;
 use App\Support\ProfileImageUrl;
 use App\Support\SchoolScope;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\Response;
@@ -26,6 +28,8 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  */
 class ProfileImageController extends Controller
 {
+    public function __construct(private ProfileImageService $profileImages) {}
+
     public function show(Request $request, string $path): Response
     {
         $type = strtok($path, '/');
@@ -116,5 +120,60 @@ class ProfileImageController extends Controller
             array_map('intval', $mine),
             array_map('intval', $schoolIdsOf($owner))
         ) !== [];
+    }
+
+    /**
+     * Removes an entity's profile image: clears the reference optimistically, then
+     * deletes the file. Authorization mirrors serving ("can view" implies "may
+     * remove", matching upload rights) EXCEPT students: their photos are managed
+     * by admins only — staff can view them through school scope but not erase them.
+     * Legacy absolute URLs (res.cloudinary.com) are cleared from the row while the
+     * remote asset is left untouched.
+     */
+    public function destroy(Request $request, string $type, int $id): RedirectResponse
+    {
+        $model = match ($type) {
+            'admins' => User::findOrFail($id),
+            'teachers' => Teacher::withTrashed()->findOrFail($id),
+            'assistants' => Assistant::withTrashed()->findOrFail($id),
+            'students' => Student::withTrashed()->findOrFail($id),
+            default => throw new NotFoundHttpException,
+        };
+
+        abort_unless($this->authorizeRemoval($request->user(), $type, $model), 403);
+
+        $old = $model->getRawOriginal('profile_image');
+
+        if ($old !== null) {
+            // Optimistic clear: only null the column if it still holds what we read.
+            // newModelQuery() skips the SoftDeletes global scope — the record may be
+            // trashed (fetched via withTrashed above), and whereKey() alone would
+            // silently match zero rows while still flashing success.
+            $cleared = $model->newModelQuery()
+                ->whereKey($model->getKey())
+                ->where('profile_image', $old)
+                ->update(['profile_image' => null]);
+
+            if ($cleared > 0 && ProfileImageUrl::isLogicalPath($old)) {
+                $this->profileImages->delete($old);
+            }
+        }
+
+        return back()->with('success', 'La photo de profil a été supprimée.');
+    }
+
+    private function authorizeRemoval($user, string $type, $model): bool
+    {
+        if (! $user) {
+            return false;
+        }
+
+        if ($user->role === 'admin') {
+            return true;
+        }
+
+        // Staff may remove only their own image (identity joins by email).
+        return in_array($type, ['teachers', 'assistants'], true)
+            && strcasecmp((string) $user->email, (string) $model->email) === 0;
     }
 }

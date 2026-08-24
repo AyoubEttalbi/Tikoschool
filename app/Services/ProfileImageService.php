@@ -53,6 +53,8 @@ class ProfileImageService
      */
     public function store(UploadedFile $file, string $type, string $errorField = 'profile_image'): string
     {
+        $tempPath = null;
+
         try {
             $this->assertType($type);
 
@@ -68,9 +70,20 @@ class ProfileImageService
 
             // Content sniffing only — client MIME and filename are untrusted.
             $detected = $file->getMimeType();
+
+            // AVIF: websites routinely serve it with a .png/.jpg filename, so users
+            // keep hitting "must be an image" on perfectly valid downloads. GD can
+            // decode it natively but Intervention v3 cannot, so convert to WebP here
+            // and let the normal pipeline continue with the converted file.
+            if ($detected === 'image/avif') {
+                $file = $this->convertAvifToWebp($file, $errorField);
+                $tempPath = $file->getRealPath();
+                $detected = 'image/webp';
+            }
+
             if (! isset(self::ALLOWED_MIMES[$detected])) {
                 throw ValidationException::withMessages([
-                    $errorField => "Format d'image non pris en charge. Formats acceptés : JPG, PNG, WebP.",
+                    $errorField => "Format d'image non pris en charge. Formats acceptés : JPG, PNG, WebP, AVIF.",
                 ]);
             }
 
@@ -122,7 +135,49 @@ class ProfileImageService
             throw ValidationException::withMessages([
                 $errorField => 'Impossible de traiter cette image. Essayez un autre fichier.',
             ]);
+        } finally {
+            // The AVIF conversion works on a temp WebP copy; the original upload
+            // stays untouched, so only the temp needs cleaning up.
+            if ($tempPath !== null && is_file($tempPath)) {
+                @unlink($tempPath);
+            }
         }
+    }
+
+    /**
+     * Decode an AVIF upload with native GD and re-encode it as WebP in a temp
+     * file. Intervention Image v3.11 has no AVIF decoder, so this bridge is the
+     * only way to let AVIF downloads through the normal pipeline.
+     */
+    private function convertAvifToWebp(UploadedFile $file, string $errorField): UploadedFile
+    {
+        if (! function_exists('imagecreatefromavif') || ! function_exists('imagewebp')) {
+            throw ValidationException::withMessages([
+                $errorField => 'Les images AVIF ne sont pas prises en charge par ce serveur. Convertissez-les en PNG ou JPG.',
+            ]);
+        }
+
+        $image = @imagecreatefromavif($file->getRealPath());
+        if ($image === false) {
+            throw ValidationException::withMessages([
+                $errorField => 'Fichier image corrompu ou illisible.',
+            ]);
+        }
+
+        $temp = tempnam(sys_get_temp_dir(), 'avif').'.webp';
+        $written = imagewebp($image, $temp, 90);
+        imagedestroy($image);
+
+        if ($written === false || ! is_file($temp) || filesize($temp) === 0) {
+            @unlink($temp);
+
+            throw ValidationException::withMessages([
+                $errorField => 'Impossible de traiter cette image AVIF. Essayez un PNG ou JPG.',
+            ]);
+        }
+
+        // test=true: keep the temp file alive — store() unlinks it in its finally.
+        return new UploadedFile($temp, 'converted.webp', 'image/webp', null, true);
     }
 
     /**

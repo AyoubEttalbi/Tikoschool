@@ -67,6 +67,13 @@ Route::middleware('auth')->group(function () {
         Route::delete('/profile', 'destroy')->name('profile.destroy');
         Route::get('/select-profile', 'select')->name('profiles.select');
         Route::post('/select-profile', 'store')->name('profiles.store');
+
+        // Self-service avatar: any user manages their OWN photo (admin → users row,
+        // teacher/assistant → their staff row by email). Literal path, registered
+        // before the wildcard /profile-images/{path} route below cannot shadow it
+        // (different prefix anyway) — kept adjacent so the pairing stays obvious.
+        Route::post('/profile/image', 'uploadImage')->name('profile.image.upload');
+        Route::delete('/profile/image', 'removeImage')->name('profile.image.remove');
     });
 
     // Profile images — PRIVATE: served through this authed, record-scoped controller,
@@ -76,6 +83,12 @@ Route::middleware('auth')->group(function () {
     Route::get('/profile-images/{path}', [ProfileImageController::class, 'show'])
         ->where('path', '(?:students|teachers|assistants|admins)/[a-f0-9]{40}\.webp')
         ->name('profile-images.show');
+
+    // Image removal: same authed group; the controller re-checks owner/admin rights
+    // per record (students: admins only).
+    Route::delete('/profile-images/{type}/{id}', [ProfileImageController::class, 'destroy'])
+        ->where(['type' => 'students|teachers|assistants|admins', 'id' => '[0-9]+'])
+        ->name('profile-images.destroy');
 
     // Main resource routes - accessible by all authenticated users based on Menu.jsx
     //
