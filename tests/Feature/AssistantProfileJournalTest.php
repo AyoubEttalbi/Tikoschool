@@ -1,6 +1,5 @@
 <?php
 
-use App\Models\Activity;
 use App\Models\Assistant;
 use App\Models\Invoice;
 use App\Models\School;

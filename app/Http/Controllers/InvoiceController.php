@@ -136,10 +136,16 @@ class InvoiceController extends Controller
         $search = trim((string) $request->input('search', ''));
         if ($search !== '') {
             $like = '%'.$search.'%';
+            // The first/last-name OR must be grouped in its own closure, or it
+            // escapes whereHas's student correlation: "firstName LIKE ? OR
+            // lastName LIKE ? AND invoices.student_id = students.id" matches
+            // ANY invoice via any same-first-name student anywhere.
             $query->whereHas('student', fn ($studentQuery) => $studentQuery
                 ->withTrashed()
-                ->where('firstName', 'like', $like)
-                ->orWhere('lastName', 'like', $like));
+                ->where(function ($name) use ($like) {
+                    $name->where('firstName', 'like', $like)
+                        ->orWhere('lastName', 'like', $like);
+                }));
         }
 
         $invoices = $query

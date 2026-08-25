@@ -22,6 +22,15 @@ class E2eDemoAccountsSeeder extends Seeder
 {
     public function run(): void
     {
+        // Mechanical guard, not documentation: this seeder plants a known-password
+        // ADMIN account. "LOCAL ONLY" in the docblock stopped nobody who ran
+        // `db:seed --class=E2eDemoAccountsSeeder` against prod by accident.
+        if (! app()->environment('local', 'testing')) {
+            $this->command?->warn('E2eDemoAccountsSeeder skipped: local/testing only.');
+
+            return;
+        }
+
         // --- Admin -----------------------------------------------------------
         $admin = User::firstOrNew(['email' => 'admin.demo@test.local']);
         $admin->name = 'Admin Démo';
