@@ -1774,7 +1774,10 @@ class TransactionController extends Controller
                 return;
             }
 
-            $user = User::find($transaction->user_id);
+            // withTrashed: reverting/applying a transaction must still resolve
+            // an employee whose login was soft-deleted, or the wallet half of
+            // the movement silently skips and the ledger drifts.
+            $user = User::withTrashed()->find($transaction->user_id);
             if (! $user) {
                 return;
             }
@@ -1857,7 +1860,9 @@ class TransactionController extends Controller
             return;
         }
 
-        $user = User::find($userId);
+        // withTrashed: same ledger-drift guard as updateEmployeeBalance —
+        // payouts to a since-soft-deleted login's record must still reconcile.
+        $user = User::withTrashed()->find($userId);
         if (! $user) {
             return;
         }

@@ -64,7 +64,10 @@ test('user can delete their account', function () {
         ->assertRedirect('/');
 
     $this->assertGuest();
-    $this->assertNull($user->fresh());
+    // User logins soft-delete now (see App\Models\User): the account is gone
+    // from every auth lookup, but RESTRICT-referencing history (messages,
+    // attendances) survives instead of hard-deleting — or rolling back.
+    $this->assertSoftDeleted($user);
 });
 
 test('correct password must be provided to delete account', function () {

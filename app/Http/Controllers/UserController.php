@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\CheckEmailUnique;
 use App\Models\Assistant;
 use App\Models\Teacher;
 use App\Models\User;
@@ -56,23 +57,17 @@ class UserController extends Controller
             // NOTE: a debug line here used to unconditionally reset every edited user's
             // password to a hardcoded literal. The real, conditional update is below.
 
-            // If email is being updated, check uniqueness in related table
-            if (isset($validatedData['email']) && $validatedData['email'] !== $oldEmail) {
-                if ($user->role === 'teacher') {
-                    $teacherWithEmail = Teacher::where('email', $validatedData['email'])->first();
-                    if ($teacherWithEmail) {
-                        return redirect()->back()
-                            ->withErrors(['email' => 'Cette adresse e-mail est déjà utilisée par un autre enseignant.'])
-                            ->withInput();
-                    }
-                } elseif ($user->role === 'assistant') {
-                    $assistantWithEmail = Assistant::where('email', $validatedData['email'])->first();
-                    if ($assistantWithEmail) {
-                        return redirect()->back()
-                            ->withErrors(['email' => 'Cette adresse e-mail est déjà utilisée par un autre assistant.'])
-                            ->withInput();
-                    }
-                }
+            // If email is being updated, enforce the app-wide staff email rule via
+            // its single authority: ValidateEmailUnique refuses ANY live teacher or
+            // assistant row — other than this person's own staff row (ignoreId) —
+            // holding the new address. The old code checked only the SAME-role
+            // table, so an assistant login could silently take over a live
+            // teacher's email and poison the email-based identity join.
+            if ($validateEmail && $oldRole !== 'admin') {
+                $ownStaffId = $oldRole === 'teacher'
+                    ? Teacher::where('email', $oldEmail)->value('id')
+                    : Assistant::where('email', $oldEmail)->value('id');
+                event(new CheckEmailUnique($validatedData['email'], $ownStaffId));
             }
 
             // Only update password if present
@@ -203,15 +198,21 @@ class UserController extends Controller
             // with the row and there is no restore to bring it back for.
             $rawProfileImage = $user->getRawOriginal('profile_image');
 
-            // Delete the user
-            $user->delete();
+            // Delete the user. forceDelete keeps this account-management surface
+            // hard-deleting as always — SoftDeletes exists for STAFF lifecycle
+            // (TeacherController/AssistantController destroy), not for admin
+            // account removal here.
+            $user->forceDelete();
 
             $this->profileImages->delete($rawProfileImage);
 
             // Redirect with success message
             return redirect()->back()->with('success', 'Utilisateur supprimé.');
         } catch (\Exception $e) {
-            // Handle any unexpected exceptions
+            // A half-completed delete (row gone, file orphaned, or vice versa)
+            // must not masquerade as a generic hiccup with no trace.
+            Log::error('Error deleting user '.$user->id.': '.$e->getMessage());
+
             return redirect()->back()
                 ->withErrors(['general' => 'An unexpected error occurred while deleting the user. Please try again later.']);
         }

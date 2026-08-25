@@ -181,7 +181,9 @@ class AttendanceController extends Controller
 
         $recordedByNames = $recordedByNames->isEmpty()
             ? []
-            : \App\Models\User::whereIn('id', $recordedByNames)->pluck('name', 'id')->all();
+            // withTrashed: old sheets keep naming their recorder after the
+            // staff member's login is soft-deleted.
+            : \App\Models\User::withTrashed()->whereIn('id', $recordedByNames)->pluck('name', 'id')->all();
 
         $selectedSubject = $request->input('subject');
 

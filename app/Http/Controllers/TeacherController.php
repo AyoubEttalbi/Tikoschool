@@ -245,6 +245,7 @@ class TeacherController extends Controller
             unset($validatedData['wallet']);
 
             $newImagePath = null;
+            $pendingOldImageDelete = null;
             if ($request->hasFile('profile_image')) {
                 // May throw ValidationException — rethrown below so the form renders the field error.
                 $newImagePath = $this->profileImages->store($request->file('profile_image'), 'teachers');
@@ -258,8 +259,17 @@ class TeacherController extends Controller
             $rehired = Teacher::onlyTrashed()->where('email', $validatedData['email'])->first();
 
             if ($rehired) {
+                // A re-hire WITH a photo replaces the old reference: queue the old
+                // file for deletion only once the row is safely restored and synced
+                // — otherwise every re-hire-with-photo leaks an orphan that the
+                // nightly integrity check can report but never clean.
+                $oldRawImage = $rehired->getRawOriginal('profile_image');
                 unset($validatedData['email']);
                 $rehired->fill($validatedData)->restore();
+                if ($newImagePath !== null && $oldRawImage !== null
+                    && ProfileImageUrl::isLogicalPath($oldRawImage)) {
+                    $pendingOldImageDelete = $oldRawImage;
+                }
                 $teacher = $rehired;
             } else {
                 // Create the teacher record
@@ -270,6 +280,10 @@ class TeacherController extends Controller
             $teacher->subjects()->sync($request->subjects ?? []);
             $teacher->classes()->sync($request->classes ?? []);
             $teacher->schools()->sync($request->schools ?? []);
+
+            if ($pendingOldImageDelete !== null) {
+                $this->profileImages->delete($pendingOldImageDelete);
+            }
 
             return redirect()->route('teachers.index')->with('success', 'Teacher created successfully.');
         } catch (ValidationException $e) {
@@ -284,6 +298,13 @@ class TeacherController extends Controller
             // The WebP was already written to disk before Teacher::create(); if the row
             // never landed, discard the file instead of leaking an orphan.
             if (($newImagePath ?? null) !== null) {
+                // A re-hire that crashed mid-flight already overwrote profile_image
+                // with the new path — point the row back at its still-existing old
+                // file so neither image orphans behind a failed request.
+                if (($pendingOldImageDelete ?? null) !== null) {
+                    Teacher::withTrashed()->whereKey($rehired->getKey())
+                        ->update(['profile_image' => $pendingOldImageDelete]);
+                }
                 $this->profileImages->discard($newImagePath);
             }
 
@@ -1069,7 +1090,7 @@ class TeacherController extends Controller
                 ->first();
             if ($userWithEmail || $teacherWithEmail) {
                 return redirect()->back()
-                    ->withErrors(['email' => 'Cette adresse e-mail est dÃ©jÃ  utilisÃ©e par un autre utilisateur ou enseignant.'])
+                    ->withErrors(['email' => 'Cette adresse e-mail est déjà utilisée par un autre utilisateur ou enseignant.'])
                     ->withInput();
             }
 
@@ -1091,7 +1112,7 @@ class TeacherController extends Controller
                     $this->profileImages->discard($newImagePath);
 
                     return redirect()->back()
-                        ->withErrors(['profile_image' => "L'image a Ã©tÃ© modifiÃ©e entre-temps. Rechargez la page et rÃ©essayez."])
+                        ->withErrors(['profile_image' => "L'image a été modifiée entre-temps. Rechargez la page et réessayez."])
                         ->withInput();
                 }
 
@@ -1180,9 +1201,9 @@ class TeacherController extends Controller
             'note' => 'required|string|min:3|max:255',
         ], [
             'new_balance.required' => 'Le nouveau solde est obligatoire.',
-            'new_balance.min' => 'Le solde ne peut pas Ãªtre nÃ©gatif.',
+            'new_balance.min' => 'Le solde ne peut pas être négatif.',
             'note.required' => 'Indiquez la raison de cet ajustement.',
-            'note.min' => 'La raison doit Ãªtre un peu plus explicite.',
+            'note.min' => 'La raison doit être un peu plus explicite.',
         ]);
 
         $target = round((float) $validated['new_balance'], 2);
@@ -1223,14 +1244,14 @@ class TeacherController extends Controller
         ]);
 
         if (round($applied, 2) === 0.0) {
-            return redirect()->back()->with('success', 'Le solde Ã©tait dÃ©jÃ  Ã  cette valeur â€” rien n\'a changÃ©.');
+            return redirect()->back()->with('success', 'Le solde était déjà à cette valeur — rien n\'a changé.');
         }
 
         // The applied delta is reported rather than the requested one: debit() clamps at
         // zero, and a balance that moved between opening the form and saving means the
         // change is not the subtraction the user did in their head.
         return redirect()->back()->with('payment_notice', \App\Support\PaymentNotice::success(
-            'Portefeuille ajustÃ©',
+            'Portefeuille ajusté',
             [number_format($before, 2, ',', ' ').' DH â†’ '.number_format($after, 2, ',', ' ').' DH.'],
             [[
                 'label' => trim($teacher->first_name.' '.$teacher->last_name),
@@ -1260,10 +1281,20 @@ class TeacherController extends Controller
                 // Delete teacher
                 $teacher->delete();
 
-                // Deleting a teacher ends their login too: recreating with the same email
-                // must not be blocked by a live users row. Role-guarded so an admin sharing
-                // the address can never be caught here.
-                User::where('email', $teacher->email)->where('role', 'teacher')->delete();
+                // Deleting a teacher ends their login too. The login is SOFT-deleted
+                // (messages.sender_id/recipient_id and attendances.recorded_by are
+                // RESTRICT foreign keys — a hard delete rolls back for anyone who
+                // ever sent a message or recorded a sheet), and the email is rewritten
+                // first because the unique index would otherwise block re-creating a
+                // login with the same address, which is the whole point of this
+                // cleanup. Role-guarded so an admin sharing the address is never
+                // caught here.
+                $login = User::where('email', $teacher->email)->where('role', 'teacher')->first();
+                if ($login !== null) {
+                    $login->email = 'deleted+'.$login->id.'@tikoschool.invalid';
+                    $login->save();
+                    $login->delete();
+                }
             });
 
             return redirect()->route('teachers.index')->with('success', 'Teacher deleted successfully.');

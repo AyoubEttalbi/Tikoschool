@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\CheckEmailUnique;
 use App\Exceptions\AccessDeniedException;
 use App\Models\Announcement;
 use App\Models\Assistant;
@@ -160,8 +161,9 @@ class AssistantController extends Controller
             ]);
 
             $newImagePath = null;
+            $pendingOldImageDelete = null;
             if ($request->hasFile('profile_image')) {
-                // May throw ValidationException â€” caught below by the dedicated handler.
+                // May throw ValidationException — caught below by the dedicated handler.
                 $newImagePath = $this->profileImages->store($request->file('profile_image'), 'assistants');
                 $validatedData['profile_image'] = $newImagePath;
             }
@@ -171,8 +173,15 @@ class AssistantController extends Controller
             $rehired = Assistant::onlyTrashed()->where('email', $validatedData['email'])->first();
 
             if ($rehired) {
+                // Same orphan rule as TeacherController::store and storeWithUser:
+                // the replaced file is deleted only after restore + sync succeed.
+                $oldRawImage = $rehired->getRawOriginal('profile_image');
                 unset($validatedData['email']);
                 $rehired->fill($validatedData)->restore();
+                if ($newImagePath !== null && $oldRawImage !== null
+                    && ProfileImageUrl::isLogicalPath($oldRawImage)) {
+                    $pendingOldImageDelete = $oldRawImage;
+                }
                 $assistant = $rehired;
             } else {
                 // Create the assistant record
@@ -182,6 +191,10 @@ class AssistantController extends Controller
             // Sync schools with the assistant
             $assistant->schools()->sync($request->schools);
 
+            if ($pendingOldImageDelete !== null) {
+                $this->profileImages->delete($pendingOldImageDelete);
+            }
+
             return redirect()->back()->with('success', 'Assistant created successfully.');
         } catch (ValidationException $e) {
             return redirect()->back()
@@ -189,8 +202,14 @@ class AssistantController extends Controller
                 ->withInput();
         } catch (\Exception $e) {
             // The WebP was already written to disk before Assistant::create(); if the row
-            // never landed, discard the file instead of leaking an orphan.
+            // never landed, discard the file instead of leaking an orphan. A re-hire that
+            // crashed mid-flight already overwrote profile_image — point it back at the
+            // still-existing old file so neither image orphans.
             if (($newImagePath ?? null) !== null) {
+                if (($pendingOldImageDelete ?? null) !== null) {
+                    Assistant::withTrashed()->whereKey($rehired->getKey())
+                        ->update(['profile_image' => $pendingOldImageDelete]);
+                }
                 $this->profileImages->discard($newImagePath);
             }
 
@@ -226,7 +245,7 @@ class AssistantController extends Controller
             return;
         }
 
-        throw new AccessDeniedException("Vous n'avez pas accÃ¨s Ã  ce profil.");
+        throw new AccessDeniedException("Vous n'avez pas accès à ce profil.");
     }
 
     /**
@@ -400,13 +419,6 @@ class AssistantController extends Controller
                         ->limit(10)
                         ->get();
 
-                    // Log the executed query and results
-                    Log::info('Recent absences query log', [
-                        'count' => $recentAbsences->count(),
-                        'first_record' => $recentAbsences->first() ? $recentAbsences->first()->toArray() : null,
-                    ]);
-                    DB::disableQueryLog();
-
                     $totalAbsences = Attendance::where(function ($query) use ($schoolIds) {
                         $query->whereHas('class', function ($classQuery) use ($schoolIds) {
                             $classQuery->whereIn('school_id', $schoolIds);
@@ -467,13 +479,6 @@ class AssistantController extends Controller
 
                     $unpaidInvoices = $unpaidInvoicesQuery->paginate(10);
 
-                    // Log the executed query and results
-                    Log::info('Unpaid invoices query log', [
-                        'count' => $unpaidInvoices->count(),
-                        'first_record' => $unpaidInvoices->firstItem() ? $unpaidInvoices->items()[0] : null,
-                    ]);
-                    DB::disableQueryLog();
-
                     $totalUnpaidInvoices = $unpaidInvoices->total();
 
                     Log::info('Total unpaid invoices count', ['count' => $totalUnpaidInvoices]);
@@ -483,7 +488,10 @@ class AssistantController extends Controller
                         $offerName = $invoice->offer ? $invoice->offer->offer_name : 'N/A';
                         $total = is_numeric($invoice->totalAmount) ? floatval($invoice->totalAmount) : 0.0;
                         $paid = is_numeric($invoice->amountPaid) ? floatval($invoice->amountPaid) : 0.0;
-                        $computedRest = max(0.0, $total - $paid);
+                        // round(): Invoice money columns are uncast floats —
+                        // raw subtraction produces 700.0000000000001-style
+                        // artifacts in the "reste à payer" column.
+                        $computedRest = round(max(0.0, $total - $paid), 2);
 
                         return [
                             'id' => $invoice->id,
@@ -547,13 +555,6 @@ class AssistantController extends Controller
 
                     $expiringMemberships = $expiringMembershipsQuery->paginate(10);
 
-                    // Log the executed query and results
-                    Log::info('Expiring memberships query log', [
-                        'count' => $expiringMemberships->count(),
-                        'first_record' => $expiringMemberships->firstItem() ? $expiringMemberships->items()[0] : null,
-                    ]);
-                    DB::disableQueryLog();
-
                     $totalExpiringMemberships = $expiringMemberships->total();
 
                     Log::info('Total expiring memberships count', ['count' => $totalExpiringMemberships]);
@@ -609,14 +610,6 @@ class AssistantController extends Controller
                         ->where('amountPaid', '>', 0)
                         ->orderBy('creationDate', 'desc')
                         ->paginate(10);
-
-                    // Log the executed query and results
-                    Log::info('Recent payments query log', [
-                        'count' => $recentPayments->count(),
-                        'first_record' => $recentPayments->first() ? $recentPayments->first()->toArray() : null,
-                        'all_records' => $recentPayments->toArray(),
-                    ]);
-                    DB::disableQueryLog();
 
                     $totalRecentPayments = $recentPayments->total();
 
@@ -780,7 +773,8 @@ class AssistantController extends Controller
                         'offer_name' => $i->offer?->offer_name,
                         'total' => $money($i->totalAmount),
                         'paid' => $money($i->amountPaid),
-                        'rest' => max(0.0, $money($i->totalAmount) - $money($i->amountPaid)),
+                        // round(): uncast float columns (see the note above).
+                        'rest' => round(max(0.0, $money($i->totalAmount) - $money($i->amountPaid)), 2),
                         'bill_date' => $i->billDate?->format('Y-m-d'),
                     ]])
                     ->all();
@@ -1000,9 +994,16 @@ class AssistantController extends Controller
                 ->first();
             if ($userWithEmail || $assistantWithEmail) {
                 return redirect()->back()
-                    ->withErrors(['email' => 'Cette adresse e-mail est dÃ©jÃ  utilisÃ©e par un autre utilisateur ou assistant.'])
+                    ->withErrors(['email' => 'Cette adresse e-mail est déjà utilisée par un autre utilisateur ou assistant.'])
                     ->withInput();
             }
+
+            // Cross-table half: a LIVE teacher owning this email must block the
+            // rename too. Fired as an event so the rule has ONE authority
+            // (ValidateEmailUnique) — the withTrashed assistant check above stays
+            // local on purpose, mirroring what the DB index enforces. Its
+            // ValidationException lands in the dedicated catch below.
+            event(new CheckEmailUnique($validatedData['email'], $assistant->id));
 
             $newImagePath = null;
             $oldRawImage = $assistant->getRawOriginal('profile_image');
@@ -1022,7 +1023,7 @@ class AssistantController extends Controller
                     $this->profileImages->discard($newImagePath);
 
                     return redirect()->back()
-                        ->withErrors(['profile_image' => "L'image a Ã©tÃ© modifiÃ©e entre-temps. Rechargez la page et rÃ©essayez."])
+                        ->withErrors(['profile_image' => "L'image a été modifiée entre-temps. Rechargez la page et réessayez."])
                         ->withInput();
                 }
 
@@ -1098,16 +1099,27 @@ class AssistantController extends Controller
             DB::transaction(function () use ($assistant) {
                 $assistant->delete();
 
-                // Deleting an assistant ends their login too: recreating with the same
-                // email must not be blocked by a live users row. Role-guarded so an admin
-                // sharing the address can never be caught here.
-                User::where('email', $assistant->email)->where('role', 'assistant')->delete();
+                // Deleting an assistant ends their login too. Soft-deleted with a
+                // rewritten email — same reasoning as TeacherController::destroy:
+                // RESTRICT foreign keys (messages, attendances) make a hard delete
+                // roll back, and the unique index must free the address for re-hire.
+                // Role-guarded so an admin sharing the address is never caught here.
+                $login = User::where('email', $assistant->email)->where('role', 'assistant')->first();
+                if ($login !== null) {
+                    $login->email = 'deleted+'.$login->id.'@tikoschool.invalid';
+                    $login->save();
+                    $login->delete();
+                }
             });
 
             return redirect()->route('assistants.index')->with('success', 'Assistant deleted successfully.');
         } catch (\Exception $e) {
+            // Raw $e->getMessage() used to land in the UI banner — SQLSTATE/FK
+            // text is not user-facing material. Log the cause, show a generic line.
+            Log::error('Error deleting assistant '.$assistant->id.': '.$e->getMessage());
+
             return redirect()->back()
-                ->with('error', 'An error occurred while deleting the assistant: '.$e->getMessage());
+                ->with('error', "Une erreur est survenue lors de la suppression de l'assistant. Veuillez réessayer.");
         }
     }
 

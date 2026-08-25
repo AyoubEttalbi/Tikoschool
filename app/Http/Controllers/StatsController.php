@@ -157,7 +157,9 @@ class StatsController extends Controller
 
         $usersById = $userIds->isEmpty()
             ? collect()
-            : \App\Models\User::with(['teacher.schools', 'assistant.schools'])
+            // withTrashed: expense rows stay attributable after an employee's
+            // login is soft-deleted.
+            : \App\Models\User::withTrashed()->with(['teacher.schools', 'assistant.schools'])
                 ->whereIn('id', $userIds)
                 ->get()
                 ->keyBy('id');

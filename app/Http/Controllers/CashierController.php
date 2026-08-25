@@ -167,7 +167,9 @@ class CashierController extends Controller
                 'name' => $student->firstName.' '.$student->lastName,
             ];
         });
-        $creators = User::whereIn('id', InvoicePaymentLog::whereNotNull('created_by')->pluck('created_by')->unique())
+        // withTrashed: payment-history filters must still name creators whose
+        // login was soft-deleted since they recorded those payments.
+        $creators = User::withTrashed()->whereIn('id', InvoicePaymentLog::whereNotNull('created_by')->pluck('created_by')->unique())
             ->select('id', 'name')
             ->orderBy('name')
             ->get()

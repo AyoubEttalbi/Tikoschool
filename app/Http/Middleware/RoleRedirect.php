@@ -46,11 +46,12 @@ class RoleRedirect
 
                 $teacher = Teacher::where('email', $user->email)->first();
 
-                // Debug: Log teacher information
+                // Debug-level diagnostics only — emails stay OUT of logs (PII);
+                // the user id identifies the request without leaking addresses.
                 Log::debug('Teacher lookup result:', [
                     'teacher_found' => $teacher ? 'yes' : 'no',
                     'teacher_id' => $teacher ? $teacher->id : null,
-                    'email_used' => $user->email,
+                    'user_id' => $user->id,
                 ]);
 
                 if ($teacher) {
@@ -67,8 +68,8 @@ class RoleRedirect
                         }
                     }
                 } else {
-                    // If no teacher found, log the error
-                    Log::error('Teacher not found for user with email: '.$user->email);
+                    // If no teacher found, log the error (id, not email — PII)
+                    Log::error('Teacher row missing for login user, user_id: '.$user->id);
                     // Still return to the next middleware to avoid breaking the application
                 }
             }
@@ -81,11 +82,11 @@ class RoleRedirect
 
                 $assistant = Assistant::where('email', $user->email)->first();
 
-                // Debug: Log assistant information
+                // Debug-level diagnostics only — emails stay OUT of logs (PII).
                 Log::debug('Assistant lookup result:', [
                     'assistant_found' => $assistant ? 'yes' : 'no',
                     'assistant_id' => $assistant ? $assistant->id : null,
-                    'email_used' => $user->email,
+                    'user_id' => $user->id,
                 ]);
 
                 if ($assistant) {
@@ -100,8 +101,8 @@ class RoleRedirect
                     // not a bounce to their own HR profile. Pinning every request to
                     // assistants.show was what made the profile page the de-facto dashboard.
                 } else {
-                    // If no assistant found, log the error
-                    Log::error('Assistant not found for user with email: '.$user->email);
+                    // If no assistant found, log the error (id, not email — PII)
+                    Log::error('Assistant row missing for login user, user_id: '.$user->id);
                 }
             }
         }
