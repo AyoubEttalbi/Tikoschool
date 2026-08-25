@@ -238,8 +238,10 @@ class ProfileController extends Controller
                 ]);
             }
             // Only redirect if school already selected AND not in admin inspection mode
-            if (session('school_id') && ! $isAdminInspection) {
-                return redirect()->route('assistants.show', $assistant->id);
+            // The cockpit is an assistant's home — with a school chosen, every path
+            // lands there, whether they logged in themselves or an admin is viewing as.
+            if (session('school_id')) {
+                return redirect()->route('dashboard');
             }
 
             return Inertia::render('Auth/SelectProfile', [
@@ -302,9 +304,12 @@ class ProfileController extends Controller
                 'school_name' => $school->name,
             ]);
 
-            // If this was an admin inspection, redirect to assistant profile
+            // Admin inspection follows the real login path: an assistant's home is
+            // the /dashboard cockpit, not their own HR file. Landing on
+            // assistants.show here was a leftover of when RoleRedirect pinned
+            // assistants to that page.
             if (session()->has('admin_user_id')) {
-                return redirect()->route('assistants.show', $assistant->id)->with('success', 'School selected successfully.');
+                return redirect()->route('dashboard')->with('success', 'School selected successfully.');
             }
 
             // Otherwise go to the assistant's actual home: /dashboard now renders
