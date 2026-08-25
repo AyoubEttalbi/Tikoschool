@@ -364,9 +364,11 @@ Route::middleware('auth')->group(function () {
             });
         });
 
-        // Setting route - admin only
-        Route::get('/setting', [RegisteredUserController::class, 'show'])->name('register');
-        Route::post('/setting', [RegisteredUserController::class, 'store'])->name('register.store');
+        // « Utilisateurs » in the sidebar. The URI used to be /setting under the label
+        // « Paramètres », which hid an account-management page behind a settings name.
+        // Internal route names (register/register.store) stay for compatibility.
+        Route::get('/utilisateurs', [RegisteredUserController::class, 'show'])->name('register');
+        Route::post('/utilisateurs', [RegisteredUserController::class, 'store'])->name('register.store');
         Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');
         Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
 
@@ -394,7 +396,7 @@ Route::middleware('auth')->group(function () {
         ->middleware('auth');
 
     // Full staff directory with every user's name, email and role. Admin only — it is
-    // reached from /setting, which is already admin-gated, and was the one route that
+    // reached from /utilisateurs, which is already admin-gated, and was the one route that
     // let any logged-in teacher enumerate every account in the system.
     Route::get('/users', [\App\Http\Controllers\UserController::class, 'index'])
         ->middleware(RequireRole::class.':admin')

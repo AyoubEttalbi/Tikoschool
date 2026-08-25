@@ -128,8 +128,8 @@ const menuItems = [
             },
             {
                 icon: "/setting.png",
-                label: "Paramètres",
-                href: `/setting`,
+                label: "Utilisateurs",
+                href: `/utilisateurs`,
                 visible: ["admin"],
             },
             {

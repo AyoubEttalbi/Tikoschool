@@ -43,4 +43,12 @@ docker/nginx/certs/
 /run-scheduler.bat
 /run-gateway.bat
 
+# QA / E2E artifacts: screenshots of admin screens can carry real student names
+# and invoice amounts — never let them ride along with a git add -A.
+/.playwright-mcp/
+/e2e-*.png
+/*-page.png
+/*-modal.png
+
 /.zcode/
+

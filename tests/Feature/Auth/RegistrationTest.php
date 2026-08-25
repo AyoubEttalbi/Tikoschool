@@ -4,24 +4,24 @@ use App\Models\User;
 
 /*
  * This app has NO public self-registration. The `register` route name is mapped to
- * GET/POST /setting behind auth + AdminMiddleware, so only an admin may create accounts.
+ * GET/POST /utilisateurs behind auth + AdminMiddleware, so only an admin may create accounts.
  * These tests pin that down — a regression here would mean anyone could create an account.
  */
 
 test('guests cannot reach the account creation screen', function () {
-    $this->get('/setting')->assertRedirect('/login');
+    $this->get('/utilisateurs')->assertRedirect('/login');
 });
 
 test('non-admins cannot reach the account creation screen', function () {
     $teacher = User::factory()->create(['role' => 'teacher']);
 
-    $this->actingAs($teacher)->get('/setting')->assertRedirect('/dashboard');
+    $this->actingAs($teacher)->get('/utilisateurs')->assertRedirect('/dashboard');
 });
 
 test('non-admins cannot create accounts', function () {
     $teacher = User::factory()->create(['role' => 'teacher']);
 
-    $this->actingAs($teacher)->post('/setting', [
+    $this->actingAs($teacher)->post('/utilisateurs', [
         'name' => 'Intruder',
         'email' => 'intruder@example.com',
         'password' => 'Str0ngPassword123',
@@ -35,7 +35,7 @@ test('non-admins cannot create accounts', function () {
 test('an admin can create an account', function () {
     $admin = User::factory()->create(['role' => 'admin']);
 
-    $this->actingAs($admin)->post('/setting', [
+    $this->actingAs($admin)->post('/utilisateurs', [
         'name' => 'New Staff',
         'email' => 'new.staff@example.com',
         'password' => 'Str0ngPassword123',
@@ -51,8 +51,8 @@ test('a weak password is rejected', function () {
     $admin = User::factory()->create(['role' => 'admin']);
 
     $this->actingAs($admin)
-        ->from('/setting')
-        ->post('/setting', [
+        ->from('/utilisateurs')
+        ->post('/utilisateurs', [
             'name' => 'Weak',
             'email' => 'weak@example.com',
             'password' => 'password',
