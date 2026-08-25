@@ -279,6 +279,10 @@ class AssistantDashboardController extends Controller
         }
 
         return Task::query()
+            // with(assignee): the map below reads $task->assignee?->name per row;
+            // without eager loading that is one lazy-load per card (the board's
+            // scopedQuery in TaskController already does this correctly).
+            ->with('assignee:id,name')
             ->whereIn('status', ['todo', 'in_progress'])
             ->where('school_id', $schoolId)
             ->when($user->role !== 'admin', fn ($q) => $q->where('assigned_to', $user->id))

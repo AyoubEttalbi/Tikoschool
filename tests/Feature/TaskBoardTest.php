@@ -131,6 +131,46 @@ it('blocks an assistant reassigning a card on update', function () {
         ->and((int) $fresh->assigned_to)->toBe($this->assistant->id);
 });
 
+// Inertia submits ride in as application/json — a guard that only strips the
+// form-data bag silently passes them through. This pins the JSON transport.
+it('blocks an assistant reassigning via a JSON payload', function () {
+    $task = taskIn($this->mine, ['assigned_to' => $this->assistant->id]);
+
+    $this->actingAs($this->assistant)
+        ->putJson(route('tasks.update', $task), [
+            'title' => 'Titre JSON',
+            'assigned_to' => $this->colleague->id,
+        ])
+        ->assertRedirect();
+
+    $fresh = $task->fresh();
+
+    // Title moves; the assignee must not — not even to a same-school peer.
+    expect($fresh->title)->toBe('Titre JSON')
+        ->and((int) $fresh->assigned_to)->toBe($this->assistant->id);
+});
+
+// Same transport blind spot at creation: the "exists" rule on assigned_to must
+// never even run for assistants, or a crafted JSON payload turns validation
+// errors into a user-id existence oracle ("422 ⇒ this id is not staff").
+it('gives assistants no existence oracle for assigned_to at creation', function () {
+    // NOT a teacher/assistant id: a surviving "exists" rule would reject this
+    // payload with a validation error instead of silently ignoring the key.
+    $admin = User::factory()->create(['role' => 'admin']);
+
+    $this->actingAs($this->assistant)
+        ->postJson(route('tasks.store'), [
+            'title' => 'Sonde',
+            'assigned_to' => $admin->id,
+        ])
+        ->assertRedirect();
+
+    $task = Task::where('title', 'Sonde')->first();
+
+    expect($task)->not->toBeNull()
+        ->and((int) $task->assigned_to)->toBe($this->assistant->id);
+});
+
 it('lets an admin reassign a card on update', function () {
     $admin = User::factory()->create(['role' => 'admin']);
     Session::put('school_id', $this->mine->id);

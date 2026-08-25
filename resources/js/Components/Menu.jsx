@@ -147,8 +147,11 @@ const menuItems = [
 const Menu = ({ pendingNotices = 0 }) => {
     const role = usePage().props.auth.user.role;
     const [openDropdown, setOpenDropdown] = React.useState(null);
-    // Add a ref to detect outside clicks
-    const dropdownRef = React.useRef();
+
+    // One ref per rendered dropdown, keyed by label: a single shared ref is
+    // overwritten by every .map() iteration, so adding a second dropdown
+    // would silently break outside-click detection.
+    const dropdownRefs = React.useRef(new Map());
     const page = usePage();
     const url = page.url;
 
@@ -182,7 +185,10 @@ const Menu = ({ pendingNotices = 0 }) => {
 
     React.useEffect(() => {
         function handleClickOutside(event) {
-            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+            const open = [...dropdownRefs.current.entries()].find(
+                ([label, el]) => label === openDropdown && el,
+            );
+            if (open && open[1] && !open[1].contains(event.target)) {
                 setOpenDropdown(null);
             }
         }
@@ -190,7 +196,7 @@ const Menu = ({ pendingNotices = 0 }) => {
         return () => {
             document.removeEventListener("mousedown", handleClickOutside);
         };
-    }, []);
+    }, [openDropdown]);
 
     // Close dropdown on route change
     React.useEffect(() => {
@@ -211,7 +217,10 @@ const Menu = ({ pendingNotices = 0 }) => {
                                     <div
                                         key={item.label}
                                         className="relative"
-                                        ref={dropdownRef}
+                                        ref={(el) => {
+                                            if (el) dropdownRefs.current.set(item.label, el);
+                                            else dropdownRefs.current.delete(item.label);
+                                        }}
                                     >
                                         <div
                                             className={`${itemClasses(isActiveItem(item))} cursor-pointer`}
@@ -225,6 +234,9 @@ const Menu = ({ pendingNotices = 0 }) => {
                                                     setOpenDropdown(
                                                         openDropdown === item.label ? null : item.label,
                                                     );
+                                                } else if (e.key === "Escape") {
+                                                    // Open-with-keyboard must pair with close-with-keyboard.
+                                                    setOpenDropdown(null);
                                                 }
                                             }}
                                             title={item.label}

@@ -51,10 +51,15 @@ const priorityStyles = {
 const priorityLabels = { high: "Haute", normal: "Normale", low: "Basse" };
 
 function TaskCard({ task, onDragStart }) {
+    // due_date arrives as "Y-m-d"; new Date("Y-m-d") parses it as UTC midnight
+    // while the comparison anchor is LOCAL midnight — in negative UTC offsets a
+    // same-day card flipped overdue. Parse the components instead so both sides
+    // of the comparison are local.
+    const [y, m, d] = (task.due_date || "").split("-").map(Number);
     const overdue =
         task.due_date &&
         task.status !== "done" &&
-        new Date(task.due_date) < new Date(new Date().toDateString());
+        new Date(y, m - 1, d) < new Date(new Date().toDateString());
 
     return (
         <div
@@ -76,11 +81,20 @@ function TaskCard({ task, onDragStart }) {
                     type="button"
                     title="Supprimer la tâche"
                     aria-label={`Supprimer ${task.title}`}
-                    onClick={() =>
+                    onClick={() => {
+                        // Deletion is permanent (tasks have no soft delete) —
+                        // an icon-sized button must not destroy on first click.
+                        if (
+                            !window.confirm(
+                                `Supprimer définitivement « ${task.title} » ?`,
+                            )
+                        ) {
+                            return;
+                        }
                         router.delete(route("tasks.destroy", task.id), {
                             preserveScroll: true,
-                        })
-                    }
+                        });
+                    }}
                     className="text-gray-300 hover:text-red-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 rounded shrink-0"
                 >
                     <Trash2 className="w-4 h-4" aria-hidden="true" />

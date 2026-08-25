@@ -99,20 +99,24 @@ class TaskController extends Controller
 
         $isAssistant = Auth::user()?->role === 'assistant';
 
-        // Strip before validation: an assistant probing ids must not learn which
-        // user ids exist from "exists" errors on a field that would be dropped anyway.
-        if ($isAssistant) {
-            $request->request->remove('assigned_to');
-        }
-
-        $validated = $request->validate([
+        // Assistants never place cards on other desks, so their rule set simply
+        // OMITS assigned_to. Excluding the rule (rather than mutating request
+        // bags) is what makes the guard transport-proof: Inertia submits arrive
+        // as application/json, which $request->request->remove() cannot touch,
+        // and a surviving "exists" rule would double as a user-id existence
+        // oracle for id-probing. Ownership below overrides regardless.
+        $rules = [
             'title' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'priority' => ['nullable', Rule::in(self::PRIORITIES)],
             'due_date' => ['nullable', 'date'],
-            'assigned_to' => ['nullable', Rule::exists('users', 'id')->whereIn('role', ['teacher', 'assistant'])],
             'status' => ['nullable', Rule::in(self::STATUSES)],
-        ]);
+        ];
+        if (! $isAssistant) {
+            $rules['assigned_to'] = ['nullable', Rule::exists('users', 'id')->whereIn('role', ['teacher', 'assistant'])];
+        }
+
+        $validated = $request->validate($rules);
 
         // Ownership: an assistant's card is born theirs — whatever assignee the
         // request claimed is dropped. Only admins place cards on other desks.
@@ -163,20 +167,22 @@ class TaskController extends Controller
 
         $isAssistant = Auth::user()?->role === 'assistant';
 
-        // Same strip-before-validate rule as store(): reassignment is not an
-        // assistant move, and id-probing must not get an existence oracle.
-        if ($isAssistant) {
-            $request->request->remove('assigned_to');
-        }
-
-        $validated = $request->validate([
+        // Same transport-proof rule omission as store(): reassignment is not an
+        // assistant move, and id-probing must not get an existence oracle. With
+        // the key absent from $validated, the reassignment branch below can
+        // never fire for assistants — no matter which bag the payload rode in on.
+        $rules = [
             'title' => ['sometimes', 'string', 'max:255'],
             'description' => ['sometimes', 'nullable', 'string'],
             'priority' => ['sometimes', Rule::in(self::PRIORITIES)],
             'due_date' => ['sometimes', 'nullable', 'date'],
-            'assigned_to' => ['sometimes', 'nullable', Rule::exists('users', 'id')->whereIn('role', ['teacher', 'assistant'])],
             'status' => ['sometimes', Rule::in(self::STATUSES)],
-        ]);
+        ];
+        if (! $isAssistant) {
+            $rules['assigned_to'] = ['sometimes', 'nullable', Rule::exists('users', 'id')->whereIn('role', ['teacher', 'assistant'])];
+        }
+
+        $validated = $request->validate($rules);
 
         if (array_key_exists('assigned_to', $validated)) {
             // An explicit null means "unassign"; only non-null ids are scoped.

@@ -80,6 +80,7 @@ const SingleAssistantPage = ({
     const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
     const [selectedInvoice, setSelectedInvoice] = useState(null);
     const [isInvoiceLoading, setIsInvoiceLoading] = useState(false);
+    const [invoiceLoadError, setInvoiceLoadError] = useState(false);
 
     // State to ensure schools list is always available for the update form
     const [schools, setSchools] = useState(initialSchools || []);
@@ -95,12 +96,18 @@ const SingleAssistantPage = ({
     // Function to open invoice modal
     const openInvoiceModal = (invoice) => {
         setIsInvoiceLoading(true);
+        setInvoiceLoadError(false);
         // Fetch full invoice details from backend API
         axios
             .get(`/api/invoices/${invoice.id}`)
             .then((response) => {
                 setSelectedInvoice(response.data.invoice);
                 setIsInvoiceModalOpen(true);
+            })
+            .catch(() => {
+                // Without this the spinner just cleared and nothing happened —
+                // the user got no signal at all that the details never arrived.
+                setInvoiceLoadError(true);
             })
             .finally(() => setIsInvoiceLoading(false));
     };
@@ -134,12 +141,15 @@ const SingleAssistantPage = ({
 
     useEffect(() => {
         if (!schools || schools.length === 0) {
-            // Fetch schools if not provided (fallback)
-            fetch("/api/schools")
-                .then((res) => res.json())
+            // Fetch schools if not provided (fallback). Was "/api/schools" — a
+            // route that never existed, so this silently 404'd into the
+            // fallback redirect on every load.
+            fetch("/schoolsForFilters")
+                .then((res) => (res.ok ? res.json() : []))
                 .then((data) => {
                     if (Array.isArray(data)) setSchools(data);
-                });
+                })
+                .catch(() => {});
         }
     }, [schools]);
 
@@ -762,6 +772,18 @@ const SingleAssistantPage = ({
                     </div>
                 </div>
             )}
+            {invoiceLoadError && (
+                <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow">
+                    <span>Impossible de charger la facture. Veuillez réessayer.</span>
+                    <button
+                        type="button"
+                        onClick={() => setInvoiceLoadError(false)}
+                        className="rounded px-2 py-1 font-semibold text-red-700 hover:bg-red-100"
+                    >
+                        Fermer
+                    </button>
+                </div>
+            )}
         </div>
     );
 };
@@ -996,7 +1018,6 @@ const ActivityJournal = ({
     activeTab,
     setActiveTab,
     onOpenInvoice,
-    renderCount,
 }) => {
     const category = journal.categories[activeTab] ?? {
         total: 0,
