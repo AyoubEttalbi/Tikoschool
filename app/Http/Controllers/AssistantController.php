@@ -1003,7 +1003,13 @@ class AssistantController extends Controller
             // (ValidateEmailUnique) — the withTrashed assistant check above stays
             // local on purpose, mirroring what the DB index enforces. Its
             // ValidationException lands in the dedicated catch below.
-            event(new CheckEmailUnique($validatedData['email'], $assistant->id));
+            //
+            // Gated on an ACTUAL change: an untouched email must skip validation
+            // entirely, or any drift in ignoreId semantics turns every routine
+            // edit (photo, phone) into a false "already used" rejection.
+            if (strcasecmp($validatedData['email'], $oldEmail) !== 0) {
+                event(new CheckEmailUnique($validatedData['email'], $assistant->id));
+            }
 
             $newImagePath = null;
             $oldRawImage = $assistant->getRawOriginal('profile_image');

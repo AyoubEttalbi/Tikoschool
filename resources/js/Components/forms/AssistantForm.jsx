@@ -96,12 +96,23 @@ const AssistantForm = ({ type, data, schools, setOpen, selectedSchool }) => {
         // Best-effort duplicate-email guard (see TeacherForm): chatContacts is
         // built from login accounts and is school-scoped for non-admins, so it
         // misses staff without logins — the server stays authoritative.
-        const duplicateContact = (chatContacts || []).find(
-            (c) =>
-                c.role !== "admin" &&
-                c.email?.toLowerCase() === formData.email?.trim().toLowerCase() &&
-                !(type === "update" && c.id === data?.id),
-        );
+        //
+        // Self-exclusion compares EMAILS, not ids: chatContacts rows carry
+        // users.id while data.id is the STAFF row's id, so an id comparison
+        // never matched and every edit of a person owning a login flagged
+        // their own untouched address as "already used". An unchanged email
+        // can never collide with somebody else.
+        const emailUnchanged =
+            type === "update" &&
+            formData.email?.trim().toLowerCase() ===
+                String(data?.email ?? "").toLowerCase();
+        const duplicateContact =
+            !emailUnchanged &&
+            (chatContacts || []).find(
+                (c) =>
+                    c.role !== "admin" &&
+                    c.email?.toLowerCase() === formData.email?.trim().toLowerCase(),
+            );
         if (duplicateContact) {
             setError("email", {
                 type: "manual",
@@ -475,13 +486,20 @@ const AssistantForm = ({ type, data, schools, setOpen, selectedSchool }) => {
                                     if (!userFormData.password) { userErrors.password = "Le mot de passe est requis"; userValid = false; }
                                     if (userFormData.password !== userFormData.password_confirmation) { userErrors.password_confirmation = "Les mots de passe ne correspondent pas"; userValid = false; }
                                     if (!userFormData.role) { userErrors.role = "Le rôle est requis"; userValid = false; }
-                                    // Client-side duplicate-email guard (mirrors onSubmit).
-                                    const dupContact = (chatContacts || []).find(
-                                        (c) =>
-                                            c.role !== "admin" &&
-                                            c.email?.toLowerCase() === getValues()?.email?.trim().toLowerCase() &&
-                                            !(type === "update" && c.id === data?.id),
-                                    );
+                                    // Client-side duplicate-email guard (mirrors onSubmit):
+                                    // unchanged self-email is never a collision (see the
+                                    // onSubmit comment — ids live in different tables).
+                                    const dupEmail = getValues()?.email?.trim().toLowerCase();
+                                    const dupUnchanged =
+                                        type === "update" &&
+                                        dupEmail === String(data?.email ?? "").toLowerCase();
+                                    const dupContact =
+                                        !dupUnchanged &&
+                                        (chatContacts || []).find(
+                                            (c) =>
+                                                c.role !== "admin" &&
+                                                c.email?.toLowerCase() === dupEmail,
+                                        );
                                     if (dupContact) {
                                         setError("email", {
                                             type: "manual",

@@ -180,12 +180,21 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
         // login never appears here, and for non-admin callers it is scoped to
         // the selected school. The server (ValidateEmailUnique) stays the sole
         // authority — this just spares a round-trip on the common collision.
-        const duplicateContact = (chatContacts || []).find(
-            (c) =>
-                c.role !== "admin" &&
-                c.email?.toLowerCase() === formData.email?.trim().toLowerCase() &&
-                !(type === "update" && c.id === data?.id),
-        );
+        //
+        // Self-exclusion compares EMAILS, not ids: chatContacts carries
+        // users.id, data.id is the teachers.id — an id comparison never matched,
+        // so editing any teacher who owns a login rejected their own address.
+        const emailUnchanged =
+            type === "update" &&
+            formData.email?.trim().toLowerCase() ===
+                String(data?.email ?? "").toLowerCase();
+        const duplicateContact =
+            !emailUnchanged &&
+            (chatContacts || []).find(
+                (c) =>
+                    c.role !== "admin" &&
+                    c.email?.toLowerCase() === formData.email?.trim().toLowerCase(),
+            );
         if (duplicateContact) {
             setError("email", {
                 type: "manual",
@@ -848,13 +857,19 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
                                     if (userFormData.password !== userFormData.password_confirmation) { userErrors.password_confirmation = "Les mots de passe ne correspondent pas"; userValid = false; }
                                     if (!userFormData.role) { userErrors.role = "Le rôle est requis"; userValid = false; }
                                     // Client-side duplicate-email guard (mirrors onSubmit):
-                                    // blocks the request before any redirect can reset the modals.
-                                    const dupContact = (chatContacts || []).find(
-                                        (c) =>
-                                            c.role !== "admin" &&
-                                            c.email?.toLowerCase() === getValues()?.email?.trim().toLowerCase() &&
-                                            !(type === "update" && c.id === data?.id),
-                                    );
+                                    // blocks the request before any redirect can reset the
+                                    // modals. Unchanged self-email is never a collision.
+                                    const dupEmail = getValues()?.email?.trim().toLowerCase();
+                                    const dupUnchanged =
+                                        type === "update" &&
+                                        dupEmail === String(data?.email ?? "").toLowerCase();
+                                    const dupContact =
+                                        !dupUnchanged &&
+                                        (chatContacts || []).find(
+                                            (c) =>
+                                                c.role !== "admin" &&
+                                                c.email?.toLowerCase() === dupEmail,
+                                        );
                                     if (dupContact) {
                                         setError("email", {
                                             type: "manual",

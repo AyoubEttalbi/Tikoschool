@@ -764,6 +764,45 @@ test('deleting a teacher with chat history still succeeds', function () {
         ->and(Message::where('sender_id', $user->id)->exists())->toBeTrue();
 });
 
+test('updating an assistant without touching the email succeeds while their login shares it', function () {
+    [$user, $assistant] = profileStaffUser('assistant');
+    $admin = User::factory()->create(['role' => 'admin']);
+
+    // Every edit form round-trips the current email even when the admin only
+    // changed a phone number or photo. The guard must treat an unchanged,
+    // self-owned address as clean — this exact payload once bounced with
+    // "Cette adresse e-mail est déjà utilisée par un autre assistant."
+    $this->actingAs($admin)
+        ->put('/assistants/'.$assistant->id, [
+            'first_name' => 'Prenom',
+            'last_name' => 'Nom',
+            'email' => $user->email,
+            'status' => 'active',
+            'salary' => 3000,
+            'phone_number' => '0600000000',
+        ])
+        ->assertRedirect()
+        ->assertSessionHasNoErrors();
+
+    expect($assistant->fresh()->phone_number)->toBe('0600000000')
+        ->and($assistant->fresh()->email)->toBe($user->email);
+});
+
+test('updating a teacher without touching the email succeeds while their login shares it', function () {
+    [$user, $teacher] = profileStaffUser('teacher');
+    $admin = User::factory()->create(['role' => 'admin']);
+
+    $this->actingAs($admin)
+        ->put('/teachers/'.$teacher->id, teacherUpdatePayload($teacher, [
+            'phone_number' => '0612345678',
+        ]))
+        ->assertRedirect()
+        ->assertSessionHasNoErrors();
+
+    expect($teacher->fresh()->phone_number)->toBe('0612345678')
+        ->and($teacher->fresh()->email)->toBe($user->email);
+});
+
 test('deleting an assistant never touches an admin who shares the email', function () {
     [$user, $assistant] = profileStaffUser('assistant');
     $admin = User::factory()->create(['role' => 'admin']);

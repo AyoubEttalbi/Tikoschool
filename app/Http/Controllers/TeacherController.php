@@ -1094,6 +1094,14 @@ class TeacherController extends Controller
                     ->withInput();
             }
 
+            // Cross-table half, mirroring AssistantController::update: a LIVE
+            // assistant owning this email blocks the rename, through the one
+            // authority (ValidateEmailUnique). Gated on an ACTUAL change so
+            // routine edits of photo/phone can never trip it.
+            if (strcasecmp($validatedData['email'], $oldEmail) !== 0) {
+                event(new CheckEmailUnique($validatedData['email'], $teacher->id));
+            }
+
             $newImagePath = null;
             $oldRawImage = $teacher->getRawOriginal('profile_image');
             if ($request->hasFile('profile_image')) {
