@@ -10,9 +10,12 @@ import {
     Activity,
 } from "lucide-react";
 
-const ActivityLogs = ({ logs = { data: [], links: [] } }) => {
+const ActivityLogs = ({ logs = { data: [], links: [] }, defaultExpanded = false }) => {
     const [expandedLogs, setExpandedLogs] = useState({});
-    const [expanded, setExpanded] = useState(false);
+    // defaultExpanded: when embedded as the « Historique complet » tab of the
+    // assistant journal, the table must be visible immediately — nobody opens a
+    // tab to then have to open a second toggle inside it.
+    const [expanded, setExpanded] = useState(defaultExpanded);
 
     // Toggle visibility of log details
     const toggleLogDetails = (logId) => {

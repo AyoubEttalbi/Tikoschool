@@ -542,7 +542,11 @@ class AttendanceController extends Controller
                         'subject' => $subjectName,
                     ]);
                 } else {
-                    Attendance::create([
+                    // Logged like every other creation: the assistant profile's
+                    // activity journal reads these to show who recorded which
+                    // absence. A logging hiccup must never roll back the sheet
+                    // itself — this sits inside the save transaction.
+                    $created = Attendance::create([
                         'student_id' => $studentId,
                         'date' => $validated['date'],
                         'classId' => $validated['class_id'],
@@ -552,6 +556,16 @@ class AttendanceController extends Controller
                         'teacher_id' => $teacherIdForRecord,
                         'subject' => $subjectName,
                     ]);
+
+                    try {
+                        $this->logActivity('created', $created);
+                    } catch (\Throwable $logError) {
+                        Log::warning('Attendance creation logging failed (sheet saved anyway)', [
+                            'attendance_id' => $created->id,
+                            'error' => $logError->getMessage(),
+                        ]);
+                    }
+
                     Log::info('Created new attendance record', [
                         'student_id' => $studentId,
                         'status' => $attendance['status'],
