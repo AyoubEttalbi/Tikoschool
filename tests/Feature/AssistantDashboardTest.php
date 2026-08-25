@@ -102,6 +102,39 @@ it('renders the operations cockpit on /dashboard for an assistant with a selecte
     expect($page['component'])->toBe('Menu/AssistantDashboard');
 });
 
+it('lists only the assistant\'s own open tasks on the cockpit', function () {
+    [$school] = cockpitSchoolWithStudent();
+    $user = cockpitAssistant([$school]);
+
+    // Theirs.
+    App\Models\Task::factory()->create([
+        'school_id' => $school->id,
+        'title' => 'Ma carte ouverte',
+        'assigned_to' => $user->id,
+        'status' => 'todo',
+    ]);
+    // A colleague's card in the same school — must not appear.
+    $colleagueEmail = fake()->unique()->safeEmail();
+    $colleague = User::factory()->create(['role' => 'assistant', 'email' => $colleagueEmail]);
+    App\Models\Task::factory()->create([
+        'school_id' => $school->id,
+        'title' => 'Carte du collègue',
+        'assigned_to' => $colleague->id,
+        'status' => 'todo',
+    ]);
+
+    $page = $this->actingAs($user)
+        ->withSession(['school_id' => $school->id])
+        ->get(route('dashboard'))
+        ->assertOk()
+        ->inertiaPage();
+
+    $titles = collect($page['props']['queue']['openTasks'])->pluck('title')->all();
+
+    expect($titles)->toContain('Ma carte ouverte')
+        ->not->toContain('Carte du collègue');
+});
+
 it('still sends an assistant without a selected school to the school picker', function () {
     [$school] = cockpitSchoolWithStudent();
     $user = cockpitAssistant([$school]);

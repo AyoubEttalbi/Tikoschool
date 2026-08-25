@@ -52,7 +52,8 @@ const priorityLabels = { high: "Haute", normal: "Normale", low: "Basse" };
 
 function TaskCard({ task, onDragStart }) {
     const overdue =
-        task.due_date && task.status !== "done" &&
+        task.due_date &&
+        task.status !== "done" &&
         new Date(task.due_date) < new Date(new Date().toDateString());
 
     return (
@@ -64,7 +65,9 @@ function TaskCard({ task, onDragStart }) {
             <div className="flex items-start justify-between gap-2">
                 <p
                     className={`text-sm font-medium leading-snug ${
-                        task.status === "done" ? "text-gray-400 line-through" : "text-gray-800"
+                        task.status === "done"
+                            ? "text-gray-400 line-through"
+                            : "text-gray-800"
                     }`}
                 >
                     {task.title}
@@ -73,7 +76,11 @@ function TaskCard({ task, onDragStart }) {
                     type="button"
                     title="Supprimer la tâche"
                     aria-label={`Supprimer ${task.title}`}
-                    onClick={() => router.delete(route("tasks.destroy", task.id), { preserveScroll: true })}
+                    onClick={() =>
+                        router.delete(route("tasks.destroy", task.id), {
+                            preserveScroll: true,
+                        })
+                    }
                     className="text-gray-300 hover:text-red-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 rounded shrink-0"
                 >
                     <Trash2 className="w-4 h-4" aria-hidden="true" />
@@ -128,7 +135,11 @@ function TaskCard({ task, onDragStart }) {
                         onClick={() =>
                             router.patch(
                                 route("tasks.status", task.id),
-                                { status: columns.find((c) => c.status === task.status).moves.left },
+                                {
+                                    status: columns.find(
+                                        (c) => c.status === task.status,
+                                    ).moves.left,
+                                },
                                 { preserveScroll: true },
                             )
                         }
@@ -143,7 +154,11 @@ function TaskCard({ task, onDragStart }) {
                         onClick={() =>
                             router.patch(
                                 route("tasks.status", task.id),
-                                { status: columns.find((c) => c.status === task.status).moves.right },
+                                {
+                                    status: columns.find(
+                                        (c) => c.status === task.status,
+                                    ).moves.right,
+                                },
                                 { preserveScroll: true },
                             )
                         }
@@ -157,7 +172,12 @@ function TaskCard({ task, onDragStart }) {
     );
 }
 
-export default function TasksPage({ tasks = [], canSelectSchool = false, schools = [] }) {
+export default function TasksPage({
+    tasks = [],
+    canSelectSchool = false,
+    schools = [],
+    assignableUsers = [],
+}) {
     const { activeSchool } = usePage().props;
     const [composerOpen, setComposerOpen] = useState(false);
     const [dragOver, setDragOver] = useState(null);
@@ -170,6 +190,7 @@ export default function TasksPage({ tasks = [], canSelectSchool = false, schools
         description: "",
         priority: "normal",
         due_date: "",
+        assigned_to: "",
     });
 
     const submit = (e) => {
@@ -185,7 +206,11 @@ export default function TasksPage({ tasks = [], canSelectSchool = false, schools
 
     const handleSchoolPick = (schoolId) => {
         if (!schoolId) return;
-        router.post(route("tasks.select-school"), { school_id: schoolId }, { preserveScroll: true });
+        router.post(
+            route("tasks.select-school"),
+            { school_id: schoolId },
+            { preserveScroll: true },
+        );
     };
 
     const handleDrop = (status) => (e) => {
@@ -193,7 +218,11 @@ export default function TasksPage({ tasks = [], canSelectSchool = false, schools
         setDragOver(null);
         const id = e.dataTransfer.getData("text/task-id");
         if (!id) return;
-        router.patch(route("tasks.status", id), { status }, { preserveScroll: true });
+        router.patch(
+            route("tasks.status", id),
+            { status },
+            { preserveScroll: true },
+        );
     };
 
     return (
@@ -203,24 +232,37 @@ export default function TasksPage({ tasks = [], canSelectSchool = false, schools
             <div className="flex-1 p-4 lg:px-8 flex flex-col gap-5">
                 <header className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                     <div>
-                        <h1 className="text-xl font-semibold text-gray-900">Mes tâches</h1>
+                        <h1 className="text-xl font-semibold text-gray-900">
+                            {canSelectSchool ? "Tâches" : "Mes tâches"}
+                        </h1>
                         <p className="text-sm text-gray-500">
-                            Glissez une carte d'une colonne à l'autre — ou utilisez les boutons sur la carte.
+                            Glissez une carte d'une colonne à l'autre — ou
+                            utilisez les boutons sur la carte.
                         </p>
                     </div>
                     <div className="flex items-center gap-2">
                         {canSelectSchool && (
                             <span className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-white border border-gray-200 text-xs font-medium text-gray-600">
-                                <School className="w-4 h-4 text-lamaSky" aria-hidden="true" />
+                                <School
+                                    className="w-4 h-4 text-lamaSky"
+                                    aria-hidden="true"
+                                />
                                 <select
                                     aria-label="École du tableau"
                                     value={activeSchool?.id ?? ""}
-                                    onChange={(e) => handleSchoolPick(e.target.value)}
+                                    onChange={(e) =>
+                                        handleSchoolPick(e.target.value)
+                                    }
                                     className="bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-lamaSky rounded"
                                 >
-                                    <option value="" disabled>Choisir une école…</option>
+                                    <option value="" disabled>
+                                        Choisir une école…
+                                    </option>
                                     {schools.map((school) => (
-                                        <option key={school.id} value={school.id}>
+                                        <option
+                                            key={school.id}
+                                            value={school.id}
+                                        >
                                             {school.name}
                                         </option>
                                     ))}
@@ -232,7 +274,11 @@ export default function TasksPage({ tasks = [], canSelectSchool = false, schools
                             onClick={() => setComposerOpen((open) => !open)}
                             aria-expanded={composerOpen}
                             disabled={needsSchool}
-                            title={needsSchool ? "Choisissez d'abord une école" : undefined}
+                            title={
+                                needsSchool
+                                    ? "Choisissez d'abord une école"
+                                    : undefined
+                            }
                             className="inline-flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-md bg-lamaSky text-white hover:bg-lamaSky/90 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lamaSky disabled:bg-gray-300 disabled:cursor-not-allowed"
                         >
                             {composerOpen ? (
@@ -247,7 +293,8 @@ export default function TasksPage({ tasks = [], canSelectSchool = false, schools
 
                 {needsSchool && (
                     <p className="rounded-md bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
-                        Choisissez une école dans la liste ci-dessus pour voir et créer ses tâches.
+                        Choisissez une école dans la liste ci-dessus pour voir
+                        et créer ses tâches.
                     </p>
                 )}
 
@@ -257,7 +304,10 @@ export default function TasksPage({ tasks = [], canSelectSchool = false, schools
                         className="bg-white rounded-md border border-gray-100 shadow-sm p-4 grid grid-cols-1 md:grid-cols-12 gap-3 items-start"
                     >
                         <div className="md:col-span-5">
-                            <label htmlFor="task-title" className="block text-xs font-medium text-gray-500 mb-1">
+                            <label
+                                htmlFor="task-title"
+                                className="block text-xs font-medium text-gray-500 mb-1"
+                            >
                                 Tâche *
                             </label>
                             <input
@@ -266,32 +316,48 @@ export default function TasksPage({ tasks = [], canSelectSchool = false, schools
                                 required
                                 maxLength={255}
                                 value={data.title}
-                                onChange={(e) => setData("title", e.target.value)}
+                                onChange={(e) =>
+                                    setData("title", e.target.value)
+                                }
                                 placeholder="Ex. Appeler les parents de Youssef"
                                 className="w-full rounded-md border-gray-300 shadow-sm focus:border-lamaSky focus:ring-lamaSky text-sm"
                             />
-                            {errors.title && <p className="mt-1 text-xs text-red-500">{errors.title}</p>}
+                            {errors.title && (
+                                <p className="mt-1 text-xs text-red-500">
+                                    {errors.title}
+                                </p>
+                            )}
                         </div>
                         <div className="md:col-span-3">
-                            <label htmlFor="task-desc" className="block text-xs font-medium text-gray-500 mb-1">
+                            <label
+                                htmlFor="task-desc"
+                                className="block text-xs font-medium text-gray-500 mb-1"
+                            >
                                 Détail
                             </label>
                             <input
                                 id="task-desc"
                                 type="text"
                                 value={data.description}
-                                onChange={(e) => setData("description", e.target.value)}
+                                onChange={(e) =>
+                                    setData("description", e.target.value)
+                                }
                                 className="w-full rounded-md border-gray-300 shadow-sm focus:border-lamaSky focus:ring-lamaSky text-sm"
                             />
                         </div>
                         <div className="md:col-span-2">
-                            <label htmlFor="task-priority" className="block text-xs font-medium text-gray-500 mb-1">
+                            <label
+                                htmlFor="task-priority"
+                                className="block text-xs font-medium text-gray-500 mb-1"
+                            >
                                 Priorité
                             </label>
                             <select
                                 id="task-priority"
                                 value={data.priority}
-                                onChange={(e) => setData("priority", e.target.value)}
+                                onChange={(e) =>
+                                    setData("priority", e.target.value)
+                                }
                                 className="w-full rounded-md border-gray-300 shadow-sm focus:border-lamaSky focus:ring-lamaSky text-sm"
                             >
                                 <option value="high">Haute</option>
@@ -300,17 +366,47 @@ export default function TasksPage({ tasks = [], canSelectSchool = false, schools
                             </select>
                         </div>
                         <div className="md:col-span-2">
-                            <label htmlFor="task-due" className="block text-xs font-medium text-gray-500 mb-1">
+                            <label
+                                htmlFor="task-due"
+                                className="block text-xs font-medium text-gray-500 mb-1"
+                            >
                                 Échéance
                             </label>
                             <input
                                 id="task-due"
                                 type="date"
                                 value={data.due_date}
-                                onChange={(e) => setData("due_date", e.target.value)}
+                                onChange={(e) =>
+                                    setData("due_date", e.target.value)
+                                }
                                 className="w-full rounded-md border-gray-300 shadow-sm focus:border-lamaSky focus:ring-lamaSky text-sm"
                             />
                         </div>
+                        {canSelectSchool && assignableUsers.length > 0 && (
+                            <div className="md:col-span-2">
+                                <label
+                                    htmlFor="task-assignee"
+                                    className="block text-xs font-medium text-gray-500 mb-1"
+                                >
+                                    Assigner à
+                                </label>
+                                <select
+                                    id="task-assignee"
+                                    value={data.assigned_to}
+                                    onChange={(e) =>
+                                        setData("assigned_to", e.target.value)
+                                    }
+                                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-lamaSky focus:ring-lamaSky text-sm"
+                                >
+                                    <option value="">Non assignée</option>
+                                    {assignableUsers.map((user) => (
+                                        <option key={user.id} value={user.id}>
+                                            {user.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
                         <div className="md:col-span-12 flex justify-end">
                             <button
                                 type="submit"
@@ -326,7 +422,9 @@ export default function TasksPage({ tasks = [], canSelectSchool = false, schools
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     {columns.map((column) => {
-                        const columnTasks = tasks.filter((task) => task.status === column.status);
+                        const columnTasks = tasks.filter(
+                            (task) => task.status === column.status,
+                        );
                         return (
                             <section
                                 key={column.status}
@@ -335,7 +433,11 @@ export default function TasksPage({ tasks = [], canSelectSchool = false, schools
                                     e.preventDefault();
                                     setDragOver(column.status);
                                 }}
-                                onDragLeave={() => setDragOver((over) => (over === column.status ? null : over))}
+                                onDragLeave={() =>
+                                    setDragOver((over) =>
+                                        over === column.status ? null : over,
+                                    )
+                                }
                                 onDrop={handleDrop(column.status)}
                                 className={`rounded-xl p-3 min-h-[240px] flex flex-col gap-3 transition-colors ${
                                     dragOver === column.status
@@ -344,7 +446,10 @@ export default function TasksPage({ tasks = [], canSelectSchool = false, schools
                                 }`}
                             >
                                 <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700 px-1">
-                                    <span className={`h-2.5 w-2.5 rounded-full ${column.dot}`} aria-hidden="true" />
+                                    <span
+                                        className={`h-2.5 w-2.5 rounded-full ${column.dot}`}
+                                        aria-hidden="true"
+                                    />
                                     {column.label}
                                     <span className="text-xs font-normal text-gray-400 tabular-nums">
                                         {columnTasks.length}
@@ -361,7 +466,10 @@ export default function TasksPage({ tasks = [], canSelectSchool = false, schools
                                             key={task.id}
                                             task={task}
                                             onDragStart={(e, id) =>
-                                                e.dataTransfer.setData("text/task-id", String(id))
+                                                e.dataTransfer.setData(
+                                                    "text/task-id",
+                                                    String(id),
+                                                )
                                             }
                                         />
                                     ))

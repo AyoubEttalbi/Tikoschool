@@ -11,7 +11,9 @@ use Illuminate\Support\Facades\Session;
  *
  * Route-level RequireRole gates admin+assistant; these tests pin the object-level
  * half: tasks belong to a school, and the session school is the boundary. A card
- * from another school must be invisible, unmovable, undeletable.
+ * from another school must be invisible, unmovable, undeletable. Ownership is the
+ * second axis: an assistant creates pre-assigned to themselves and sees only their
+ * own cards; admins see everything and may assign anyone.
  */
 
 beforeEach(function () {
@@ -22,6 +24,11 @@ beforeEach(function () {
     $this->assistant = User::factory()->create(['role' => 'assistant', 'email' => $email]);
     $row = Assistant::factory()->create(['email' => $email]);
     $row->schools()->attach([$this->mine->id, $this->theirs->id]);
+
+    // A second assistant at the same school — ownership boundaries need a peer.
+    $colleagueEmail = fake()->unique()->safeEmail();
+    $this->colleague = User::factory()->create(['role' => 'assistant', 'email' => $colleagueEmail]);
+    Assistant::factory()->create(['email' => $colleagueEmail])->schools()->attach([$this->mine->id]);
 
     Session::put('school_id', $this->mine->id);
 });
@@ -35,7 +42,7 @@ function taskIn(School $school, array $overrides = []): Task
 }
 
 it('lists only the session school\'s tasks', function () {
-    taskIn($this->mine, ['title' => 'Ma tâche']);
+    taskIn($this->mine, ['title' => 'Ma tâche', 'assigned_to' => $this->assistant->id]);
     taskIn($this->theirs, ['title' => 'Tâche interdite']);
 
     $json = $this->actingAs($this->assistant)
@@ -49,7 +56,19 @@ it('lists only the session school\'s tasks', function () {
         ->not->toContain('Tâche interdite');
 });
 
-it('creates a task in the session school', function () {
+it('hides a same-school card assigned to another assistant', function () {
+    taskIn($this->mine, ['title' => 'Carte du collègue', 'assigned_to' => $this->colleague->id]);
+
+    $json = $this->actingAs($this->assistant)
+        ->get(route('tasks.index'))
+        ->assertOk()
+        ->inertiaPage();
+
+    expect(collect($json['props']['tasks'])->pluck('title')->all())
+        ->not->toContain('Carte du collègue');
+});
+
+it('creates a task in the session school, pre-assigned to its creator', function () {
     $this->actingAs($this->assistant)
         ->post(route('tasks.store'), [
             'title' => 'Appeler les parents',
@@ -63,11 +82,83 @@ it('creates a task in the session school', function () {
     expect($task)->not->toBeNull()
         ->and((int) $task->school_id)->toBe($this->mine->id)
         ->and($task->status)->toBe('todo')
-        ->and($task->created_by)->toBe($this->assistant->id);
+        ->and($task->created_by)->toBe($this->assistant->id)
+        // Auto-assignment: an assistant's card is born theirs.
+        ->and((int) $task->assigned_to)->toBe($this->assistant->id);
+});
+
+it('ignores an assistant trying to assign someone else at creation', function () {
+    $this->actingAs($this->assistant)
+        ->post(route('tasks.store'), [
+            'title' => 'Tâche imposée ?',
+            'assigned_to' => $this->colleague->id,
+        ])
+        ->assertRedirect();
+
+    expect((int) Task::where('title', 'Tâche imposée ?')->first()->assigned_to)
+        ->toBe($this->assistant->id);
+});
+
+it('lets an admin assign anyone at creation', function () {
+    Session::put('school_id', $this->mine->id);
+
+    $this->actingAs(User::factory()->create(['role' => 'admin']))
+        ->post(route('tasks.store'), [
+            'title' => 'Relancer la famille Bennani',
+            'assigned_to' => $this->colleague->id,
+        ])
+        ->assertRedirect();
+
+    $task = Task::where('title', 'Relancer la famille Bennani')->first();
+
+    expect((int) $task->assigned_to)->toBe($this->colleague->id)
+        ->and((int) $task->school_id)->toBe($this->mine->id);
+});
+
+it('blocks an assistant reassigning a card on update', function () {
+    $task = taskIn($this->mine, ['assigned_to' => $this->assistant->id]);
+
+    $this->actingAs($this->assistant)
+        ->put(route('tasks.update', $task), [
+            'title' => 'Titre modifié',
+            'assigned_to' => $this->colleague->id,
+        ])
+        ->assertRedirect();
+
+    $fresh = $task->fresh();
+
+    expect($fresh->title)->toBe('Titre modifié')
+        ->and((int) $fresh->assigned_to)->toBe($this->assistant->id);
+});
+
+it('lets an admin reassign a card on update', function () {
+    $admin = User::factory()->create(['role' => 'admin']);
+    Session::put('school_id', $this->mine->id);
+    $task = taskIn($this->mine, ['assigned_to' => $this->colleague->id]);
+
+    $this->actingAs($admin)
+        ->put(route('tasks.update', $task), ['assigned_to' => $this->assistant->id])
+        ->assertRedirect();
+
+    expect((int) $task->fresh()->assigned_to)->toBe($this->assistant->id);
+});
+
+it('refuses to touch another assistant\'s card in the same school', function () {
+    $foreignCard = taskIn($this->mine, ['assigned_to' => $this->colleague->id, 'status' => 'todo']);
+
+    foreach ([
+        ['patch', route('tasks.status', $foreignCard), ['status' => 'done']],
+        ['delete', route('tasks.destroy', $foreignCard), []],
+    ] as [$method, $url, $data]) {
+        $this->actingAs($this->assistant)->{$method}($url, $data)->assertForbidden();
+    }
+
+    expect($foreignCard->fresh()->status)->not->toBe('done')
+        ->and(Task::find($foreignCard->id))->not->toBeNull();
 });
 
 it('moves a card between columns', function () {
-    $task = taskIn($this->mine);
+    $task = taskIn($this->mine, ['assigned_to' => $this->assistant->id]);
 
     $this->actingAs($this->assistant)
         ->patch(route('tasks.status', $task), ['status' => 'done'])
@@ -146,4 +237,63 @@ it('forbids assistants from switching the board\'s school', function () {
     $this->actingAs($this->assistant)
         ->post(route('tasks.select-school'), ['school_id' => $this->theirs->id])
         ->assertForbidden();
+});
+
+it('offers the selected school\'s staff to an assigning admin', function () {
+    Session::put('school_id', $this->mine->id);
+
+    $json = $this->actingAs(User::factory()->create(['role' => 'admin']))
+        ->get(route('tasks.index'))
+        ->assertOk()
+        ->inertiaPage();
+
+    $ids = collect($json['props']['assignableUsers'])->pluck('id')->all();
+
+    expect($ids)->toContain($this->assistant->id)
+        ->and($ids)->toContain($this->colleague->id);
+});
+
+it('keeps other schools\' staff out of the assignee list', function () {
+    // A teacher attached ONLY to the other school shares nobody's email with mine.
+    $foreignEmail = fake()->unique()->safeEmail();
+    User::factory()->create(['role' => 'teacher', 'email' => $foreignEmail]);
+    \App\Models\Teacher::factory()->create(['email' => $foreignEmail])
+        ->schools()->attach([$this->theirs->id]);
+
+    Session::put('school_id', $this->mine->id);
+
+    $json = $this->actingAs(User::factory()->create(['role' => 'admin']))
+        ->get(route('tasks.index'))
+        ->assertOk()
+        ->inertiaPage();
+
+    expect(collect($json['props']['assignableUsers'])->pluck('id')->all())
+        ->not->toContain(User::where('email', $foreignEmail)->value('id'));
+});
+
+it('refuses an admin assigning a card to someone outside the school', function () {
+    $outsideEmail = fake()->unique()->safeEmail();
+    $outsider = User::factory()->create(['role' => 'assistant', 'email' => $outsideEmail]);
+    \App\Models\Assistant::factory()->create(['email' => $outsideEmail])
+        ->schools()->attach([$this->theirs->id]);
+
+    Session::put('school_id', $this->mine->id);
+
+    $this->actingAs(User::factory()->create(['role' => 'admin']))
+        ->post(route('tasks.store'), [
+            'title' => 'Carte hors périmètre',
+            'assigned_to' => $outsider->id,
+        ])
+        ->assertForbidden();
+
+    expect(Task::where('title', 'Carte hors périmètre')->exists())->toBeFalse();
+});
+
+it('hands assistants no assignee list to choose from', function () {
+    $json = $this->actingAs($this->assistant)
+        ->get(route('tasks.index'))
+        ->assertOk()
+        ->inertiaPage();
+
+    expect($json['props']['assignableUsers'])->toBe([]);
 });

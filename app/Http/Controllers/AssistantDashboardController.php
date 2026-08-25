@@ -266,20 +266,22 @@ class AssistantDashboardController extends Controller
     }
 
     /**
-     * Open tasks for this school's board — the cockpit links straight into them.
-     * Unclaimed cards first (someone must take them), then high priority.
+     * Open tasks for the viewer — the cockpit links straight into them. An
+     * assistant's cockpit lists THEIR cards only (the board's rule: "what is
+     * mine"), not the whole school's queue.
      */
     private function openTasks(int $limit = 4): array
     {
+        $user = Auth::user();
         $schoolId = session('school_id');
-        if (! $schoolId) {
+        if (! $schoolId || ! $user) {
             return [];
         }
 
         return Task::query()
             ->whereIn('status', ['todo', 'in_progress'])
             ->where('school_id', $schoolId)
-            ->orderByRaw('CASE WHEN assigned_to IS NULL THEN 0 ELSE 1 END')
+            ->when($user->role !== 'admin', fn ($q) => $q->where('assigned_to', $user->id))
             ->orderByRaw("CASE priority WHEN 'high' THEN 0 ELSE 1 END")
             ->orderBy('due_date')
             ->limit($limit)
