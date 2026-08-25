@@ -80,7 +80,12 @@ function AvatarCard({ avatarUrl }) {
         const file = e.target.files[0];
         if (!file) return;
         setData("photo", file);
-        setPreview(URL.createObjectURL(file));
+        // Revoke the previous blob URL — each createObjectURL pins the file's
+        // bytes in memory until released.
+        setPreview((old) => {
+            if (old && old.startsWith("blob:")) URL.revokeObjectURL(old);
+            return URL.createObjectURL(file);
+        });
     };
 
     const handleSave = (e) => {
@@ -101,8 +106,13 @@ function AvatarCard({ avatarUrl }) {
     const handleRemove = () => {
         router.delete(route("profile.image.remove"), {
             preserveScroll: true,
-            onFinish: () => {
-                setPreview(null);
+            // Clear on SUCCESS only: clearing in onFinish showed an empty
+            // avatar even when the server refused the removal.
+            onSuccess: () => {
+                setPreview((old) => {
+                    if (old && old.startsWith("blob:")) URL.revokeObjectURL(old);
+                    return null;
+                });
                 reset();
                 if (photoInput.current) photoInput.current.value = "";
             },
@@ -133,7 +143,7 @@ function AvatarCard({ avatarUrl }) {
                         <input
                             ref={photoInput}
                             type="file"
-                            accept="image/jpeg,image/png,image/webp"
+                            accept="image/jpeg,image/png,image/webp,image/avif"
                             onChange={handlePick}
                             className="text-sm text-gray-600 file:mr-3 file:py-2 file:px-4 file:rounded-md file:border-0 file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 file:cursor-pointer"
                         />

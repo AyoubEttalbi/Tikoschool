@@ -28,7 +28,6 @@ const schema = z.object({
 });
 
 const AssistantForm = ({ type, data, schools, setOpen, selectedSchool }) => {
-    console.log(data);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [imagePreview, setImagePreview] = useState(
         data?.profile_image || null,
@@ -94,9 +93,9 @@ const AssistantForm = ({ type, data, schools, setOpen, selectedSchool }) => {
 
     // Inside the onSubmit function of your AssistantForm component
     const onSubmit = handleSubmit((formData) => {
-        // Client-side duplicate-email guard (see TeacherForm): chatContacts
-        // carries every staff email globally — catch live collisions instantly.
-        const { chatContacts } = usePage().props;
+        // Best-effort duplicate-email guard (see TeacherForm): chatContacts is
+        // built from login accounts and is school-scoped for non-admins, so it
+        // misses staff without logins — the server stays authoritative.
         const duplicateContact = (chatContacts || []).find(
             (c) =>
                 c.role !== "admin" &&
@@ -161,7 +160,6 @@ const AssistantForm = ({ type, data, schools, setOpen, selectedSchool }) => {
                 onSuccess: () => {
                     setOpen(false);
                 },
-                onError: (errors) => console.log("Inertia Errors:", errors),
             });
         }
     });
@@ -357,7 +355,7 @@ const AssistantForm = ({ type, data, schools, setOpen, selectedSchool }) => {
                                 <input
                                     id="profile_image"
                                     type="file"
-                                    accept="image/png, image/jpeg, image/jpg"
+                                    accept="image/jpeg, image/png, image/webp, image/avif"
                                     className="hidden"
                                     onChange={handleImageChange}
                                 />

@@ -2,12 +2,14 @@
 
 use App\Models\Classes;
 use App\Models\Level;
+use App\Models\Message;
 use App\Models\School;
 use App\Models\Student;
 use App\Models\Teacher;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 /*
@@ -601,8 +603,9 @@ test('re-hiring a soft-deleted assistant with the same email revives the same ro
     $admin = User::factory()->create(['role' => 'admin']);
     $originalId = $staff->id;
 
-    $staff->delete();
-    $oldUser->delete(); // destroy() now does this; simulated here for pre-dating rows
+    // The real destroy: soft-deletes the staff row and soft-deletes the login
+    // with its email rewritten (the unique index must free the address).
+    $this->actingAs($admin)->delete('/assistants/'.$staff->id)->assertRedirect();
 
     $this->actingAs($admin)
         ->post('/assistants-with-user', assistantWithUserPayload($staff->email))
@@ -622,8 +625,9 @@ test('re-hire swaps the image and deletes the old file after commit', function (
 
     $oldPath = seededImagePath('assistants');
     $staff->forceFill(['profile_image' => $oldPath])->save();
-    $staff->delete();
-    $oldUser->delete();
+
+    // Real destroy (see the revive test above) instead of simulating it.
+    $this->actingAs($admin)->delete('/assistants/'.$staff->id)->assertRedirect();
 
     $payload = assistantWithUserPayload($staff->email);
     $payload['assistant']['profile_image'] = makeUpload('jpeg');
@@ -641,6 +645,87 @@ test('re-hire swaps the image and deletes the old file after commit', function (
     Storage::disk('profile-images')->assertExists($revived->getRawOriginal('profile_image'));
 });
 
+test('re-hiring via the plain create endpoint also swaps the image and cleans up', function () {
+    [$oldUser, $staff] = profileStaffUser('teacher');
+    $admin = User::factory()->create(['role' => 'admin']);
+    $oldPath = seededImagePath('teachers');
+    $staff->forceFill(['profile_image' => $oldPath])->save();
+
+    // Real destroy: staff row soft-deleted, login soft-deleted with a mangled
+    // email so the address is free again.
+    $this->actingAs($admin)->delete('/teachers/'.$staff->id)->assertRedirect();
+
+    $this->actingAs($admin)
+        ->post('/teachers', [
+            'first_name' => $staff->first_name,
+            'last_name' => $staff->last_name,
+            'email' => $staff->email,
+            'status' => 'active',
+            'profile_image' => makeUpload('jpeg'),
+        ])
+        ->assertRedirect()
+        ->assertSessionHasNoErrors();
+
+    // Same row revived, referencing the NEW file; the replaced one is gone.
+    $revived = Teacher::withTrashed()->find($staff->id);
+
+    expect($revived->trashed())->toBeFalse()
+        ->and($revived->getRawOriginal('profile_image'))->not->toBe($oldPath)
+        ->and($revived->getRawOriginal('profile_image'))->toMatch('/^teachers\/[a-f0-9]{40}\.webp$/');
+
+    Storage::disk('profile-images')->assertMissing($oldPath);
+    Storage::disk('profile-images')->assertExists($revived->getRawOriginal('profile_image'));
+});
+
+test('an AVIF upload is converted through the pipeline and stored as webp', function () {
+    if (! function_exists('imageavif')) {
+        $this->markTestSkipped('PHP GD built without AVIF support.');
+    }
+
+    $admin = User::factory()->create(['role' => 'admin']);
+    $teacher = Teacher::factory()->create(['profile_image' => null]);
+
+    // Real AVIF fixture: GD encodes it, so getimagesize() can bound its
+    // dimensions BEFORE imagecreatefromavif() decodes pixels.
+    $src = tempnam(sys_get_temp_dir(), 'aviffixt');
+    $im = imagecreatetruecolor(600, 400);
+    imagefill($im, 0, 0, imagecolorallocate($im, 120, 30, 200));
+    imageavif($im, $src);
+    imagedestroy($im);
+    $file = new UploadedFile($src, 'photo.avif', 'image/avif', null, true);
+
+    $this->actingAs($admin)
+        ->put("/teachers/{$teacher->id}", teacherUpdatePayload($teacher, ['profile_image' => $file]))
+        ->assertStatus(302)
+        ->assertSessionHasNoErrors();
+
+    $raw = $teacher->fresh()->getRawOriginal('profile_image');
+
+    expect($raw)->toMatch('/^teachers\/[a-f0-9]{40}\.webp$/');
+    Storage::disk('profile-images')->assertExists($raw);
+
+    @unlink($src);
+});
+
+test('an AVIF whose dimensions cannot be verified is rejected before decoding', function () {
+    $admin = User::factory()->create(['role' => 'admin']);
+    $teacher = Teacher::factory()->create(['profile_image' => null]);
+
+    // ftyp branding only — no metadata box, hence NO dimensions to bound the
+    // decode with. The pre-decode guard must fail closed instead of letting
+    // imagecreatefromavif() allocate an unbounded canvas.
+    $stub = "\x00\x00\x00\x18ftypavif\x00\x00\x00\x00avifisom".str_repeat("\x00", 64);
+    $file = UploadedFile::fake()->createWithContent('bomb.avif', $stub);
+
+    $this->actingAs($admin)
+        ->put("/teachers/{$teacher->id}", teacherUpdatePayload($teacher, ['profile_image' => $file]))
+        ->assertSessionHasErrors('profile_image');
+
+    expect(session('errors')->first('profile_image'))
+        ->toBe('Les dimensions de cette image AVIF ne peuvent pas être vérifiées. Convertissez-la en PNG ou JPG.')
+        ->and($teacher->fresh()->getRawOriginal('profile_image'))->toBeNull();
+});
+
 test('deleting a teacher also deletes their teacher-role login', function () {
     [$user, $teacher] = profileStaffUser('teacher');
     $admin = User::factory()->create(['role' => 'admin']);
@@ -649,6 +734,34 @@ test('deleting a teacher also deletes their teacher-role login', function () {
 
     expect($teacher->fresh()->trashed())->toBeTrue()
         ->and(User::find($user->id))->toBeNull();
+});
+
+test('deleting a teacher with chat history still succeeds', function () {
+    [$user, $teacher] = profileStaffUser('teacher');
+    $admin = User::factory()->create(['role' => 'admin']);
+
+    // messages.sender_id/recipient_id are RESTRICT foreign keys to users: the
+    // former hard delete rolled back the whole destroy for anyone who had ever
+    // sent a message, surfacing only as "Failed to delete teacher".
+    Message::create([
+        'sender_id' => $user->id,
+        'recipient_id' => $admin->id,
+        'message' => 'Bonjour',
+        'is_read' => false,
+    ]);
+
+    $this->actingAs($admin)->delete('/teachers/'.$teacher->id)->assertRedirect()
+        ->assertSessionHas('success');
+
+    $login = User::withTrashed()->find($user->id);
+
+    expect($teacher->fresh()->trashed())->toBeTrue()
+        ->and($login->trashed())->toBeTrue()
+        // The email is rewritten so the unique index frees the address —
+        // re-hiring the same person must not be blocked by their old login.
+        ->and($login->email)->toBe('deleted+'.$user->id.'@tikoschool.invalid')
+        ->and(DB::table('users')->where('email', $user->email)->exists())->toBeFalse()
+        ->and(Message::where('sender_id', $user->id)->exists())->toBeTrue();
 });
 
 test('deleting an assistant never touches an admin who shares the email', function () {
@@ -780,8 +893,9 @@ test('re-hire is refused while a live row in the other table owns the email', fu
     $assistant = \App\Models\Assistant::factory()->create(['email' => $email]);
     Teacher::factory()->create(['email' => $email]); // LIVE cross-table owner
 
-    $assistant->delete();
-    $user->delete(); // destroy() would have removed it
+    // Real destroy: login soft-deleted with a mangled email, so only the live
+    // teacher row can still refuse this re-hire.
+    $this->actingAs($admin)->delete('/assistants/'.$assistant->id)->assertRedirect();
 
     $this->actingAs($admin)
         ->from('/assistants')

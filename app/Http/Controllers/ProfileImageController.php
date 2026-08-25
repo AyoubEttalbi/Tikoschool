@@ -136,7 +136,10 @@ class ProfileImageController extends Controller
     public function destroy(Request $request, string $type, int $id): RedirectResponse
     {
         $model = match ($type) {
-            'admins' => User::findOrFail($id),
+            // role-constrained: serving requires an actual admin (line above in
+            // authorizeOwner), and a teacher/assistant users row holds no avatar
+            // anyway — this keeps both boundaries expressed identically.
+            'admins' => User::where('role', 'admin')->findOrFail($id),
             'teachers' => Teacher::withTrashed()->findOrFail($id),
             'assistants' => Assistant::withTrashed()->findOrFail($id),
             'students' => Student::withTrashed()->findOrFail($id),

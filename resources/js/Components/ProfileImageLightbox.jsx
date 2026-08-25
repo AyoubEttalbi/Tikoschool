@@ -26,8 +26,23 @@ export default function ProfileImageLightbox({ src, alt = "", className = "", en
                 alt={alt}
                 width={144}
                 height={144}
-                onClick={() => enabled && setOpen(true)}
-                className={`${className} ${enabled ? "cursor-zoom-in hover:opacity-90 transition-opacity" : ""}`}
+                // Keyboard parity with the click: without role/tabIndex/keyDown,
+                // a keyboard-only user could never open the quick view.
+                {...(enabled
+                    ? {
+                        role: "button",
+                        tabIndex: 0,
+                        "aria-label": `Agrandir ${alt || "la photo"}`,
+                        onClick: () => setOpen(true),
+                        onKeyDown: (e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                setOpen(true);
+                            }
+                        },
+                    }
+                    : {})}
+                className={`${className} ${enabled ? "cursor-zoom-in hover:opacity-90 transition-opacity focus-visible:ring-2 focus-visible:ring-lamaSky" : ""}`}
             />
             <DialogContent className="max-w-3xl p-2 sm:rounded-lg bg-black/90 border-none [&>button]:hidden">
                 <DialogTitle className="sr-only">{alt}</DialogTitle>

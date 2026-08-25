@@ -73,7 +73,9 @@ Route::middleware('auth')->group(function () {
         // teacher/assistant → their staff row by email). Literal path, registered
         // before the wildcard /profile-images/{path} route below cannot shadow it
         // (different prefix anyway) — kept adjacent so the pairing stays obvious.
-        Route::post('/profile/image', 'uploadImage')->name('profile.image.upload');
+        // Throttled: uploads drive synchronous image processing (decode, resize,
+        // re-encode) and are the one place a bored user can burn CPU on purpose.
+        Route::post('/profile/image', 'uploadImage')->middleware('throttle:10,1')->name('profile.image.upload');
         Route::delete('/profile/image', 'removeImage')->name('profile.image.remove');
     });
 
@@ -85,8 +87,9 @@ Route::middleware('auth')->group(function () {
         ->where('path', '(?:students|teachers|assistants|admins)/[a-f0-9]{40}\.webp')
         ->name('profile-images.show');
 
-    // Image removal: same authed group; the controller re-checks owner/admin rights
-    // per record (students: admins only).
+    // Image removal: same authed group; the controller re-checks per record —
+    // admins anywhere, staff on their own row, and an assistant on students it
+    // may edit (SchoolScope::allowsStudent, mirroring upload rights).
     Route::delete('/profile-images/{type}/{id}', [ProfileImageController::class, 'destroy'])
         ->where(['type' => 'students|teachers|assistants|admins', 'id' => '[0-9]+'])
         ->name('profile-images.destroy');
@@ -488,53 +491,6 @@ Route::middleware('auth')->group(function () {
 
 // Authentication routes
 require __DIR__.'/auth.php';
-
-// For debugging/development only - should be removed in production
-if (app()->environment('local')) {
-    Route::get('/debug-assistant/{id}', function ($id) {
-        $assistant = App\Models\Assistant::with('schools')->find($id);
-
-        if (! $assistant) {
-            return response()->json(['error' => 'Assistant not found'], 404);
-        }
-
-        $schoolIds = $assistant->schools->pluck('id')->toArray();
-        $today = \Carbon\Carbon::now();
-
-        // Recent absences
-        $recentAbsences = \App\Models\Attendance::with(['student', 'class'])
-            ->whereIn('status', ['absent', 'late'])
-            ->where(function ($query) use ($schoolIds) {
-                $query->whereHas('class', function ($classQuery) use ($schoolIds) {
-                    $classQuery->whereIn('school_id', $schoolIds);
-                });
-
-                $query->orWhereHas('student', function ($studentQuery) use ($schoolIds) {
-                    $studentQuery->whereIn('schoolId', $schoolIds);
-                });
-            })
-            ->where('date', '>=', $today->copy()->subDays(7))
-            ->orderBy('date', 'desc')
-            ->limit(10)
-            ->get();
-
-        return response()->json([
-            'assistant' => $assistant->only(['id', 'first_name', 'last_name', 'email']),
-            'schools' => $schoolIds,
-            'recent_absences' => $recentAbsences->map(function ($attendance) {
-                return [
-                    'id' => $attendance->id,
-                    'student_id' => $attendance->student ? $attendance->student->id : null,
-                    'student_name' => $attendance->student ? $attendance->student->firstName.' '.$attendance->student->lastName : 'Unknown',
-                    'class_name' => $attendance->class ? $attendance->class->name : 'Unknown',
-                    'date' => $attendance->date,
-                    'status' => $attendance->status,
-                    'reason' => $attendance->reason,
-                ];
-            }),
-        ]);
-    });
-}
 
 // REMOVED (unauthenticated information disclosure):
 //   GET /debug-session      — returned session()->all(), including the caller's CSRF token

@@ -55,9 +55,6 @@ const schema = z.object({
 });
 
 const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
-
-    console.log("classes", classes)
-
     // Server-side validation errors (shared Inertia prop) — survive the page
     // swap that follows a validation redirect, unlike local component state.
     const { errors: pageErrors } = usePage().props;
@@ -178,10 +175,11 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
     };
 
     const onSubmit = handleSubmit((formData) => {
-        // Client-side duplicate-email guard: chatContacts carries every staff
-        // member's email globally, so a live-row collision is caught instantly —
-        // no server round-trip, no redirect, nothing to survive. The server stays
-        // authoritative (trashed rows re-hire there).
+        // Client-side duplicate-email guard, BEST-EFFORT only: chatContacts is
+        // built from login accounts (users rows), so a staff member without a
+        // login never appears here, and for non-admin callers it is scoped to
+        // the selected school. The server (ValidateEmailUnique) stays the sole
+        // authority — this just spares a round-trip on the common collision.
         const duplicateContact = (chatContacts || []).find(
             (c) =>
                 c.role !== "admin" &&
@@ -404,7 +402,7 @@ const TeacherForm = ({ type, data, subjects, classes, schools, setOpen }) => {
                                 <input
                                     id="profile_image"
                                     type="file"
-                                    accept="image/png, image/jpeg, image/jpg"
+                                    accept="image/jpeg, image/png, image/webp, image/avif"
                                     className="hidden"
                                     onChange={handleImageChange}
                                 />

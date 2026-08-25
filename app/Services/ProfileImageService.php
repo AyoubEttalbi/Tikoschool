@@ -70,29 +70,27 @@ class ProfileImageService
 
             // Content sniffing only — client MIME and filename are untrusted.
             $detected = $file->getMimeType();
+            $isAvif = $detected === 'image/avif';
 
-            // AVIF: websites routinely serve it with a .png/.jpg filename, so users
-            // keep hitting "must be an image" on perfectly valid downloads. GD can
-            // decode it natively but Intervention v3 cannot, so convert to WebP here
-            // and let the normal pipeline continue with the converted file.
-            if ($detected === 'image/avif') {
-                $file = $this->convertAvifToWebp($file, $errorField);
-                $tempPath = $file->getRealPath();
-                $detected = 'image/webp';
-            }
-
-            if (! isset(self::ALLOWED_MIMES[$detected])) {
+            if (! isset(self::ALLOWED_MIMES[$detected]) && ! $isAvif) {
                 throw ValidationException::withMessages([
                     $errorField => "Format d'image non pris en charge. Formats acceptés : JPG, PNG, WebP, AVIF.",
                 ]);
             }
 
-            // Decompression-bomb guard: read HEADER dimensions only, before GD
-            // allocates pixels for the full bitmap.
+            // Decompression-bomb guard: read HEADER dimensions only, BEFORE any
+            // pixel allocation. It must also run AHEAD of the AVIF bridge below:
+            // imagecreatefromavif() decodes the full bitmap (~4 bytes/pixel), so
+            // a crafted ≤5 MB file declaring a huge canvas would exhaust worker
+            // memory as an uncatchable fatal. getimagesize() parses AVIF boxes
+            // since PHP 8.1; on a build where it cannot, we fail CLOSED and
+            // reject the upload rather than decode unbounded dimensions.
             $info = @getimagesize($file->getRealPath());
             if ($info === false) {
                 throw ValidationException::withMessages([
-                    $errorField => 'Fichier image corrompu ou illisible.',
+                    $errorField => $isAvif
+                        ? 'Les dimensions de cette image AVIF ne peuvent pas être vérifiées. Convertissez-la en PNG ou JPG.'
+                        : 'Fichier image corrompu ou illisible.',
                 ]);
             }
             [$width, $height] = $info;
@@ -100,6 +98,17 @@ class ProfileImageService
                 throw ValidationException::withMessages([
                     $errorField => "Dimensions d'image trop grandes.",
                 ]);
+            }
+
+            // AVIF: websites routinely serve it with a .png/.jpg filename, so users
+            // keep hitting "must be an image" on perfectly valid downloads. GD can
+            // decode it natively but Intervention v3 cannot, so convert to WebP here
+            // — only once its declared dimensions are proven safe above — and let
+            // the normal pipeline continue with the converted file.
+            if ($isAvif) {
+                $file = $this->convertAvifToWebp($file, $errorField);
+                $tempPath = $file->getRealPath();
+                $detected = 'image/webp';
             }
 
             // Decode + process. orient() applies EXIF rotation (phone photos);
@@ -164,7 +173,14 @@ class ProfileImageService
             ]);
         }
 
-        $temp = tempnam(sys_get_temp_dir(), 'avif').'.webp';
+        // Write straight onto the tempnam() file: appending ".webp" created a
+        // SECOND file (the empty tempnam original was never unlinked — one leak
+        // per AVIF upload) and imagewebp's fresh file inherited default (often
+        // world-readable) permissions instead of tempnam's 0600. Extension is
+        // irrelevant to imagewebp(); the strict-temp upload below keeps PHP
+        // from rejecting it during move.
+        $temp = tempnam(sys_get_temp_dir(), 'avif');
+        chmod($temp, 0600);
         $written = imagewebp($image, $temp, 90);
         imagedestroy($image);
 

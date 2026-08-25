@@ -383,21 +383,15 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
                     setLoading(false);
                 },
             });
-            console.log(formDataObj);
         } else if (type === "update") {
             // For update, we need to use the proper method spoofing with Inertia
             // Add the _method field to the formData for Laravel to recognize it as PUT
             formDataObj.append("_method", "PUT");
-            // for (let pair of formDataObj.entries()) {
-            //     console.log(pair[0]+ ': ' + pair[1]);
-            // }
             // Then use post() instead of put() because file uploads require POST
-            // console.log("formDataObj", formDataObj);
             router.post(`/students/${data.id}`, formDataObj, {
                 preserveScroll: true,
                 forceFormData: true,
                 onSuccess: () => {
-                    console.log(formDataObj);
                     setOpen(false);
                     setLoading(false);
                 },
@@ -815,7 +809,7 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
                             <input
                                 id="profile_image"
                                 type="file"
-                                accept="image/png, image/jpeg, image/jpg"
+                                accept="image/jpeg, image/png, image/webp, image/avif"
                                 className="hidden"
                                 onChange={handleImageChange}
                             />
