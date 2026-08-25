@@ -115,11 +115,11 @@ class StudentsController extends Controller
         //     'rest', so the old "Partiel" branch could only ever match on its fallback,
         //     which was "the student has no memberships at all" â€” the one case that is
         //     definitively not a partial payment. Those same students also came back
-        //     under "Non payÃ©", so one row appeared under two mutually exclusive filters.
+        //     under "Non payé", so one row appeared under two mutually exclusive filters.
         //   * A membership marked 'paid' whose invoice was later edited downward still
         //     read as paid to the filter while the badge showed money outstanding.
         //
-        // "PayÃ©" and "Tous" looked right only because InvoiceController happens to set
+        // "Payé" and "Tous" looked right only because InvoiceController happens to set
         // payment_status = 'paid' on the same condition, and because "Tous" filters
         // nothing. The predicates below are the SQL translation of the badge, so every
         // row returned now carries the badge that was asked for. A student with no
@@ -868,7 +868,7 @@ class StudentsController extends Controller
                     $this->profileImages->discard($newImagePath);
 
                     return redirect()->back()
-                        ->withErrors(['profile_image' => "L'image a Ã©tÃ© modifiÃ©e entre-temps. Rechargez la page et rÃ©essayez."])
+                        ->withErrors(['profile_image' => "L'image a été modifiée entre-temps. Rechargez la page et réessayez."])
                         ->withInput();
                 }
 
