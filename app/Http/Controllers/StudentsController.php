@@ -482,7 +482,7 @@ class StudentsController extends Controller
     {
         // Block teachers from accessing student profiles
         if (auth()->user() && auth()->user()->role === 'teacher') {
-            abort(403, 'Access denied. Teachers are not allowed to view student profiles.');
+            abort(403, 'Accès refusé. Les enseignants ne peuvent pas consulter les fiches élèves.');
         }
         // Fetch the student from the database
         $student = Student::find($id);

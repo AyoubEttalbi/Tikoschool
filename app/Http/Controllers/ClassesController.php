@@ -257,7 +257,7 @@ class ClassesController extends Controller
 
             if (! $teacher) {
                 return redirect()->route('classes.index')
-                    ->with('error', 'Teacher record not found');
+                    ->with('error', 'Enseignant introuvable.');
             }
 
             // Check if the teacher teaches this class
@@ -266,7 +266,7 @@ class ClassesController extends Controller
             if (! $teachesClass) {
                 // Teacher does not teach this class, redirect back with error
                 return redirect()->route('classes.index')
-                    ->with('error', 'You do not have access to this class');
+                    ->with('error', "Vous n'avez pas accès à cette classe.");
             }
         }
 

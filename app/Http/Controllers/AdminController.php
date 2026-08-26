@@ -2,20 +2,20 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Assistant;
+use App\Models\Teacher;
 use App\Models\User;
 use App\Support\Impersonation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
-use App\Models\Teacher;
-use App\Models\Assistant;
+
 class AdminController extends Controller
 {
     /**
      * Allow the admin to view the application as another user.
      *
-     * @param Request $request
-     * @param User $user The user to view as
+     * @param  User  $user  The user to view as
      * @return \Illuminate\Http\RedirectResponse
      */
     public function viewAs(Request $request, User $user)
@@ -57,23 +57,24 @@ class AdminController extends Controller
         // If inspecting a teacher, always check for schools and redirect to selection page
         if ($user->role === 'teacher') {
             $teacher = Teacher::with('schools')->where('email', $user->email)->first();
-            if ($teacher && !$teacher->schools->isEmpty()) {
+            if ($teacher && ! $teacher->schools->isEmpty()) {
                 return redirect()->route('profiles.select');
             }
         }
         // If inspecting an assistant, check for schools and redirect to selection page
         if ($user->role === 'assistant') {
             $assistant = Assistant::with('schools')->where('email', $user->email)->first();
-            if ($assistant && !$assistant->schools->isEmpty()) {
+            if ($assistant && ! $assistant->schools->isEmpty()) {
                 return redirect()->route('profiles.select');
             }
         }
-        return redirect()->route('dashboard')->with('success', 'You are now viewing as ' . $user->name);
+
+        return redirect()->route('dashboard')->with('success', 'Vous consultez maintenant le compte de '.$user->name);
     }
+
     /**
      * Allow the admin to switch back to their own account.
      *
-     * @param Request $request
      * @return \Illuminate\Http\RedirectResponse
      */
     public function switchBack(Request $request)
@@ -110,6 +111,7 @@ class AdminController extends Controller
 
         return redirect()->route('dashboard')->with('success', 'Switched back.');
     }
+
     /**
      * Check if the current user is an admin.
      *

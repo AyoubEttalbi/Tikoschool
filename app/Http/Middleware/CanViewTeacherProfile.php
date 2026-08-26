@@ -2,19 +2,17 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\Teacher;
 use App\Support\Impersonation;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use App\Models\Teacher;
 
 class CanViewTeacherProfile
 {
     /**
      * Handle an incoming request.
      *
-     * @param  \Illuminate\Http\Request  $request
-     * @param  \Closure  $next
      * @return mixed
      */
     public function handle(Request $request, Closure $next)
@@ -80,6 +78,6 @@ class CanViewTeacherProfile
         // Otherwise, deny access
         abort(403, Impersonation::isActive()
             ? "Vous consultez l'application en tant qu'un autre utilisateur. Revenez à votre compte administrateur pour accéder à cette page."
-            : 'Unauthorized');
+            : 'Accès non autorisé.');
     }
 }

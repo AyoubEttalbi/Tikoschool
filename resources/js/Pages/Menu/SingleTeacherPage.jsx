@@ -1,15 +1,12 @@
 import React, { Suspense } from "react";
-const Announcements = React.lazy(() => import("@/Pages/Menu/Announcements/Announcements"));
-const BigCalendar = React.lazy(() => import("@/Components/BigCalender"));
 const FormModal = React.lazy(() => import("@/Components/FormModal"));
 const TeacherProfile = React.lazy(() => import("@/Components/TeacherProfile"));
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import ProfileImageLightbox from "@/Components/ProfileImageLightbox";
-import { Link, usePage, router } from "@inertiajs/react";
+import { usePage, router } from "@inertiajs/react";
 
 const SingleTeacherPage = ({
     teacher = {},
-    announcements = [],
     classes,
     subjects,
     schools,
@@ -22,9 +19,8 @@ const SingleTeacherPage = ({
     filterOptions = {},
     filters = {},
 }) => {
-    const role = usePage().props.auth.user.role;
-    const isAdmin = role === "admin";
-    const isViewingAs = usePage().props.auth.isViewingAs;
+    const { auth, flash } = usePage().props;
+    const role = auth.user.role;
 
     // Handle school change
     const handleSchoolChange = () => {
@@ -47,7 +43,19 @@ const SingleTeacherPage = ({
         <div className="flex-1 p-4 flex flex-col gap-4 xl:flex-row">
             {/* GAUCHE */}
             <div className="w-full">
-                {/* Bannière de sélection d'école */}
+                {/* Flash: success/error redirects used to land here invisibly —
+                    the page rendered no banner at all. */}
+                {flash?.success && (
+                    <div className="mb-3 rounded-md border border-green-200 bg-green-50 px-4 py-2.5 text-sm text-green-700">
+                        {flash.success}
+                    </div>
+                )}
+                {flash?.error && (
+                    <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-600">
+                        {flash.error}
+                    </div>
+                )}
+{/* Bannière de sélection d'école */}
                 {selectedSchool &&
                     teacher.schools &&
                     teacher.schools.length > 1 && (
@@ -214,46 +222,7 @@ const SingleTeacherPage = ({
                         />
                     </Suspense>
                 </div>
-                {/* BAS */}
-                {/* <div className="mt-4 bg-white rounded-md p-4 h-[800px]">
-                    <h1>Emploi du temps de l'enseignant</h1>
-                    <Suspense fallback={<span>Chargement...</span>}>
-                        <BigCalendar />
-                    </Suspense>
-                </div> */}
             </div>
-
-            {/* DROITE */}
-                {/* <div className="w-full xl:w-1/3 flex flex-col gap-4">
-                    <div className="bg-white p-4 rounded-md">
-                        <h1 className="text-xl font-semibold">Raccourcis</h1>
-                        <div className="mt-4 flex gap-4 flex-wrap text-xs text-gray-500">
-                            <ShortcutLink
-                                label="Classes de l'enseignant"
-                                href={`/classes?teacher=${teacher.id}`}
-                                bgClass="bg-lamaSkyLight"
-                            />
-                            <ShortcutLink
-                                label="Prendre la présence"
-                                href={`/attendances?teacher_id=${teacher.id}`}
-                                bgClass="bg-lamaPurpleLight"
-                            />
-                            <ShortcutLink
-                                label="Saisir les notes"
-                                href={`/results?teacher_id=${teacher.id}`}
-                                bgClass="bg-lamaYellowLight"
-                            />
-                            <ShortcutLink
-                                label="Voir les élèves"
-                                href="/students"
-                                bgClass="bg-pink-50"
-                            />
-                        </div>
-                    </div>
-                    <Suspense fallback={<span>Chargement...</span>}>
-                        <Announcements announcements={announcements} userRole={role} />
-                    </Suspense>
-                </div> */}
         </div>
     );
 };
@@ -266,12 +235,6 @@ const InfoCard = ({ icon, label, value }) => (
             <span className="text-sm text-gray-400">{label}</span>
         </div>
     </div>
-);
-
-const ShortcutLink = ({ label, href, bgClass }) => (
-    <Link className={`p-3 rounded-md ${bgClass}`} href={href}>
-        {label}
-    </Link>
 );
 
 SingleTeacherPage.layout = (page) => <DashboardLayout>{page}</DashboardLayout>;

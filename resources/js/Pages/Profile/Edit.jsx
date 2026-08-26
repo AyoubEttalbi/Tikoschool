@@ -7,9 +7,10 @@ import UpdateProfileInformationForm from "./Partials/UpdateProfileInformationFor
 import { BriefcaseBusiness, MapPin, Phone, School } from "lucide-react";
 
 /*
- * La carte d'identité professionnelle de l'assistant, fusionnée ici : elle
- * n'existait que sur assistants.show, qui n'est plus leur page d'accueil.
- * Lecture seule — les modifications passent par l'administration.
+ * La carte d'identité professionnelle du staff (assistant ET enseignant),
+ * fusionnée ici : elle n'existait que sur les pages show, qui ne sont plus
+ * leur page d'accueil. Lecture seule — les modifications passent par
+ * l'administration.
  */
 function StaffInfoCard({ staff }) {
     if (!staff) return null;
