@@ -37,7 +37,10 @@ class RoleRedirect
             //     }
             // }
 
-            // Redirect teachers and assistants away from the dashboard and other restricted routes
+            // Redirect teachers away from restricted routes. Since the dashboard
+            // became role-aware, a teacher WITH a school selected passes through
+            // to /dashboard (their own cockpit); the middleware only guards the
+            // two states below.
             if ($user->role === 'teacher') {
                 // **** ADDED CHECK: If already going to the show page, let it through ****
                 if ($request->routeIs('teachers.show')) {
@@ -46,32 +49,28 @@ class RoleRedirect
 
                 $teacher = Teacher::where('email', $user->email)->first();
 
-                // Debug-level diagnostics only — emails stay OUT of logs (PII);
-                // the user id identifies the request without leaking addresses.
-                Log::debug('Teacher lookup result:', [
-                    'teacher_found' => $teacher ? 'yes' : 'no',
-                    'teacher_id' => $teacher ? $teacher->id : null,
-                    'user_id' => $user->id,
-                ]);
-
-                if ($teacher) {
-                    // Check if the user has already selected a school in this session
-                    if (session()->has('school_id')) {
-                        // Avoid redirect loop if already on the correct show page
-                        if (! $request->routeIs('teachers.show', ['teacher' => $teacher->id])) {
-                            return redirect()->route('teachers.show', $teacher->id);
-                        }
-                    } else {
-                        // If no school is selected yet, don't redirect if already on the select-profile route
-                        if (! $request->routeIs('profiles.select')) {
-                            return redirect()->route('profiles.select');
-                        }
-                    }
-                } else {
-                    // If no teacher found, log the error (id, not email — PII)
+                if (! $teacher) {
+                    // Orphaned login: the role says teacher but no staff row
+                    // carries this email. Falling through used to land it on the
+                    // UNSCOPED owner-analytics dashboard — full revenue charts
+                    // rendered to a non-admin.
                     Log::error('Teacher row missing for login user, user_id: '.$user->id);
-                    // Still return to the next middleware to avoid breaking the application
+                    if (! $request->routeIs('profiles.select')) {
+                        return redirect()->route('profiles.select')
+                            ->with('error', "Aucun profil enseignant n'est relié à ce compte. Contactez l'administration de votre école.");
+                    }
+
+                    return $next($request);
                 }
+
+                if (! session()->has('school_id')) {
+                    // No school selected yet: everything is unscoped without one.
+                    if (! $request->routeIs('profiles.select')) {
+                        return redirect()->route('profiles.select');
+                    }
+                }
+                // School selected -> straight through. Their home is the
+                // teacher cockpit, not a bounce back to their HR profile.
             }
 
             if ($user->role === 'assistant') {

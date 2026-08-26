@@ -37,18 +37,33 @@ class ProfileController extends Controller
             'mustVerifyEmail' => $user instanceof MustVerifyEmail,
             'status' => session('status'),
             'avatarUrl' => $model->profile_image,
-            // Assistants see their HR card next to the account forms — it used to live
-            // only on assistants.show, which stopped being their home. Salary stays
-            // out: that is payroll data, not self-service profile data.
-            'staff' => $this->assistantStaffInfo($user),
+            // Staff see their HR card next to the account forms — it used to live
+            // only on their show page, which stopped being their home. Salary
+            // stays out: that is payroll data, not self-service profile data.
+            'staff' => $this->staffInfo($user),
         ]);
     }
 
-    /** The assistant's own staff info, or null for other roles. */
-    private function assistantStaffInfo($user): ?array
+    /** The caller's own staff card, or null for admins. Role-resolved by email. */
+    private function staffInfo($user): ?array
     {
-        if (! $user || $user->role !== 'assistant') {
+        if (! $user || $user->role === 'admin') {
             return null;
+        }
+
+        if ($user->role === 'teacher') {
+            $teacher = \App\Models\Teacher::where('email', $user->email)->first();
+
+            return $teacher ? [
+                'first_name' => $teacher->first_name,
+                'last_name' => $teacher->last_name,
+                'status' => $teacher->status,
+                'phone_number' => $teacher->phone_number,
+                'address' => $teacher->address,
+                'bio' => null, // teachers table carries no bio column
+                'schools' => $teacher->schools()->pluck('schools.name')->all(),
+                'roleLabel' => 'Enseignant',
+            ] : null;
         }
 
         $assistant = \App\Models\Assistant::where('email', $user->email)->first();
@@ -61,6 +76,7 @@ class ProfileController extends Controller
             'address' => $assistant->address,
             'bio' => $assistant->bio ?? null,
             'schools' => $assistant->schools()->pluck('schools.name')->all(),
+            'roleLabel' => 'Assistant',
         ] : null;
     }
 
@@ -272,7 +288,7 @@ class ProfileController extends Controller
 
             // Verify the teacher has access to this school
             if (! $teacher->schools()->where('schools.id', $request->school_id)->exists()) {
-                abort(403, 'This teacher does not have access to the selected school.');
+                abort(403, "Cet enseignant n'a pas accès à l'école sélectionnée.");
             }
 
             // Store in session instead of database
@@ -282,13 +298,10 @@ class ProfileController extends Controller
                 'school_name' => $school->name,
             ]);
 
-            // If this was an admin inspection, redirect to teacher profile
-            if (session()->has('admin_user_id')) {
-                return redirect()->route('teachers.show', $teacher->id)->with('success', 'School selected successfully.');
-            }
-
-            // Otherwise redirect to teacher profile
-            return redirect()->route('teachers.show', $teacher->id);
+            // Inspection or not: the teacher lands on their cockpit like any
+            // other staff login. The HR/earnings page stays one click away via
+            // the profile chip, and view-as grants nothing beyond it.
+            return redirect()->route('dashboard');
         } elseif ($user->role === 'assistant') {
             $assistant = Assistant::where('email', $user->email)->firstOrFail();
 

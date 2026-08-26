@@ -55,6 +55,11 @@ class StatsController extends Controller
             return app(AssistantDashboardController::class)->index($request);
         }
 
+        // Same treatment for teachers: their own money + pedagogy cockpit.
+        if ($currentUser && $currentUser->role === 'teacher') {
+            return app(TeacherDashboardController::class)->index($request);
+        }
+
         $schoolId = $request->get('school_id');
         if ($schoolId === 'all' || $schoolId === '' || $schoolId === null) {
             $schoolId = null;

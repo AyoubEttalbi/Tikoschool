@@ -216,7 +216,8 @@ const Navbar = ({ auth, profile_image }) => {
                         {auth.name}
                     </span>
                     <span className="text-[10px] text-gray-500 text-right">
-                        {auth.role}
+                        {/* Role label in the UI language, not the raw DB slug. */}
+                        {{ admin: "Admin", teacher: "Enseignant", assistant: "Assistant" }[auth.role] ?? auth.role}
                     </span>
                 </div>
 
@@ -241,7 +242,7 @@ const Navbar = ({ auth, profile_image }) => {
                                     : 'bg-blue-500 hover:bg-blue-600'
                             }`}
                         >
-                            {isLoading ? 'Switching...' : 'Switch Back to Admin'}
+                            {isLoading ? 'Bascule...' : 'Revenir à l\'admin'}
                         </button>
                         
                         {switchBackError && (

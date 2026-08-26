@@ -89,7 +89,9 @@ const menuItems = [
                 icon: "/assignment.png",
                 label: "Tâches",
                 href: "/tasks",
-                visible: ["admin", "assistant"],
+                // Teachers too: admins can assign cards to them, and the board
+                // filters non-admins down to "mine" server-side.
+                visible: ["admin", "assistant", "teacher"],
             },
             {
                 icon: "/announcement.png",
@@ -124,7 +126,9 @@ const menuItems = [
                 icon: "/finance.png",
                 label: "Mes paiements",
                 href: "/my-payments",
-                visible: ["assistant"],
+                // Shared payroll surface: assistants read salary payouts,
+                // teachers read their commission wallet + ledger.
+                visible: ["assistant", "teacher"],
             },
             {
                 icon: "/setting.png",
