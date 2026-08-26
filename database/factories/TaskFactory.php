@@ -20,7 +20,10 @@ class TaskFactory extends Factory
             'status' => $this->faker->randomElement(['todo', 'todo', 'in_progress', 'done']),
             'priority' => $this->faker->randomElement(['low', 'normal', 'normal', 'high']),
             'due_date' => $this->faker->optional(0.7)->dateTimeBetween('-1 week', '+2 weeks')?->format('Y-m-d'),
-            'assigned_to' => User::inRandomOrder()->value('id'),
+            // Null by default: a random existing user made every un-assigned card
+            // silently "belong" to whoever happened to be in the users table —
+            // order-dependent flakes in any ownership-filtered test.
+            'assigned_to' => null,
             'created_by' => null,
         ];
     }

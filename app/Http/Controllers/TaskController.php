@@ -11,12 +11,14 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 
 /**
- * The assistant's task board.
+ * The staff task board.
  *
- * Route-level RequireRole gates admin+assistant; the object-level half lives here:
- * every task belongs to a school, and a non-admin may only see and touch tasks of
- * the school selected in their session. Denials throw AccessDeniedException (an
- * \Error), so no catch (\Exception) anywhere can turn them into redirects.
+ * Route-level RequireRole gates admin+assistant+teacher; the object-level half
+ * lives here: every task belongs to a school, and a non-admin — assistant OR
+ * teacher, treated identically — may only see and touch tasks of the school
+ * selected in their session, and only their own cards. Denials throw
+ * AccessDeniedException (an \Error), so no catch (\Exception) anywhere can turn
+ * them into redirects.
  */
 class TaskController extends Controller
 {
@@ -97,9 +99,11 @@ class TaskController extends Controller
         $schoolId = session('school_id');
         abort_if(! $schoolId, 403, 'Sélectionnez une école pour créer des tâches.');
 
-        $isAssistant = Auth::user()?->role === 'assistant';
+        // Non-admin staff (assistant AND teacher) share the same ownership rules:
+        // their cards are born theirs, admins place cards on any staff desk.
+        $isStaff = Auth::user()?->role !== 'admin';
 
-        // Assistants never place cards on other desks, so their rule set simply
+        // Staff never place cards on other desks, so their rule set simply
         // OMITS assigned_to. Excluding the rule (rather than mutating request
         // bags) is what makes the guard transport-proof: Inertia submits arrive
         // as application/json, which $request->request->remove() cannot touch,
@@ -112,15 +116,15 @@ class TaskController extends Controller
             'due_date' => ['nullable', 'date'],
             'status' => ['nullable', Rule::in(self::STATUSES)],
         ];
-        if (! $isAssistant) {
+        if (! $isStaff) {
             $rules['assigned_to'] = ['nullable', Rule::exists('users', 'id')->whereIn('role', ['teacher', 'assistant'])];
         }
 
         $validated = $request->validate($rules);
 
-        // Ownership: an assistant's card is born theirs — whatever assignee the
+        // Ownership: a staff member's card is born theirs — whatever assignee the
         // request claimed is dropped. Only admins place cards on other desks.
-        $validated['assigned_to'] = $isAssistant
+        $validated['assigned_to'] = $isStaff
             ? Auth::id()
             : $this->scopedAssignee($validated['assigned_to'] ?? null, (int) $schoolId);
 
@@ -165,12 +169,12 @@ class TaskController extends Controller
     {
         $this->authorizeTask($task);
 
-        $isAssistant = Auth::user()?->role === 'assistant';
+        $isStaff = Auth::user()?->role !== 'admin';
 
-        // Same transport-proof rule omission as store(): reassignment is not an
-        // assistant move, and id-probing must not get an existence oracle. With
+        // Same transport-proof rule omission as store(): reassignment is not a
+        // staff move, and id-probing must not get an existence oracle. With
         // the key absent from $validated, the reassignment branch below can
-        // never fire for assistants — no matter which bag the payload rode in on.
+        // never fire for non-admins — no matter which bag the payload rode in on.
         $rules = [
             'title' => ['sometimes', 'string', 'max:255'],
             'description' => ['sometimes', 'nullable', 'string'],
@@ -178,7 +182,7 @@ class TaskController extends Controller
             'due_date' => ['sometimes', 'nullable', 'date'],
             'status' => ['sometimes', Rule::in(self::STATUSES)],
         ];
-        if (! $isAssistant) {
+        if (! $isStaff) {
             $rules['assigned_to'] = ['sometimes', 'nullable', Rule::exists('users', 'id')->whereIn('role', ['teacher', 'assistant'])];
         }
 

@@ -407,9 +407,11 @@ Route::middleware('auth')->group(function () {
 
     // Task board (kanban). School-scoped inside the controller via session('school_id');
     // RequireRole because a denied XHR must 403, not redirect like AdminMiddleware does.
-    Route::middleware(RequireRole::class.':admin,assistant')->group(function () {
+    // Teachers are in: admins can assign cards to them, so they must reach their own —
+    // the controller filters non-admins to "mine" regardless of staff role.
+    Route::middleware(RequireRole::class.':admin,assistant,teacher')->group(function () {
         Route::get('/tasks', [TaskController::class, 'index'])->name('tasks.index');
-        // Admin-only: pick which school's board to work on (assistants are pinned).
+        // Admin-only: pick which school's board to work on (staff are pinned).
         Route::post('/tasks/school', [TaskController::class, 'selectSchool'])->name('tasks.select-school');
         Route::post('/tasks', [TaskController::class, 'store'])->name('tasks.store');
         Route::put('/tasks/{task}', [TaskController::class, 'update'])->name('tasks.update')->where('task', '[0-9]+');
@@ -417,11 +419,13 @@ Route::middleware('auth')->group(function () {
         Route::delete('/tasks/{task}', [TaskController::class, 'destroy'])->name('tasks.destroy')->where('task', '[0-9]+');
     });
 
-    // The assistant's own salary/payments history. Assistants only: admins manage
-    // payments from /transactions; teachers have no payroll page of their own here.
+    // « Mes paiements » — one payroll surface for both staff roles: assistants read
+    // salary payouts; teachers additionally get their commission wallet + ledger.
+    // RequireRole 403s admins before the controller runs — they manage money from
+    // /transactions.
     Route::get('/my-payments', [\App\Http\Controllers\MyPaymentsController::class, 'index'])
-        ->middleware(RequireRole::class.':assistant')
-        ->name('assistant.my-payments');
+        ->middleware(RequireRole::class.':assistant,teacher')
+        ->name('staff.my-payments');
 
     // Absence Log routes. The two absenceLog* methods already role-check internally; the
     // middleware makes that a route-table fact rather than something you have to read the
