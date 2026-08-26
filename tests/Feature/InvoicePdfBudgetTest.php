@@ -88,8 +88,12 @@ it('states the budget in one place', function () {
 it('raises the ceiling for the request', function () {
     $original = ini_get('memory_limit');
 
+    // NOTE: the previous "raise to 128M first" guard used to make this test
+    // self-sufficient, but newer dep footprints already exceed 128M before the
+    // test runs, so the pre-set now refuses and the test fails before the
+    // actual contract — that PdfBudget::apply() sets the PDF generation ceiling
+    // to 384M — is ever checked. The real assertion below is what we care about.
     try {
-        ini_set('memory_limit', '128M');
         PdfBudget::apply();
         expect(ini_get('memory_limit'))->toBe('384M');
     } finally {

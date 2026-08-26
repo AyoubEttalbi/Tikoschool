@@ -186,6 +186,7 @@ it('filters the gains table and computes the summary cards on the filtered set',
         'teachers' => [['teacherId' => (string) $teacher->id, 'subject' => 'Math']],
     ]);
     Invoice::factory()->create([
+        'membership_id' => $membership->id,
         'student_id' => $paidStudent->id,
         'offer_id' => $offer->id,
         'selected_months' => ['2026-08'],
@@ -212,12 +213,13 @@ it('filters the gains table and computes the summary cards on the filtered set',
 
     // Pending commission: 100 DH paid × 50% = 50.
     $pendingStudent = Student::factory()->create(['schoolId' => $this->school->id, 'classId' => $class->id, 'levelId' => $level->id]);
-    \App\Models\Membership::forceCreate([
+    $pendingMembership = \App\Models\Membership::forceCreate([
         'student_id' => $pendingStudent->id,
         'offer_id' => $offer->id,
         'teachers' => [['teacherId' => (string) $teacher->id, 'subject' => 'Math']],
     ]);
     Invoice::factory()->create([
+        'membership_id' => $pendingMembership->id,
         'student_id' => $pendingStudent->id,
         'offer_id' => $offer->id,
         'selected_months' => ['2026-07'],
@@ -311,12 +313,13 @@ it('counts pending months and deleted memberships for real on the profile table'
     $goneStudent = Student::factory()->create(['schoolId' => $this->school->id, 'classId' => $class->id, 'levelId' => $level->id]);
 
     // Active membership + unpaid month (no payout-tracker row -> En attente).
-    \App\Models\Membership::forceCreate([
+    $activeMembership = \App\Models\Membership::forceCreate([
         'student_id' => $activeStudent->id,
         'offer_id' => $offer->id,
         'teachers' => [['teacherId' => (string) $teacher->id, 'subject' => 'Math']],
     ]);
     Invoice::factory()->create([
+        'membership_id' => $activeMembership->id,
         'student_id' => $activeStudent->id,
         'offer_id' => $offer->id,
         'selected_months' => ['2026-08'],
@@ -332,6 +335,7 @@ it('counts pending months and deleted memberships for real on the profile table'
         'teachers' => [['teacherId' => (string) $teacher->id, 'subject' => 'Math']],
     ]);
     $goneInvoice = Invoice::factory()->create([
+        'membership_id' => $trashedMembership->id,
         'student_id' => $goneStudent->id,
         'offer_id' => $offer->id,
         'selected_months' => ['2026-08'],
