@@ -502,9 +502,19 @@ it('scopes the badge to the assistant\'s schools', function () {
 });
 
 it('hides the badge from teachers', function () {
-    $props = badgePage(User::factory()->create(['role' => 'teacher']), 'dashboard');
+    // Teachers never carry the notices badge: HandleInertiaRequests nulls the
+    // count for them ("they record and correct, they never release"). A real
+    // teacher reaching their cockpit must not see it either.
+    $email = fake()->unique()->safeEmail();
+    $user = User::factory()->create(['role' => 'teacher', 'email' => $email]);
+    $teacher = \App\Models\Teacher::factory()->create(['email' => $email]);
 
-    expect($props['pendingNoticesCount'] ?? 0)->toBe(0);
+    $page = test()->actingAs($user)
+        ->get(route('teachers.show', $teacher->id))
+        ->assertOk()
+        ->inertiaPage();
+
+    expect($page['props']['pendingNoticesCount'] ?? 0)->toBe(0);
 });
 
 it('refreshes the badge through the unread-count poll', function () {

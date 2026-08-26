@@ -155,15 +155,18 @@ it('keeps the analytics dashboard for admins', function () {
     expect($page['component'])->toBe('Dashboard');
 });
 
-it('keeps pinning teachers to their own profile from /dashboard', function () {
+// Phase 2: teachers are no longer pinned to their HR profile — /dashboard is
+// role-aware for all three staff roles. Their cockpit contract lives in
+// TeacherCockpitTest; here we pin only that they do NOT get owner analytics.
+it('never shows the teacher the owner analytics page', function () {
     [$school] = cockpitSchoolWithStudent();
     $user = cockpitTeacherUser($school);
-    $teacher = Teacher::where('email', $user->email)->first();
 
     $this->actingAs($user)
         ->withSession(['school_id' => $school->id])
         ->get(route('dashboard'))
-        ->assertRedirect(route('teachers.show', $teacher->id));
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->component('Menu/TeacherDashboard'));
 });
 
 it('scopes every cockpit number to the assistant\'s own schools', function () {

@@ -224,8 +224,17 @@ it('refuses to touch a card from another school', function () {
     expect($foreignCardStillVisible->fresh()->status)->toBe('todo');
 });
 
-it('forbids teachers at the route level', function () {
+it('lets teachers onto the board like any staff member', function () {
+    [$user] = cockpitBoardTeacher($this->mine);
+
+    $this->actingAs($user)
+        ->get(route('tasks.index'))
+        ->assertOk();
+});
+
+it('requires a selected school before a teacher sees the board', function () {
     $teacher = User::factory()->create(['role' => 'teacher']);
+    Session::forget('school_id');
 
     $this->actingAs($teacher)
         ->get(route('tasks.index'))
@@ -336,4 +345,74 @@ it('hands assistants no assignee list to choose from', function () {
         ->inertiaPage();
 
     expect($json['props']['assignableUsers'])->toBe([]);
+});
+
+/* ------------------------------------------------------------------ */
+/* Teachers on the board */
+/* */
+/* Admins can assign cards TO teachers, so the board must let them in — */
+/* filtered to "mine" exactly like assistants. */
+/* ------------------------------------------------------------------ */
+
+function cockpitBoardTeacher(School $school): array
+{
+    $email = fake()->unique()->safeEmail();
+    $user = User::factory()->create(['role' => 'teacher', 'email' => $email]);
+    $teacher = \App\Models\Teacher::factory()->create(['email' => $email]);
+    $teacher->schools()->attach($school->id);
+    Session::put('school_id', $school->id);
+
+    return [$user, $teacher];
+}
+
+it('shows a teacher only the cards assigned to them', function () {
+    [$user] = cockpitBoardTeacher($this->mine);
+    $mine = taskIn($this->mine, ['title' => 'Ma carte', 'assigned_to' => $user->id]);
+    taskIn($this->mine, ['title' => 'Carte collègue']);
+
+    $json = $this->actingAs($user)
+        ->get(route('tasks.index'))
+        ->assertOk()
+        ->inertiaPage();
+
+    $titles = collect($json['props']['tasks'])->pluck('title');
+
+    expect($titles)->toContain('Ma carte')
+        ->not->toContain('Carte collègue');
+});
+
+it('lets a teacher create a card that is born theirs', function () {
+    [$user] = cockpitBoardTeacher($this->mine);
+
+    $this->actingAs($user)
+        ->postJson(route('tasks.store'), [
+            'title' => 'Préparer contrôle',
+            'priority' => 'high',
+        ])
+        ->assertRedirect();
+
+    $task = Task::where('title', 'Préparer contrôle')->first();
+
+    expect((int) $task->assigned_to)->toBe($user->id)
+        ->and((int) $task->created_by)->toBe($user->id);
+});
+
+it('blocks a teacher reassigning via a JSON payload', function () {
+    [$user, $teacher] = cockpitBoardTeacher($this->mine);
+    $task = taskIn($this->mine, ['assigned_to' => $user->id]);
+
+    $colleagueEmail = fake()->unique()->safeEmail();
+    $colleague = User::factory()->create(['role' => 'assistant', 'email' => $colleagueEmail]);
+
+    $this->actingAs($user)
+        ->putJson(route('tasks.update', $task), [
+            'title' => 'Titre modifié',
+            'assigned_to' => $colleague->id,
+        ])
+        ->assertRedirect();
+
+    $fresh = $task->fresh();
+
+    expect($fresh->title)->toBe('Titre modifié')
+        ->and((int) $fresh->assigned_to)->toBe($user->id);
 });
