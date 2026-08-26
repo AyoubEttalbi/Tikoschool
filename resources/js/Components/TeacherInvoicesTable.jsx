@@ -629,7 +629,10 @@ const TeacherInvoicesTable = ({
                     </div>
                     <div className="bg-gradient-to-r from-green-50 to-green-100 p-4 rounded-lg shadow-sm border border-green-200">
                         <p className="text-sm text-gray-700 font-medium mb-1">
-                            Gains totaux
+                            {/* Scope-honest label: this sum follows the active
+                                filters (page defaults to the current month), so
+                                calling it « totaux » misled. */}
+                            Gains (période affichée)
                             {dateFilter && (
                                 <span className="text-xs text-gray-500 ml-1">
                                     ({dateFilter})

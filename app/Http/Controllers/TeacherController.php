@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Events\CheckEmailUnique;
-use App\Models\Announcement;
 use App\Models\Assistant;
 use App\Models\Classes;
 use App\Models\Invoice;
@@ -14,10 +13,8 @@ use App\Models\Teacher;
 use App\Models\TeacherWalletEntry;
 use App\Models\User;
 use App\Services\ProfileImageService;
-use App\Support\OfferPercentages;
 use App\Support\ProfileImageUrl;
 use App\Support\SchoolScope;
-use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -165,7 +162,15 @@ class TeacherController extends Controller
      */
     protected function transformTeacherData($teacher)
     {
-        return [
+        // Wallet balances are payroll data: admins manage them, so the
+        // directory payload carries them only for admin callers. A teacher or
+        // assistant hitting /teachers directly must not receive every
+        // colleague's balance just because the menu hides the link. Own-wallet
+        // reads go through /my-payments and /dashboard, which resolve identity
+        // server-side.
+        $includeWallet = Auth::user()?->role === 'admin';
+
+        $data = [
             'id' => $teacher->id,
             'name' => $teacher->first_name.' '.$teacher->last_name,
             'phone_number' => $teacher->phone_number,
@@ -175,12 +180,17 @@ class TeacherController extends Controller
             'email' => $teacher->email,
             'address' => $teacher->address,
             'status' => $teacher->status,
-            'wallet' => $teacher->wallet,
             'profile_image' => $teacher->profile_image ?? null,
             'subjects' => $teacher->subjects,
             'classes' => $teacher->classes,
             'schools' => $teacher->schools,
         ];
+
+        if ($includeWallet) {
+            $data['wallet'] = $teacher->wallet;
+        }
+
+        return $data;
     }
 
     /**
@@ -342,50 +352,9 @@ class TeacherController extends Controller
                 'page' => $request->get('page', 1),
             ];
 
-            // Fetch announcements first
-            $announcementStatus = $request->query('status', 'all'); // 'all', 'active', 'upcoming', 'expired'
-
-            // Base announcement query
-            $announcementQuery = Announcement::query();
-
-            // Apply date filtering based on status parameter
-            $now = Carbon::now();
-
-            if ($announcementStatus === 'active') {
-                $announcementQuery->where(function ($q) use ($now) {
-                    $q->where(function ($q) use ($now) {
-                        $q->whereNull('date_start')
-                            ->orWhere('date_start', '<=', $now);
-                    })->where(function ($q) use ($now) {
-                        $q->whereNull('date_end')
-                            ->orWhere('date_end', '>=', $now);
-                    });
-                });
-            } elseif ($announcementStatus === 'upcoming') {
-                $announcementQuery->where('date_start', '>', $now);
-            } elseif ($announcementStatus === 'expired') {
-                $announcementQuery->where('date_end', '<', $now);
-            }
-
-            // Get user role for role-based visibility
-            $userRole = Auth::user() ? Auth::user()->role : null;
-
-            // Apply role-based visibility filter based on user role
-            if ($userRole === 'admin') {
-                // Admin sees all announcements (no visibility filter needed)
-            } else {
-                // Employees only see announcements with visibility 'all' or matching their role
-                $announcementQuery->where(function ($q) use ($userRole) {
-                    $q->where('visibility', 'all')
-                        ->orWhere('visibility', $userRole);
-                });
-            }
-
-            // Order announcements by date (most recent first)
-            $announcementQuery->orderBy('date_announcement', 'desc');
-
-            // Execute announcement query
-            $announcements = $announcementQuery->get();
+            // Announcements used to be computed here and shipped to the profile
+            // page, which never rendered them (dead right-rail). The cockpit now
+            // owns announcements; this page pays only for what it shows.
 
             // Validate teacher email before proceeding
             if (empty($teacher->email) || ! filter_var($teacher->email, FILTER_VALIDATE_EMAIL)) {
@@ -485,243 +454,10 @@ class TeacherController extends Controller
                 ->distinct('student_id')
                 ->count('student_id');
 
-            // Fetch all memberships where the teacher is involved (including deleted ones)
-            $memberships = Membership::withTrashed()
-                ->whereJsonContains('teachers', [['teacherId' => (string) $teacher->id]])
-                ->with(['invoices' => function ($query) {
-                    // Only include non-deleted invoices
-                    $query->whereNull('deleted_at');
-                }, 'student', 'student.school', 'student.class', 'offer'])
-                ->get();
-
-            // Debug: Log membership filtering
-            Log::info('Membership filtering results', [
-                'teacher_id' => $teacher->id,
-                'total_memberships_found' => $memberships->count(),
-                'memberships_with_invoices' => $memberships->filter(function ($m) {
-                    return $m->invoices->count() > 0;
-                })->count(),
-                'total_invoices_found' => $memberships->sum(function ($m) {
-                    return $m->invoices->count();
-                }),
-            ]);
-
-            // Extract invoices from memberships and calculate the teacher's share by month
-            $invoices = $memberships->flatMap(function ($membership) use ($teacher, $filters) {
-                // Skip if the student doesn't exist
-                if (! $membership->student) {
-                    // Debug: Log skipped memberships
-                    Log::info('Skipped membership - no student', [
-                        'membership_id' => $membership->id,
-                        'student_id' => $membership->student_id,
-                    ]);
-
-                    return [];
-                }
-
-                return $membership->invoices->flatMap(function ($invoice) use ($membership, $teacher, $filters) {
-                    // Find the teacher's data in the membership
-                    $teacherData = collect($membership->teachers)->first(function ($item) use ($teacher) {
-                        return isset($item['teacherId']) && $item['teacherId'] == (string) $teacher->id;
-                    });
-
-                    if (! $teacherData) {
-                        // Debug: Log skipped invoices due to teacher data
-                        Log::info('Skipped invoice - no teacher data', [
-                            'invoice_id' => $invoice->id,
-                            'student_id' => $membership->student_id,
-                            'membership_id' => $membership->id,
-                            'teachers_data' => $membership->teachers,
-                            'teacher_id_looking_for' => $teacher->id,
-                        ]);
-
-                        return [];
-                    }
-
-                    // Use subject from teacher data or fallback to teacher's first subject
-                    $subject = $teacherData['subject'] ?? ($teacher->subjects->first()->name ?? 'Unknown');
-
-                    // Get selected months for this invoice
-                    $selectedMonths = $invoice->selected_months ?? [];
-                    if (is_string($selectedMonths)) {
-                        $selectedMonths = json_decode($selectedMonths, true) ?? [];
-                    }
-
-                    // Determine bill month (format YYYY-MM) for possible partial-month inclusion
-                    $billMonth = $invoice->billDate ? ($invoice->billDate instanceof \Carbon\Carbon ? $invoice->billDate->format('Y-m') : date('Y-m', strtotime($invoice->billDate))) : null;
-                    if (! $billMonth) {
-                        // Fallback to created_at when billDate is missing
-                        $billMonth = $invoice->created_at ? date('Y-m', strtotime($invoice->created_at)) : null;
-                    }
-
-                    // If no selected_months provided, fallback to billDate/created_at month
-                    if (empty($selectedMonths)) {
-                        $selectedMonths = [$billMonth];
-                    }
-
-                    // If this invoice includes a partial month payment, ensure the bill month is present
-                    // so the partial-month row can appear when filtering by the bill month (current month).
-                    $includePartialMonth = $invoice->includePartialMonth ?? false;
-                    $partialMonthAmount = $invoice->partialMonthAmount ?? 0;
-                    if ($includePartialMonth && $partialMonthAmount > 0 && $billMonth) {
-                        if (! in_array($billMonth, $selectedMonths)) {
-                            // Prepend billMonth so partial-month row appears first (optional)
-                            array_unshift($selectedMonths, $billMonth);
-                        }
-                    }
-
-                    // Debug: Log invoice processing (only for first few invoices to avoid spam)
-                    if ($invoice->id <= 10) {
-                        Log::info('Processing invoice', [
-                            'invoice_id' => $invoice->id,
-                            'student_id' => $membership->student_id,
-                            'selected_months_raw' => $invoice->selected_months,
-                            'selected_months_processed' => $selectedMonths,
-                            'billDate' => $invoice->billDate,
-                            'payment_status' => $membership->payment_status,
-                            'membership_deleted' => ! is_null($membership->deleted_at),
-                        ]);
-                    }
-
-                    // Get school information
-                    $schoolName = 'Unknown';
-                    $schoolId = null;
-
-                    if ($membership->student->school) {
-                        $schoolName = $membership->student->school->name;
-                        $schoolId = $membership->student->school->id;
-                    } else {
-                        $schoolId = $membership->student->schoolId;
-                        $school = School::find($schoolId);
-                        if ($school) {
-                            $schoolName = $school->name;
-                        }
-                    }
-
-                    // Get class name safely
-                    $className = $membership->student->class ? $membership->student->class->name : 'Unknown';
-
-                    // Calculate teacher earnings per month
-                    $offer = $invoice->offer;
-                    $teacherSubject = $subject;
-
-                    // Get teacher percentage from offer when available; otherwise default to 0 but keep the row
-                    // Same lookup rule as the payout path, or this report shows 0% for a
-                    // teacher the wallet actually paid. @see \App\Support\OfferPercentages
-                    $teacherPercentage = OfferPercentages::forSubject($offer, $teacherSubject) ?? 0;
-
-                    // Calculate total teacher earnings from amountPaid (whole invoice)
-                    $totalTeacherAmount = $invoice->amountPaid * ($teacherPercentage / 100);
-
-                    // Prepare per-month amounts taking includePartialMonth into account
-                    // If partialMonthAmount exists, allocate that amount to the billMonth and
-                    // split the remainder across the other (full) months.
-                    $teacherAmountForPartial = 0;
-                    $fullMonthsAmount = 0;
-                    $countFullMonths = 0;
-
-                    if ($includePartialMonth && $partialMonthAmount > 0) {
-                        $teacherAmountForPartial = $partialMonthAmount * ($teacherPercentage / 100);
-
-                        // Count full months (exclude billMonth if it was inserted for partial)
-                        $countFullMonths = count(array_filter($selectedMonths, function ($m) use ($billMonth) {
-                            return $m !== $billMonth;
-                        }));
-
-                        $remainingTeacherAmount = $totalTeacherAmount - $teacherAmountForPartial;
-                        if ($remainingTeacherAmount < 0) {
-                            // Safety: if numbers are inconsistent, fallback to equal split across months
-                            $remainingTeacherAmount = max(0, $totalTeacherAmount);
-                        }
-
-                        if ($countFullMonths > 0) {
-                            $fullMonthsAmount = $remainingTeacherAmount / $countFullMonths;
-                        } else {
-                            $fullMonthsAmount = 0;
-                        }
-                    } else {
-                        // No partial month: split total across all selected months
-                        $countFullMonths = count($selectedMonths);
-                        $fullMonthsAmount = $countFullMonths > 0 ? ($totalTeacherAmount / $countFullMonths) : 0;
-                    }
-
-                    // Create one row per month
-                    $monthlyInvoices = [];
-                    foreach ($selectedMonths as $month) {
-                        if (! $month) {
-                            // Debug: Log skipped months
-                            Log::info('Skipped month - empty', [
-                                'invoice_id' => $invoice->id,
-                                'student_id' => $membership->student_id,
-                                'selected_months' => $selectedMonths,
-                            ]);
-
-                            continue;
-                        }
-
-                        // Debug: Log monthly processing (only for first few invoices to avoid spam)
-                        if ($invoice->id <= 10) {
-                            Log::info('Processing month for invoice', [
-                                'invoice_id' => $invoice->id,
-                                'student_id' => $membership->student_id,
-                                'month' => $month,
-                                'date_filter' => $filters['date_filter'] ?? 'none',
-                                'month_matches_filter' => $month === ($filters['date_filter'] ?? 'none'),
-                            ]);
-                        }
-
-                        // Format month for display (MM-YYYY)
-                        $monthDisplay = date('m-Y', strtotime($month.'-01'));
-
-                        // Check if this month is paid for this teacher
-                        $teacherPayment = \App\Models\TeacherMembershipPayment::where('teacher_id', $teacher->id)
-                            ->where('membership_id', $membership->id)
-                            ->where('invoice_id', $invoice->id)
-                            ->whereJsonContains('selected_months', $month)
-                            ->first();
-
-                        $isMonthPaid = false;
-                        if ($teacherPayment) {
-                            // Check if the month is NOT in the unpaid months list
-                            $isMonthPaid = ! in_array($month, $teacherPayment->months_rest_not_paid_yet ?? []);
-                        }
-
-                        $amountForThisMonth = ($includePartialMonth && $partialMonthAmount > 0 && $month === $billMonth) ? $teacherAmountForPartial : $fullMonthsAmount;
-
-                        $monthlyInvoices[] = [
-                            'id' => $invoice->id.'_'.$month, // Unique ID for each month
-                            'invoice_id' => $invoice->id,
-                            'membership_id' => $invoice->membership_id,
-                            'student_id' => $invoice->student_id,
-                            'student_name' => $membership->student->firstName.' '.$membership->student->lastName,
-                            'student_class' => $className,
-                            'student_school' => $schoolName,
-                            'schoolId' => $schoolId,
-                            'billDate' => $month.'-01', // Use month start date
-                            'month_display' => $monthDisplay,
-                            'months' => $invoice->months,
-                            'creationDate' => $invoice->creationDate,
-                            'created_at' => $invoice->created_at, // Add created_at for sorting
-                            'totalAmount' => $invoice->totalAmount,
-                            'amountPaid' => $invoice->amountPaid,
-                            'rest' => $invoice->rest,
-                            'offer_id' => $invoice->offer_id,
-                            'offer_name' => $invoice->offer ? $invoice->offer->offer_name : null,
-                            'endDate' => $invoice->endDate,
-                            'includePartialMonth' => $invoice->includePartialMonth,
-                            'partialMonthAmount' => $invoice->partialMonthAmount,
-                            'teacher_amount' => $amountForThisMonth, // Monthly amount instead of total
-                            'months_count' => 1, // Always 1 month per row
-                            'total_months' => count($selectedMonths), // Total months for reference
-                            'membership_deleted' => ! is_null($membership->deleted_at), // Add membership deletion status
-                            'membership_deleted_at' => $membership->deleted_at, // Add deletion date for reference
-                            'is_month_paid' => $isMonthPaid, // Add payment status for this month
-                        ];
-                    }
-
-                    return $monthlyInvoices;
-                });
-            });
+            // The per-month earnings rows are built by the shared pipeline — the
+            // SAME math feeds « Mes gains » on the payroll page. Filters, stats
+            // and pagination stay local below.
+            $invoices = \App\Support\TeacherEarnings::monthlyRows($teacher);
 
             // Apply filters to invoices
             $invoices = $invoices->filter(function ($invoice) use ($filters) {
@@ -823,7 +559,11 @@ class TeacherController extends Controller
                 'unique_students' => $invoices->pluck('student_id')->unique()->count(),
                 'best_offer' => $this->calculateBestOffer($invoices),
                 'current_month_amount' => $this->calculateCurrentMonthAmount($invoices),
-                'deleted_memberships' => 0, // This would need to be calculated separately if needed
+                // Distinct memberships carrying this teacher that were since
+                // withdrawn — the rows flag it, so count them for real (this
+                // used to be a hardcoded 0 shown as-is in the UI).
+                'deleted_memberships' => $invoices->where('membership_deleted', true)
+                    ->pluck('membership_id')->filter()->unique()->count(),
                 'pending_months' => $this->calculatePendingMonths($invoices),
                 'active_memberships' => $invoices->pluck('membership_id')->unique()->count(),
             ];
@@ -858,7 +598,16 @@ class TeacherController extends Controller
             $classes = Classes::all();
             $subjects = Subject::all();
 
-            // Get unique filter options from all invoices (not just filtered ones)
+            // Get unique filter options from all invoices (not just filtered ones).
+            // Independent membership load: the dropdown universe must not shrink
+            // when a filter is active.
+            $memberships = Membership::withTrashed()
+                ->whereJsonContains('teachers', [['teacherId' => (string) $teacher->id]])
+                ->with(['invoices' => function ($query) {
+                    $query->whereNull('deleted_at');
+                }, 'student', 'student.class', 'offer'])
+                ->get();
+
             $allInvoices = $memberships->flatMap(function ($membership) use ($teacher) {
                 if (! $membership->student) {
                     return [];
@@ -993,13 +742,11 @@ class TeacherController extends Controller
                 'schools' => $schools,
                 'subjects' => $subjects,
                 'classes' => $classes,
-                'announcements' => $announcements,
                 'filters' => [
-                    'status' => $announcementStatus,
                     'invoice_filters' => $filters, // Add invoice filters
                 ],
                 'filterOptions' => $filterOptions, // Add filter options for dropdowns
-                'userRole' => $userRole,
+                'userRole' => Auth::user()?->role,
                 'selectedSchool' => $selectedSchool, // Add the selected school
                 'recurringTransactions' => $recurringTransactions, // Add the recurring transactions
                 'transactions' => $transactions, // Add all transactions
@@ -1009,7 +756,7 @@ class TeacherController extends Controller
                 'trace' => $e->getTraceAsString(),
             ]);
 
-            return redirect()->back()->with('error', 'Failed to load teacher details. Please try again.');
+            return redirect()->back()->with('error', "Impossible de charger la fiche de l'enseignant. Veuillez réessayer.");
         }
     }
 
@@ -1159,13 +906,13 @@ class TeacherController extends Controller
 
             $isFormUpdate = $request->has('is_form_update');
             if ($isFormUpdate) {
-                return redirect()->route('teachers.show', $teacher->id)->with('success', 'Teacher updated successfully.');
+                return redirect()->route('teachers.show', $teacher->id)->with('success', 'Enseignant mis à jour avec succès.');
             }
             $isViewingAs = session()->has('admin_user_id');
             if ($isViewingAs) {
-                return redirect()->route('dashboard')->with('success', 'Teacher updated successfully.');
+                return redirect()->route('dashboard')->with('success', 'Enseignant mis à jour avec succès.');
             } else {
-                return redirect()->route('teachers.show', $teacher->id)->with('success', 'Teacher updated successfully.');
+                return redirect()->route('teachers.show', $teacher->id)->with('success', 'Enseignant mis à jour avec succès.');
             }
         } catch (ValidationException $e) {
             throw $e;
@@ -1519,11 +1266,14 @@ class TeacherController extends Controller
 
     /**
      * Calculate pending months
+     *
+     * REAL count, not the placeholder it was for years (a bare `return 0`
+     * shipped under this comment while the UI displayed « Mois en attente »):
+     * a row is pending when its month has not been handed over to the teacher
+     * yet — exactly what the table's Payé/En attente badge reads.
      */
     private function calculatePendingMonths($invoices)
     {
-        // This would need to be calculated based on your business logic
-        // For now, returning a placeholder
-        return 0;
+        return $invoices->filter(fn ($invoice) => ! ($invoice['is_month_paid'] ?? false))->count();
     }
 }
