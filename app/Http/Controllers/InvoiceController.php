@@ -7,6 +7,7 @@ use App\Models\Invoice;
 use App\Models\Membership;
 use App\Models\School;
 use App\Models\Teacher;
+use App\Models\TeacherMembershipPayment;
 use App\Support\PdfBudget;
 use App\Support\SchoolScope;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -1131,7 +1132,8 @@ class InvoiceController extends Controller
     {
         // Fetch the invoice by ID
         $invoice = Invoice::with(['student.class', 'offer'])->findOrFail($id);
-        $this->authorizeInvoice($invoice);
+
+        $this->authorizeInvoicesForDownload(collect([$invoice]));
 
         $className = $invoice->student->class->name;
 
@@ -1144,6 +1146,51 @@ class InvoiceController extends Controller
 
         // Download the PDF
         return $pdf->download("TeacherInvoice-{$invoice->id}.pdf");
+    }
+
+    /**
+     * Who may render these invoice documents?
+     *
+     * Admins: everything. Assistants: the same SchoolScope student rule as on
+     * screen. Teachers: the earnings table's definition of "mine" is a COMMISSION
+     * row linking the invoice to them (teacher_membership_payments) — not
+     * classes_teacher pivot ownership. The two disagree whenever a teacher holds
+     * a commission on a student whose class they do not pivot-teach, which is
+     * exactly why every Télécharger click on their own earnings table used to 403.
+     *
+     * Shared by download() AND both bulk endpoints: guarding one door while the
+     * neighbouring doors take raw id arrays would make the guard decorative.
+     */
+    private function authorizeInvoicesForDownload($invoices): void
+    {
+        $user = Auth::user();
+
+        if ($user && $user->role === 'admin') {
+            return;
+        }
+
+        if ($user && $user->role === 'teacher') {
+            $myTeacherId = Teacher::where('email', $user->email)->value('id');
+            $ids = $invoices->pluck('id')->all();
+
+            $heldCount = $myTeacherId === null ? 0 : TeacherMembershipPayment::query()
+                ->where('teacher_id', $myTeacherId)
+                ->whereIn('invoice_id', $ids)
+                ->distinct()
+                ->count('invoice_id');
+
+            if ($heldCount < count($ids)) {
+                throw new \App\Exceptions\AccessDeniedException(
+                    'Vous ne pouvez télécharger que les factures de vos propres gains.'
+                );
+            }
+
+            return;
+        }
+
+        $invoices->each(function ($invoice) {
+            $this->authorizeInvoice($invoice);
+        });
     }
 
     /**
@@ -1174,6 +1221,10 @@ class InvoiceController extends Controller
         if ($invoices->isEmpty()) {
             return redirect()->back()->with('error', 'No invoices found');
         }
+
+        // Same door as single download — without this, any staff member could
+        // post arbitrary ids and walk away with other schools' invoices as PDF.
+        $this->authorizeInvoicesForDownload($invoices);
 
         // Fetch class names for each invoice
         $invoices->each(function ($invoice) {
@@ -1226,6 +1277,11 @@ class InvoiceController extends Controller
         if ($invoices->isEmpty()) {
             return redirect()->back()->with('error', 'No invoices found');
         }
+
+        // Same door as single download — this endpoint even accepts GET with id
+        // arrays, so without the check it is a one-URL exfiltration of arbitrary
+        // invoices across every school.
+        $this->authorizeInvoicesForDownload($invoices);
 
         // Prepare data for the PDF
         $summaryData = [
