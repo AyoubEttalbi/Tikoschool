@@ -281,14 +281,15 @@ class ClassesController extends Controller
         $class->updateCounts();
 
         // Get students in this class
+        // Eloquent + accessor = profile_image is resolved to a renderable URL (ProfileImageUrl::resolve).
+        // DB::table bypassed the accessor and handed the frontend raw "students/<hex>.webp" which
+        // rendered as a broken relative URL. This path also strips guardianNumber/guardianName for teachers.
         try {
             if ($role === 'teacher' && isset($teacher)) {
-                // For teachers, only get students they teach
-                $studentsList = $this->getTeacherStudentsInClass($class, $teacher);
+                $studentsList = $this->getTeacherStudentsInClass($class, $teacher, $role);
             } else {
-                // For admins/assistants, get all students in the class
-                $students = DB::table('students')->where('classId', $class->id);
-                $studentsList = $students->get()->toArray();
+                $studentsCollection = Student::where('classId', $class->id)->get();
+                $studentsList = $this->mapStudentsForClass($studentsCollection, $role);
             }
         } catch (\Exception $e) {
             Log::error('Error getting students for class', [
@@ -336,8 +337,8 @@ class ClassesController extends Controller
             }
         }
 
-        // Ensure students is always an array
-        $studentsArray = is_array($studentsList) ? $studentsList : [];
+        // Ensure students is always a 0-indexed array (filter() preserves keys)
+        $studentsArray = array_values(is_array($studentsList) ? $studentsList : []);
 
         // Debug: Log the actual student data being passed to frontend
         Log::info('Debug: Student data for frontend', [
@@ -464,6 +465,9 @@ class ClassesController extends Controller
     {
         SchoolScope::authorizeClass($class);
 
+        $user = auth()->user();
+        $role = $user?->role;
+
         /*
          * BOTH filters, on purpose. `classId` alone would be enough were students
          * impossible to move between schools — they are not, and a student row carrying
@@ -478,6 +482,24 @@ class ClassesController extends Controller
             ->with(['memberships.offer'])
             ->orderBy('lastName')
             ->orderBy('firstName');
+
+        // Teachers see only students they teach via memberships.teachers JSON (same relation
+        // as /students "Tous les étudiants" and ClassesController::show). Assistants are
+        // school-scoped (authorizeClass) and keep all pupils; admins are unrestricted.
+        if ($role === 'teacher') {
+            $teacher = Teacher::where('email', $user->email)->first();
+            if (! $teacher) {
+                // No staff row -> empty roster, not a leak of the whole class
+                $query->whereRaw('1 = 0');
+            } else {
+                $query->whereHas('memberships', function ($mq) use ($teacher) {
+                    $mq->where(function ($q) use ($teacher) {
+                        $q->whereRaw("JSON_CONTAINS(teachers, JSON_OBJECT('teacherId', ?))", [$teacher->id])
+                            ->orWhereRaw("JSON_CONTAINS(teachers, JSON_OBJECT('teacherId', ?))", [(string) $teacher->id]);
+                    });
+                });
+            }
+        }
 
         $maxRows = PdfBudget::maxRows(self::PDF_ROW_COST_MB);
         $count = (clone $query)->count();
@@ -616,9 +638,54 @@ class ClassesController extends Controller
     }
 
     /**
+     * Map a collection of Student models to the array shape SingleClassPage expects,
+     * with profile_image resolved via the accessor and parent phone hidden from teachers.
+     */
+    private function mapStudentsForClass($students, string $role): array
+    {
+        return $students->map(function (Student $student) use ($role) {
+            $row = [
+                'id' => $student->id,
+                'firstName' => $student->firstName,
+                'lastName' => $student->lastName,
+                'classId' => $student->classId,
+                'schoolId' => $student->schoolId,
+                'levelId' => $student->levelId,
+                'massarCode' => $student->massarCode,
+                'status' => $student->status,
+                'address' => $student->address,
+                'email' => $student->email,
+                'CIN' => $student->CIN,
+                'phoneNumber' => $student->phoneNumber,
+                'phone' => $student->phoneNumber,
+                // Resolved via Student::getProfileImageAttribute -> ProfileImageUrl::resolve
+                // Null for no image, absolute URL for Cloudinary legacy, or /profile-images/... for managed files.
+                'profile_image' => $student->profile_image,
+                'dateOfBirth' => $student->dateOfBirth,
+                'billingDate' => $student->billingDate,
+                'hasDisease' => $student->hasDisease,
+                'diseaseName' => $student->diseaseName,
+                'medication' => $student->medication,
+                'assurance' => $student->assurance,
+                'assuranceAmount' => $student->assuranceAmount,
+                'created_at' => $student->created_at,
+                'updated_at' => $student->updated_at,
+            ];
+
+            // Parent contact is admin/assistant only.
+            if ($role !== 'teacher') {
+                $row['guardianNumber'] = $student->guardianNumber;
+                $row['guardianName'] = $student->guardianName;
+            }
+
+            return $row;
+        })->values()->toArray();
+    }
+
+    /**
      * Get the students that a specific teacher teaches in a class
      */
-    private function getTeacherStudentsInClass($class, $teacher)
+    private function getTeacherStudentsInClass($class, $teacher, string $role = 'teacher')
     {
         // Get all students in the class
         $classStudents = $class->students()->where('status', 'active')->get();
@@ -652,18 +719,6 @@ class ClassesController extends Controller
             'return_type' => get_class($teacherStudents),
         ]);
 
-        // Convert to array format that matches the DB query result
-        // Get student IDs first
-        $studentIds = $teacherStudents->pluck('id')->toArray();
-
-        // Query the database directly to get the same format as admin path
-        $result = DB::table('students')
-            ->whereIn('id', $studentIds)
-            ->where('classId', $class->id)
-            ->get()
-            ->toArray();
-
-        // Ensure we always return an array
-        return is_array($result) ? $result : [];
+        return $this->mapStudentsForClass($teacherStudents, $role);
     }
 }

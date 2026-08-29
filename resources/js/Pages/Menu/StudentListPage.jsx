@@ -10,7 +10,7 @@ import FormModal from "../../Components/FormModal";
 import FilterForm from "@/Components/FilterForm";
 import { motion } from "framer-motion";
 
-const columns = [
+const baseColumns = [
     {
         header: "Info",
         accessor: "info",
@@ -29,6 +29,7 @@ const columns = [
         header: "Téléphone",
         accessor: "phone",
         className: "hidden lg:table-cell",
+        roles: ["admin", "assistant"], // parent phone — hidden from teachers
     },
     {
         header: "Nom d'offre",
@@ -75,7 +76,17 @@ const StudentListPage = ({
         (a, b) => new Date(b.created_at) - new Date(a.created_at),
     );
 
+    const pageProps = usePage().props;
+    const role = pageProps.auth.user.role;
+
+    // Role-filtered columns — Téléphone (parent phone) is admin/assistant only.
+    const columns = useMemo(
+        () => baseColumns.filter((col) => !col.roles || col.roles.includes(role)),
+        [role]
+    );
+
     // Custom search filter for parent phone and parent name (client-side fallback)
+    // Parent fields are only searchable for admin/assistant — teachers must not enumerate via ?search.
     const filteredStudents = filters.search
         ? sortedStudents.filter((student) => {
               const search = filters.search.toLowerCase();
@@ -90,21 +101,21 @@ const StudentListPage = ({
               const normalizedStudentPhone = normalizePhone(student.phone || "");
               const normalizedGuardianPhone = normalizePhone(student.guardianNumber || "");
 
+              const isPrivileged = role !== "teacher";
+
               // Also check original phone for partial matches (for +212... search)
               return (
                   (student.name && student.name.toLowerCase().includes(search)) ||
                   (student.studentId && student.studentId.toLowerCase().includes(search)) ||
                   (student.phone && student.phone.toLowerCase().includes(search)) ||
                   (student.offerNames && student.offerNames.toLowerCase().includes(search)) ||
-                  (student.guardianNumber && student.guardianNumber.toLowerCase().includes(search)) ||
-                  (student.guardianName && student.guardianName.toLowerCase().includes(search)) ||
+                  (isPrivileged && student.guardianNumber && student.guardianNumber.toLowerCase().includes(search)) ||
+                  (isPrivileged && student.guardianName && student.guardianName.toLowerCase().includes(search)) ||
                   (normalizedSearch && normalizedStudentPhone.includes(normalizedSearch)) ||
-                  (normalizedSearch && normalizedGuardianPhone.includes(normalizedSearch))
+                  (isPrivileged && normalizedSearch && normalizedGuardianPhone.includes(normalizedSearch))
               );
           })
         : sortedStudents;
-    const pageProps = usePage().props;
-    const role = pageProps.auth.user.role;
 
     const [showFilters, setShowFilters] = useState(false);
     const [isRestoring, setIsRestoring] = useState(false);
@@ -271,7 +282,9 @@ const StudentListPage = ({
             <td className="hidden md:table-cell">
                 {classesById.get(item.classId)?.name}
             </td>
-            <td className="hidden md:table-cell">{item.guardianNumber}</td>
+            {role !== "teacher" && (
+                <td className="hidden md:table-cell">{item.guardianNumber}</td>
+            )}
             <td className="hidden lg:table-cell">{item.offerNames || '-'}</td>
             <td className="hidden md:table-cell">
                 {(() => {

@@ -34,6 +34,13 @@ class StudentsController extends Controller
         $student = Student::with(['level', 'class', 'school', 'memberships.offer'])
             ->findOrFail($id);
 
+        // The PDF prints guardianNumber (students_pdf.blade.php). SchoolScope alone lets a
+        // teacher through for students in their classes, so the role check must come first —
+        // same rule as show() below.
+        if (auth()->user() && auth()->user()->role === 'teacher') {
+            abort(403, 'Accès refusé. Les enseignants ne peuvent pas consulter les fiches élèves.');
+        }
+
         // This method had no check of any kind: an assistant scoped to one school could
         // walk /students/1..N/download-pdf and export every student in the product,
         // including guardian phone numbers and medical fields.
@@ -90,7 +97,7 @@ class StudentsController extends Controller
 
         // Apply search filter if search term is provided
         if ($request->has('search') && ! empty($request->search)) {
-            $this->applySearchFilter($query, $request->search);
+            $this->applySearchFilter($query, $request->search, $userRole);
         }
 
         // Apply additional filters (e.g., school, class, level)
@@ -158,9 +165,9 @@ class StudentsController extends Controller
             ->paginate(10)
             ->withQueryString();
 
-        // Transform for frontend
-        $students = $students->through(function ($student) {
-            return $this->transformStudentData($student);
+        // Transform for frontend — teacher must not receive guardianNumber/guardianName
+        $students = $students->through(function ($student) use ($userRole) {
+            return $this->transformStudentData($student, $userRole);
         });
 
         // Get all classes for filters, but filter them by selected school if applicable
@@ -191,23 +198,29 @@ class StudentsController extends Controller
 
     /**
      * Apply search filter to the query.
+     *
+     * Teachers must not be able to search by guardianNumber/guardianName — the column
+     * is hidden from them, so an enumeration probe via ?search=0612 must also fail.
      */
-    protected function applySearchFilter($query, $searchTerm)
+    protected function applySearchFilter($query, $searchTerm, ?string $role = null)
     {
-        $query->where(function ($q) use ($searchTerm) {
-            // Search by student fields, including parent phone and parent name
+        $query->where(function ($q) use ($searchTerm, $role) {
             $q->where('firstName', 'LIKE', "%{$searchTerm}%")
                 ->orWhere('lastName', 'LIKE', "%{$searchTerm}%")
                 ->orWhere('massarCode', 'LIKE', "%{$searchTerm}%")
                 ->orWhere('phoneNumber', 'LIKE', "%{$searchTerm}%")
                 ->orWhere('email', 'LIKE', "%{$searchTerm}%")
                 ->orWhere('address', 'LIKE', "%{$searchTerm}%")
-                ->orWhere('guardianNumber', 'LIKE', "%{$searchTerm}%")
-                ->orWhere('guardianName', 'LIKE', "%{$searchTerm}%")
               // Search by full name (firstName + lastName combined)
                 ->orWhereRaw("CONCAT(firstName, ' ', lastName) LIKE ?", ["%{$searchTerm}%"])
               // Search by full name in reverse order (lastName + firstName)
                 ->orWhereRaw("CONCAT(lastName, ' ', firstName) LIKE ?", ["%{$searchTerm}%"]);
+
+            // Parent phone/name search is admin/assistant only.
+            if ($role !== 'teacher') {
+                $q->orWhere('guardianNumber', 'LIKE', "%{$searchTerm}%")
+                    ->orWhere('guardianName', 'LIKE', "%{$searchTerm}%");
+            }
 
             // Search by class, school, and level names
             $this->applyRelationshipSearch($q, $searchTerm);
@@ -295,8 +308,11 @@ class StudentsController extends Controller
 
     /**
      * Transform student data for the frontend.
+     *
+     * Parent phone/name are hidden from teachers — the column is not rendered for them
+     * and the payload must not contain it either (otherwise it is one `props` peek away).
      */
-    protected function transformStudentData($student)
+    protected function transformStudentData($student, ?string $role = null)
     {
         // Get offer names from active memberships (excluding assurance-only invoices)
         $offerNames = $student->memberships
@@ -313,7 +329,7 @@ class StudentsController extends Controller
         // Calculate payment status for memberships
         $paymentStatusCounts = $this->calculateMembershipPaymentStatus($student->memberships);
 
-        return [
+        $data = [
             'id' => $student->id,
             'name' => $student->firstName.' '.$student->lastName,
             'studentId' => $student->massarCode,
@@ -334,14 +350,21 @@ class StudentsController extends Controller
             'status' => $student->status,
             'assurance' => $student->assurance,
             'assuranceAmount' => $student->assuranceAmount,
-            'guardianNumber' => $student->guardianNumber,
-            'guardianName' => $student->guardianName,
             'profile_image' => $student->profile_image ?? null,
             'phoneNumber' => $student->phoneNumber,
             'hasDisease' => $student->hasDisease,
             'diseaseName' => $student->diseaseName,
             'medication' => $student->medication,
         ];
+
+        // Parent contact is admin/assistant only. Teachers keep their own students' `phone`
+        // (student's own number) but must not receive the guardian's.
+        if ($role !== 'teacher') {
+            $data['guardianNumber'] = $student->guardianNumber;
+            $data['guardianName'] = $student->guardianName;
+        }
+
+        return $data;
     }
 
     /**

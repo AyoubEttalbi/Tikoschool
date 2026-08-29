@@ -42,11 +42,11 @@ export default function SingleClassPage({
             accessor: "class",
             className: "hidden md:table-cell",
         },
-        {
+        ...(role !== "teacher" ? [{
             header: "Téléphone",
             accessor: "phone",
             className: "hidden lg:table-cell",
-        },
+        }] : []),
         {
             header: "Adresse",
             accessor: "address",
@@ -124,7 +124,9 @@ export default function SingleClassPage({
                 <td className="hidden md:table-cell">
                     {Allclasses.find((group) => group.id === item.classId)?.name}
                 </td>
-                <td className="hidden lg:table-cell">{item.guardianNumber}</td>
+                {role !== "teacher" && (
+                    <td className="hidden lg:table-cell">{item.guardianNumber}</td>
+                )}
                 <td className="hidden lg:table-cell">{item.address}</td>
                 <td className="hidden lg:table-cell w-1/12">
                     {/* Membership status - simplified version */}
