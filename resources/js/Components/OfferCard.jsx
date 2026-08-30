@@ -177,6 +177,14 @@ const OfferCard = ({
                 )}
             </div>
 
+            {/* Level */}
+            <div className="mb-4 flex items-center gap-2 text-sm">
+                <span className="font-medium text-gray-600">Niveau:</span>
+                <span className="px-3 py-1 bg-blue-50 border border-blue-200 rounded-full text-sm font-medium text-blue-700">
+                    {levels?.find((l) => l.id === offer.levelId)?.name || "—"}
+                </span>
+            </div>
+
             {/* Subjects */}
             <div className="mb-6 relative z-10">
                 <div className="flex items-center gap-2 text-sm text-gray-600 mb-4">

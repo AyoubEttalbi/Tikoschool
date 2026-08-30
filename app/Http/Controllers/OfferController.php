@@ -21,19 +21,25 @@ class OfferController extends Controller
     $levels = Level::all();
     $subjects = Subject::all();
     
-    // Apply search filter if search term is provided
-    if ($request->has('search') && !empty($request->search)) {
-        $searchTerm = strtolower($request->search); // Convert search term to lowercase
+    // Apply search filter if search term is provided — space-insensitive: "1bac" matches "1 bac"
+    $rawSearch = trim((string) $request->input('search', ''));
+    if ($rawSearch !== '') {
+        $searchLower = mb_strtolower($rawSearch);
+        // Remove all whitespace for comparison so "1 bac" and "1bac" are equivalent
+        $searchNoSpace = preg_replace('/\s+/u', '', $searchLower);
+        // Escape LIKE wildcards in user input
+        $searchEscaped = addcslashes($searchNoSpace, '%_');
+        $like = "%{$searchEscaped}%";
 
-        $query->where(function ($q) use ($searchTerm) {
-            // Search by offer name (case-insensitive)
-            $q->whereRaw('LOWER(offer_name) LIKE ?', ["%{$searchTerm}%"])
-              ->orWhereRaw('LOWER(price) LIKE ?', ["%{$searchTerm}%"])
-              ->orWhereRaw('LOWER(subjects) LIKE ?', ["%{$searchTerm}%"]);
+        $query->where(function ($q) use ($like) {
+            // offer_name, price, subjects — compare without spaces, case-insensitive
+            $q->whereRaw("REPLACE(LOWER(offer_name), ' ', '') LIKE ?", [$like])
+              ->orWhereRaw("REPLACE(LOWER(CAST(price AS CHAR)), ' ', '') LIKE ?", [$like])
+              ->orWhereRaw("REPLACE(LOWER(subjects), ' ', '') LIKE ?", [$like]);
 
-            // Search by level name (case-insensitive)
-            $q->orWhereHas('level', function ($levelQuery) use ($searchTerm) {
-                $levelQuery->whereRaw('LOWER(name) LIKE ?', ["%{$searchTerm}%"]);
+            // level name — same space-insensitive match
+            $q->orWhereHas('level', function ($levelQuery) use ($like) {
+                $levelQuery->whereRaw("REPLACE(LOWER(name), ' ', '') LIKE ?", [$like]);
             });
         });
     }
@@ -42,6 +48,16 @@ class OfferController extends Controller
     if ($request->has('subject') && !empty($request->subject)) {
         $subject = $request->subject;
         $query->whereJsonContains('subjects', $subject);
+    }
+
+    // Apply level filter if provided — by name (shown in UI), AND with other filters
+    if ($request->filled('level')) {
+        $levelName = trim((string) $request->input('level'));
+        if ($levelName !== '' && $levelName !== 'all') {
+            $query->whereHas('level', function ($levelQuery) use ($levelName) {
+                $levelQuery->where('name', $levelName);
+            });
+        }
     }
 
     // Fetch paginated and filtered offers, newest first
@@ -62,7 +78,10 @@ class OfferController extends Controller
         'offers' => $offers,
         'Alllevels' => $levels,
         'Allsubjects' => $subjects,
-        'search' => $request->search
+        'search' => $request->search,
+        'level' => $request->input('level', ''),
+        'subject' => $request->input('subject', ''),
+        'filters' => $request->only(['search', 'subject', 'level']),
     ]);
 }
     /**

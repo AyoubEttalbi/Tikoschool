@@ -1,25 +1,33 @@
 import { router, usePage } from "@inertiajs/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const TableSearch = ({ routeName, filters, value, onChange }) => {
     const pageProps = usePage().props;
     const [searchTerm, setSearchTerm] = useState(
-        value !== undefined ? value : pageProps.filters?.search || ""
+        value !== undefined ? value : pageProps.filters?.search || pageProps.search || ""
     );
+
+    // Keep input in sync when parent resets filters (e.g. Inertia replace)
+    useEffect(() => {
+        if (value !== undefined && value !== searchTerm) {
+            setSearchTerm(value);
+        }
+    }, [value]);
 
     // Get today's date in YYYY-MM-DD format
     const today = new Date().toISOString().split("T")[0];
 
     const handleSearch = (e) => {
-        const value = e.target.value.trim(); // Trim leading/trailing spaces
-        setSearchTerm(value);
+        const raw = e.target.value; // keep raw for display — spaces must be typable
+        setSearchTerm(raw);
         if (onChange) {
-            onChange(value);
+            onChange(raw);
         } else {
-            // Only include date for attendances.index
+            // Only include date for attendances.index — trim only here for the query
+            const trimmed = raw.trim();
             const params = {
                 ...pageProps.filters,
-                search: value,
+                search: trimmed,
             };
             if (routeName === "attendances.index") {
                 params.date = pageProps.filters?.date || today;
@@ -47,7 +55,7 @@ const TableSearch = ({ routeName, filters, value, onChange }) => {
             {
                 ...filters,
                 date: finalDate,
-                search: searchTerm,
+                search: searchTerm.trim(),
             },
             { preserveState: true, replace: true },
         );

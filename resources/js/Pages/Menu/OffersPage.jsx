@@ -3,6 +3,7 @@ import FormModal from "@/Components/FormModal";
 import TableSearch from "@/Components/TableSearch";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { router, usePage } from "@inertiajs/react";
+import useFilterNavigation from "@/Hooks/useFilterNavigation";
 import Pagination from "../../Components/Pagination";
 import { Filter, SortDesc } from "lucide-react";
 import OfferCard from "@/Components/OfferCard";
@@ -11,17 +12,38 @@ export default function OffersPage({
     offers = [],
     Alllevels = [],
     Allsubjects = [],
+    search: initialSearch = "",
+    level: initialLevel = "",
+    subject: initialSubject = "",
+    filters: initialFilters = null,
 }) {
-    const role = usePage().props.auth.user.role;
+    const pageProps = usePage().props;
+    const role = pageProps.auth.user.role;
+
+    // Support both legacy (search/level/subject top-level) and new filters bag
+    const resolvedSearch = initialFilters?.search ?? initialSearch ?? pageProps.search ?? "";
+    const resolvedLevel = initialFilters?.level ?? initialLevel ?? pageProps.level ?? "";
+    const resolvedSubject = initialFilters?.subject ?? initialSubject ?? pageProps.subject ?? "";
 
     const [editMode, setEditMode] = useState({});
     const [editData, setEditData] = useState({});
     const [dropdownStates, setDropdownStates] = useState({});
     const [filters, setFilters] = useState({
-        search: "",
-        subject: "",
+        search: (resolvedSearch || "").trim(),
+        subject: resolvedSubject || "",
+        level: resolvedLevel || "",
     });
     const [showFilters, setShowFilters] = useState(false);
+
+    useFilterNavigation({
+        routeName: "offers.index",
+        filters,
+        serverFilters: {
+            search: (resolvedSearch || "").trim(),
+            subject: resolvedSubject || "",
+            level: resolvedLevel || "",
+        },
+    });
 
     // Initialize edit data for each offer
     // Sort offers by created_at descending (latest first)
@@ -168,23 +190,15 @@ export default function OffersPage({
     };
 
     const handleSearchChange = (value) => {
-        const newFilters = { ...filters, search: value };
-        setFilters(newFilters);
-        router.get(
-            route("offers.index"),
-            newFilters,
-            { preserveState: true, replace: true, preserveScroll: true }
-        );
+        setFilters((prev) => ({ ...prev, search: value }));
     };
 
     const handleSubjectFilterChange = (e) => {
-        const newFilters = { ...filters, subject: e.target.value };
-        setFilters(newFilters);
-        router.get(
-            route("offers.index"),
-            newFilters,
-            { preserveState: true, replace: true, preserveScroll: true }
-        );
+        setFilters((prev) => ({ ...prev, subject: e.target.value }));
+    };
+
+    const handleLevelFilterChange = (e) => {
+        setFilters((prev) => ({ ...prev, level: e.target.value }));
     };
 
     const toggleFilters = () => {
@@ -227,24 +241,43 @@ export default function OffersPage({
                     </div>
                 </div>
 
-                {/* Subject Filter Dropdown */}
+                {/* Filters: Level + Subject */}
                 {showFilters && (
-                    <div className="mb-4 max-w-xs">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Filtrer par matière
-                        </label>
-                        <select
-                            value={filters.subject}
-                            onChange={handleSubjectFilterChange}
-                            className="w-full rounded-md border-gray-300 shadow-sm focus:border-lamaPurple focus:ring-lamaPurple"
-                        >
-                            <option value="">Toutes les matières</option>
-                            {Allsubjects.map((subject) => (
-                                <option key={subject.id} value={subject.name}>
-                                    {subject.name}
-                                </option>
-                            ))}
-                        </select>
+                    <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Filtrer par niveau
+                            </label>
+                            <select
+                                value={filters.level}
+                                onChange={handleLevelFilterChange}
+                                className="w-full rounded-md border-gray-300 shadow-sm focus:border-lamaPurple focus:ring-lamaPurple"
+                            >
+                                <option value="">Tous les niveaux</option>
+                                {Alllevels.map((level) => (
+                                    <option key={level.id} value={level.name}>
+                                        {level.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Filtrer par matière
+                            </label>
+                            <select
+                                value={filters.subject}
+                                onChange={handleSubjectFilterChange}
+                                className="w-full rounded-md border-gray-300 shadow-sm focus:border-lamaPurple focus:ring-lamaPurple"
+                            >
+                                <option value="">Toutes les matières</option>
+                                {Allsubjects.map((subject) => (
+                                    <option key={subject.id} value={subject.name}>
+                                        {subject.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
                     </div>
                 )}
 
