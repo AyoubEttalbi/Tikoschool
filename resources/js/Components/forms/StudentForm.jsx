@@ -11,8 +11,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/Components/ui/select";
-import { Upload, Camera, X } from "lucide-react";
-import CameraCaptureModal from "@/Components/CameraCaptureModal";
+import { Upload } from "lucide-react";
 
 // Phone input component for Moroccan numbers
 const PhoneInput = ({ label, name, value, onChange, error }) => (
@@ -64,7 +63,10 @@ const schema = z
                 { message: "Le numéro doit commencer par 5, 6, 7 ou 8 et comporter 9 chiffres." }
             )
             .transform((val) => val.replace(/^\+212/, "")),
-        guardianName: z.string().max(255, { message: "Nom du tuteur trop long (255 caractères max)" }).optional(),
+        guardianName: z
+            .string()
+            .min(1, { message: "Le nom du tuteur est requis !" })
+            .max(255, { message: "Nom du tuteur trop long (255 caractères max)" }),
         CIN: z.any().optional(),
         phoneNumber: z
             .string()
@@ -164,17 +166,6 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
         data?.profile_image || null,
     );
 
-    // Capture photo via la caméra — produit un File qui suit exactement
-    // le même chemin que l'upload manuel (setValue + FormData).
-    const [cameraOpen, setCameraOpen] = useState(false);
-
-    const handleCameraCapture = (file) => {
-        setValue("profile_image", file);
-        setImagePreview(URL.createObjectURL(file));
-        const input = document.getElementById("profile_image");
-        if (input) input.value = "";
-    };
-
     // State for loading
     const [loading, setLoading] = useState(false);
 
@@ -221,22 +212,6 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
             };
             reader.readAsDataURL(file);
         }
-    };
-
-    // Remove photo: server-side when editing a saved student's existing image,
-    // local-only when discarding a freshly picked file.
-    const handleRemoveImage = () => {
-        if (type === "update" && data?.id && imagePreview === data.profile_image) {
-            router.delete(`/profile-images/students/${data.id}`, {
-                preserveScroll: true,
-                onSuccess: () => setImagePreview(null),
-            });
-            return;
-        }
-        setImagePreview(null);
-        setValue("profile_image", null);
-        const input = document.getElementById("profile_image");
-        if (input) input.value = "";
     };
 
     // Set default values when data is available
@@ -383,15 +358,21 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
                     setLoading(false);
                 },
             });
+            console.log(formDataObj);
         } else if (type === "update") {
             // For update, we need to use the proper method spoofing with Inertia
             // Add the _method field to the formData for Laravel to recognize it as PUT
             formDataObj.append("_method", "PUT");
+            // for (let pair of formDataObj.entries()) {
+            //     console.log(pair[0]+ ': ' + pair[1]);
+            // }
             // Then use post() instead of put() because file uploads require POST
+            // console.log("formDataObj", formDataObj);
             router.post(`/students/${data.id}`, formDataObj, {
                 preserveScroll: true,
                 forceFormData: true,
                 onSuccess: () => {
+                    console.log(formDataObj);
                     setOpen(false);
                     setLoading(false);
                 },
@@ -475,6 +456,7 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
                     register={register}
                     error={errors.guardianName}
                     defaultValue={data?.guardianName}
+                    required
                 />
             </div>
             <span className="text-xs text-gray-400 font-medium">
@@ -704,6 +686,7 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
                 </div>
                 <div className="flex flex-col gap-2 w-full">
                     <label className="text-xs text-gray-600">Statut</label>
+                    {/* Reactivating a student keeps their last level/class (no clearing on status change) — reassign manually via Niveau/Classe fields */}
                     <Select
                         value={selectedStatus}
                         onValueChange={(value) => {
@@ -782,14 +765,6 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
                 <div className="flex flex-col gap-2">
                     {imagePreview && (
                         <div className="relative w-24 h-24 mb-2">
-                            <button
-                                type="button"
-                                onClick={handleRemoveImage}
-                                className="absolute -top-2 -right-2 z-10 w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 transition-colors shadow-md cursor-pointer"
-                                title="Supprimer la photo"
-                            >
-                                <X className="w-3.5 h-3.5" />
-                            </button>
                             <img
                                 src={imagePreview}
                                 alt="Aperçu du profil"
@@ -797,32 +772,22 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
                             />
                         </div>
                     )}
-                    <div className="flex flex-wrap gap-2">
-                        <label
-                            htmlFor="profile_image"
-                            className="flex items-center gap-2 cursor-pointer p-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors duration-200 flex-1 min-w-[140px]"
-                        >
-                            <Upload className="w-4 h-4 text-gray-500" />
-                            <span className="text-sm text-gray-700">
-                                {imagePreview ? "Changer l'image" : "Télécharger l'image"}
-                            </span>
-                            <input
-                                id="profile_image"
-                                type="file"
-                                accept="image/jpeg, image/png, image/webp, image/avif"
-                                className="hidden"
-                                onChange={handleImageChange}
-                            />
-                        </label>
-                        <button
-                            type="button"
-                            onClick={() => setCameraOpen(true)}
-                            className="flex items-center gap-2 p-2 border border-gray-300 rounded-md hover:bg-lamaSkyLight transition-colors duration-200 flex-1 min-w-[140px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lamaSky"
-                        >
-                            <Camera className="w-4 h-4 text-gray-500" />
-                            <span className="text-sm text-gray-700">Prendre une photo</span>
-                        </button>
-                    </div>
+                    <label
+                        htmlFor="profile_image"
+                        className="flex items-center gap-2 cursor-pointer p-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors duration-200 w-full"
+                    >
+                        <Upload className="w-4 h-4 text-gray-500" />
+                        <span className="text-sm text-gray-700">
+                            {imagePreview ? "Changer l'image" : "Télécharger l'image"}
+                        </span>
+                        <input
+                            id="profile_image"
+                            type="file"
+                            accept="image/png, image/jpeg, image/jpg"
+                            className="hidden"
+                            onChange={handleImageChange}
+                        />
+                    </label>
                     {errors.profile_image && (
                         <p className="text-xs text-red-400">
                             {errors.profile_image.message}
@@ -830,12 +795,6 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
                     )}
                 </div>
             </div>
-
-            <CameraCaptureModal
-                open={cameraOpen}
-                onClose={() => setCameraOpen(false)}
-                onCapture={handleCameraCapture}
-            />
             <button
                 type="submit"
                 disabled={loading}

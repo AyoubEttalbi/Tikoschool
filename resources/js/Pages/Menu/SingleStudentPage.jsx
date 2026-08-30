@@ -25,8 +25,8 @@ const Announcements = React.lazy(
 const Performance = React.lazy(() => import("@/Components/Performance"));
 const MembershipCard = React.lazy(() => import("@/Components/MembershipCard"));
 const StudentProfile = React.lazy(() => import("@/Components/StudentProfile"));
-const StudentPromotionStatus = React.lazy(
-    () => import("@/Components/StudentPromotionStatus"),
+const StudentAcademicHistory = React.lazy(
+    () => import("@/Components/StudentAcademicHistory"),
 );
 const FormModal = React.lazy(() => import("@/Components/FormModal"));
 
@@ -38,6 +38,8 @@ const SingleStudentPage = ({
     Alloffers,
     Allteachers,
     memberships,
+    promotionsHistory = [],
+    movements = [],
 }) => {
     const role = usePage().props.auth.user.role;
     const [showMoreInfo, setShowMoreInfo] = useState(false);
@@ -258,10 +260,10 @@ const SingleStudentPage = ({
                                 className="w-6 h-6"
                             />
                             <div className="">
-                                <h1 className="text-xl font-semibold">
+                                <h1 className={`text-xl font-semibold ${!student.levelId ? "text-gray-400 italic text-base" : ""}`}>
                                     {Alllevels.find(
                                         (level) => level.id === student.levelId,
-                                    )?.name || ""}
+                                    )?.name || "— Non affecté"}
                                 </h1>
                                 <span className="text-sm text-gray-400">
                                     Niveau
@@ -333,11 +335,11 @@ const SingleStudentPage = ({
                                 className="w-6 h-6"
                             />
                             <div className="">
-                                <h1 className="text-xl font-semibold">
+                                <h1 className={`text-xl font-semibold ${!student.classId ? "text-gray-400 italic text-base" : ""}`}>
                                     {Allclasses.find(
                                         (classs) =>
                                             classs.id === student.classId,
-                                    )?.name || "6A"}
+                                    )?.name || "— Non affectée"}
                                 </h1>
                                 <span className="text-sm text-gray-400">
                                     Classe
@@ -363,16 +365,6 @@ const SingleStudentPage = ({
                         </div>
                     </div>
                 </div>
-                {/* Statut de promotion */}
-                {(role === "admin" || role === "assistant") && (
-                    <div className="mt-4">
-                        <Suspense fallback={<span>Chargement...</span>}>
-                            <StudentPromotionStatus
-                                promotionStatus={student.promotion}
-                            />
-                        </Suspense>
-                    </div>
-                )}
                 {/* Informations supplémentaires sur l'élève */}
                 <div className="mt-2">
                     <button
@@ -654,17 +646,23 @@ const SingleStudentPage = ({
                             </span>
                         </div>
                         <div className="flex items-center gap-2 md:gap-2 w-full md:w-auto mt-2 md:mt-0">
-                            <Suspense fallback={<span>Chargement...</span>}>
-                                <FormModal
-                                    table="membership"
-                                    type="create"
-                                    id={student.id}
-                                    offers={Alloffers}
-                                    teachers={Allteachers}
-                                    studentId={student.id}
-                                    className="w-full md:w-auto"
-                                />
-                            </Suspense>
+                            {student.levelId == null ? (
+                                <div className="w-full md:w-auto text-xs bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2 rounded-md">
+                                    Veuillez d'abord affecter un niveau à l'élève pour créer un abonnement.
+                                </div>
+                            ) : (
+                                <Suspense fallback={<span>Chargement...</span>}>
+                                    <FormModal
+                                        table="membership"
+                                        type="create"
+                                        id={student.id}
+                                        offers={Alloffers}
+                                        teachers={Allteachers}
+                                        studentId={student.id}
+                                        className="w-full md:w-auto"
+                                    />
+                                </Suspense>
+                            )}
                         </div>
                     </div>
                     {student.memberships ? (
@@ -789,6 +787,18 @@ const SingleStudentPage = ({
                         Allschools={Allschools}
                     />
                 </Suspense>
+                {/* Historique académique — dernier composant (même largeur que Résultats/Factures) */}
+                {(role === "admin" || role === "assistant") && (
+                    <div className="mt-4">
+                        <Suspense fallback={<span>Chargement...</span>}>
+                            <StudentAcademicHistory
+                                promotionsHistory={promotionsHistory}
+                                movements={movements}
+                                student={student}
+                            />
+                        </Suspense>
+                    </div>
+                )}
             </div>
             {/* DROITE */}
             <div className="w-full xl:w-1/3 flex flex-col gap-4">
