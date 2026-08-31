@@ -11,18 +11,21 @@ const STATE_LABEL = {
     logged_out: "Déconnecté",
     qr: "En attente de scan QR",
     unreachable: "Injoignable",
+    connecting: "Connexion…",
     open: "Connecté",
 };
 
 export default function WhatsAppGatewayDialog() {
-    const { auth, gatewayStatus } = usePage().props;
+    const page = usePage();
+    const { auth, gatewayStatus } = page.props;
     const role = auth?.user?.role;
     const state = gatewayStatus ?? null;
+    const isDashboard = page.component === 'Dashboard' || page.url === '/dashboard' || page.url.startsWith('/dashboard?');
 
     const [open, setOpen] = useState(false);
     const hasAutoOpened = useRef(false);
 
-    const shouldShow = role === "admin" && state && state !== "open" && state !== "n/a";
+    const shouldShow = isDashboard && role === "admin" && state && state !== "open" && state !== "n/a" && state !== "connecting";
 
     useEffect(() => {
         if (shouldShow && !hasAutoOpened.current) {

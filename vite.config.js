@@ -22,6 +22,13 @@ export default defineConfig({
         // Never ship source maps: they expose the unminified frontend, including business
         // logic and commented-out endpoints. CI also fails the build if any .map appears.
         sourcemap: false,
+        // Prevent race where `npm run build` deletes public/build/manifest.json before
+        // the new one is written, causing concurrent Inertia requests to 500 with
+        // ViteManifestNotFoundException (seen 18:06:24 during POST /notifications/disconnect).
+        // With `false` the old manifest stays until the new one overwrites it atomically
+        // at the end of the build. Old hashed assets will accumulate and can be pruned
+        // by `npm run build:prune` if needed.
+        emptyOutDir: false,
         // NOTE: deliberately NO `manualChunks`.
         //
         // Grouping node_modules into named vendor chunks was tried and made things worse:

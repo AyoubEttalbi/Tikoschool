@@ -39,6 +39,8 @@ class WhatsAppGateway
 
     public const LOGGED_OUT = 'logged_out';
 
+    public const CONNECTING = 'connecting';
+
     /** The gateway process itself is not answering. */
     public const UNREACHABLE = 'unreachable';
 
@@ -88,7 +90,7 @@ class WhatsAppGateway
             // Anything the gateway reports that this app does not recognise is treated as
             // not-ready rather than optimistically as ready. Being wrong in that direction
             // delays a message; being wrong in the other loses it.
-            return in_array($state, [self::OPEN, self::NEEDS_SCAN, self::LOGGED_OUT], true)
+            return in_array($state, [self::OPEN, self::NEEDS_SCAN, self::LOGGED_OUT, self::CONNECTING], true)
                 ? $state
                 : self::UNREACHABLE;
         });
@@ -107,7 +109,7 @@ class WhatsAppGateway
     {
         return match (self::state()) {
             self::OPEN, self::NOT_APPLICABLE => null,
-            self::NEEDS_SCAN, self::LOGGED_OUT => 'gateway_disconnected',
+            self::NEEDS_SCAN, self::LOGGED_OUT, self::CONNECTING => 'gateway_disconnected',
             default => 'gateway_unreachable',
         };
     }
