@@ -76,11 +76,11 @@
             </tr>
             <tr>
                 <td class="label">Élève :</td>
-                <td class="value">{{ $student?->firstName }} {{ $student?->lastName }}</td>
+                <td class="value">{{ \App\Support\ArabicPdfText::shape($student?->firstName) }} {{ \App\Support\ArabicPdfText::shape($student?->lastName) }}</td>
             </tr>
             <tr>
                 <td class="label">Niveau :</td>
-                <td class="value">{{ $student?->level?->name ?? '—' }}</td>
+                <td class="value">{{ \App\Support\ArabicPdfText::shape($student?->level?->name ?? '—') }}</td>
             </tr>
             <tr>
                 <td class="label">Date de facturation :</td>
@@ -98,13 +98,13 @@
             </tr>
             <tr>
                 <td class="label">Offre :</td>
-                <td class="value">{{ $offerName }}</td>
+                <td class="value">{{ \App\Support\ArabicPdfText::shape($offerName) }}</td>
             </tr>
             <tr class="last">
                 <td class="label">Matières :</td>
                 <td class="value">
                     @forelse ($subjects as $subject)
-                        • {{ $subject }}@if(! $loop->last)  @endif
+                        • {{ \App\Support\ArabicPdfText::shape($subject) }}@if(! $loop->last)  @endif
                     @empty
                         —
                     @endforelse

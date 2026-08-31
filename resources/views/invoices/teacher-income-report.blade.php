@@ -5,11 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rapport des Gains - {{ $summaryData['teacherName'] }}</title>
     <style>
-        body { 
-            font-family: 'Arial', sans-serif; 
-            margin: 0; 
-            padding: 0; 
-            background-color: #f9fafb; 
+        body {
+            font-family: 'Arial', DejaVu Sans, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f9fafb;
         }
         .report-container { 
             max-width: 800px; 
@@ -135,7 +135,7 @@
         <div class="report-header">
             <img src="{{ public_path('logo.png') }}" alt="Logo de l'entreprise">
             <h1>Rapport des Gains</h1>
-            <p>{{ $summaryData['teacherName'] }}</p>
+            <p>{{ \App\Support\ArabicPdfText::shape($summaryData['teacherName']) }}</p>
             <p>Période : {{ $summaryData['dateRange'] }}</p>
         </div>
 
@@ -205,10 +205,10 @@
                     @endphp
                     <tr>
                         <td>{{ $invoice->id }}</td>
-                        <td>{{ $invoice->student->firstName ?? '' }} {{ $invoice->student->lastName ?? '' }}</td>
-                        <td>{{ $invoice->student->class->name ?? '—' }}</td>
-                        <td>{{ $invoice->student->school->name ?? '—' }}</td>
-                        <td>{{ $invoice->offer->offer_name ?? '—' }}</td>
+                        <td>{{ \App\Support\ArabicPdfText::shape($invoice->student->firstName ?? '') }} {{ \App\Support\ArabicPdfText::shape($invoice->student->lastName ?? '') }}</td>
+                        <td>{{ \App\Support\ArabicPdfText::shape($invoice->student->class->name ?? '—') }}</td>
+                        <td>{{ \App\Support\ArabicPdfText::shape($invoice->student->school->name ?? '—') }}</td>
+                        <td>{{ \App\Support\ArabicPdfText::shape($invoice->offer->offer_name ?? '—') }}</td>
                         <td>{{ $invoice->billDate ? \Carbon\Carbon::parse($invoice->billDate)->format('d/m/Y') : '—' }}</td>
                         <td class="amount">{{ number_format($teacherAmount, 2) }} DH</td>
                         <td class="months">{{ $monthsCount }} mois</td>

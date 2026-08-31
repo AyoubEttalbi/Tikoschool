@@ -5,11 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Factures groupées</title>
     <style>
-        body { 
-            font-family: 'Arial', sans-serif; 
-            margin: 0; 
-            padding: 0; 
-            background-color: #f9fafb; 
+        body {
+            font-family: 'Arial', DejaVu Sans, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f9fafb;
         }
         .invoice-container { 
             max-width: 800px; 
@@ -97,9 +97,9 @@
                 @foreach ($invoices as $invoice)
                     <tr>
                         <td>{{ $invoice->id }}</td>
-                        <td>{{ $invoice->student->firstName }} {{ $invoice->student->lastName }}</td>
-                        <td>{{ $invoice->className }}</td>
-                        <td>{{ $invoice->offer->offer_name }}</td>
+                        <td>{{ \App\Support\ArabicPdfText::shape($invoice->student->firstName) }} {{ \App\Support\ArabicPdfText::shape($invoice->student->lastName) }}</td>
+                        <td>{{ \App\Support\ArabicPdfText::shape($invoice->className) }}</td>
+                        <td>{{ \App\Support\ArabicPdfText::shape($invoice->offer->offer_name) }}</td>
                         <td>{{ $invoice->billDate }}</td>
                         <td>{{ $invoice->totalAmount }} DH</td>
                     </tr>

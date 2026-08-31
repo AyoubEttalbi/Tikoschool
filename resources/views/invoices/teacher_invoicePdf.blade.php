@@ -5,11 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Facture {{ $invoice->id }}</title>
     <style>
-        body { 
-            font-family: 'Arial', sans-serif; 
-            margin: 0; 
-            padding: 0; 
-            background-color: #f9fafb; 
+        body {
+            font-family: 'Arial', DejaVu Sans, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f9fafb;
         }
         .invoice-container { 
             max-width: 800px; 
@@ -98,9 +98,9 @@
         <!-- Détails de la facture -->
         <div class="invoice-details">
             <h2>Informations sur l'élève</h2>
-            <p><strong>Nom :</strong> {{ $invoice->student->firstName }} {{ $invoice->student->lastName }}</p>
-            <p><strong>Classe :</strong> {{ $invoice->className }}</p>
-            <p><strong>Offre :</strong> {{ $invoice->offer->offer_name }}</p>
+            <p><strong>Nom :</strong> {{ \App\Support\ArabicPdfText::shape($invoice->student->firstName) }} {{ \App\Support\ArabicPdfText::shape($invoice->student->lastName) }}</p>
+            <p><strong>Classe :</strong> {{ \App\Support\ArabicPdfText::shape($invoice->className) }}</p>
+            <p><strong>Offre :</strong> {{ \App\Support\ArabicPdfText::shape($invoice->offer->offer_name) }}</p>
         </div>
 
         <!-- Tableau de la facture -->

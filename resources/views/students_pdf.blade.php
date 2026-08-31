@@ -19,9 +19,8 @@
     <table>
         <tr>
             <th>Nom</th>
-            <td>{{ $student->firstName }} {{ $student->lastName }}</td>
-        </tr>
-        <tr>
+            <td>{{ \App\Support\ArabicPdfText::shape($student->firstName) }} {{ \App\Support\ArabicPdfText::shape($student->lastName) }}</td>
+        </tr>        <tr>
             <th>Date de naissance</th>
             <td>{{ $student->dateOfBirth }}</td>
         </tr>
@@ -47,15 +46,15 @@
         </tr>
         <tr>
             <th>Niveau</th>
-            <td>{{ optional($student->level)->name }}</td>
+            <td>{{ \App\Support\ArabicPdfText::shape(optional($student->level)->name) }}</td>
         </tr>
         <tr>
             <th>Classe</th>
-            <td>{{ optional($student->class)->name }}</td>
+            <td>{{ \App\Support\ArabicPdfText::shape(optional($student->class)->name) }}</td>
         </tr>
         <tr>
             <th>École</th>
-            <td>{{ optional($student->school)->name }}</td>
+            <td>{{ \App\Support\ArabicPdfText::shape(optional($student->school)->name) }}</td>
         </tr>
     </table>
     <h3 style="margin-top:32px; color:#2d6cdf;">Adhésions</h3>
@@ -71,7 +70,7 @@
         <tbody>
             @foreach($student->memberships as $membership)
             <tr>
-                <td>{{ optional($membership->offer)->offer_name ?? 'N/A' }}</td>
+                <td>{{ \App\Support\ArabicPdfText::shape(optional($membership->offer)->offer_name ?? 'N/A') }}</td>
                 <td>{{ ucfirst($membership->payment_status) }}</td>
                 <td>{{ $membership->start_date }}</td>
                 <td>{{ $membership->end_date }}</td>

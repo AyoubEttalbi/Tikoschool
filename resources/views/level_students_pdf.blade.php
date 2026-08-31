@@ -6,13 +6,19 @@
     Styled to match absence_list_pdf so the two documents read as one family — same header
     block, same red rule, same ✓ / ✗ vocabulary for paid and assured. DejaVu Sans is not
     decorative: the core PDF fonts carry neither the check/cross glyphs nor "é", and the
-    substitution is silent, so a different family here would print boxes.
+    substitution is silent, so a different family here would print boxes. It also carries
+    the Arabic presentation forms ArabicPdfText emits, so level/class/offer names mixing
+    French and Arabic print correctly.
+
+    Every name printed here goes through ArabicPdfText::shape() — see that class for why
+    raw names garble in dompdf. French-only strings pass through it unchanged, so wrapping
+    a name that will never hold Arabic costs nothing.
 --}}
 <!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="utf-8">
-    <title>Liste des élèves — {{ isset($class) ? $class->name : $level->name }}</title>
+    <title>Liste des élèves — {{ \App\Support\ArabicPdfText::shape(isset($class) ? $class->name : $level->name) }}</title>
     <style>
         @page { margin: 18px 22px; }
         body { font-family: DejaVu Sans, sans-serif; }
@@ -69,10 +75,10 @@
         <tr>
             <td style="text-align:left;">Liste des élèves</td>
             <td style="text-align:center;">
-                {{ isset($class) ? 'Classe : '.$class->name : 'Niveau : '.$level->name }}
+                {{ \App\Support\ArabicPdfText::shape(isset($class) ? 'Classe : '.$class->name : 'Niveau : '.$level->name) }}
             </td>
             <td style="text-align:center;">
-                Établissement : {{ $school->name ?? 'Tous' }}
+                Établissement : {{ \App\Support\ArabicPdfText::shape($school->name ?? 'Tous') }}
             </td>
             <td style="text-align:right;">{{ $generatedAt->format('d/m/Y') }}</td>
         </tr>
@@ -93,7 +99,7 @@
             @forelse($students as $i => $student)
                 <tr>
                     <td>{{ $i + 1 }}</td>
-                    <td class="name">{{ strtoupper($student->lastName) }} {{ $student->firstName }}</td>
+                    <td class="name">{{ strtoupper($student->lastName) }} {{ \App\Support\ArabicPdfText::shape($student->firstName) }}</td>
                     {{-- billingDate is the date the school inscribed the pupil — the same
                          value the movements system records as the inscription movement. --}}
                     <td>
@@ -105,7 +111,7 @@
                          order so row N of "Offre" lines up with row N of "Statut". --}}
                     <td class="offer">
                         @forelse($student->memberships as $membership)
-                            <span class="line">{{ optional($membership->offer)->offer_name ?? 'Offre supprimée' }}</span>
+                            <span class="line">{{ \App\Support\ArabicPdfText::shape(optional($membership->offer)->offer_name ?? 'Offre supprimée') }}</span>
                         @empty
                             <span class="muted">—</span>
                         @endforelse

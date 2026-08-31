@@ -43,8 +43,8 @@
     <table class="info-row">
         <tr>
             <td style="text-align:left;">Absence List</td>
-            <td style="text-align:center;">Teacher: {{ $teacher->first_name }} {{ $teacher->last_name }}</td>
-            <td style="text-align:center;">Level: {{ optional($class->level)->name }} | Class: {{ $class->name ?? '' }}</td>
+            <td style="text-align:center;">Teacher: {{ \App\Support\ArabicPdfText::shape($teacher->first_name) }} {{ \App\Support\ArabicPdfText::shape($teacher->last_name) }}</td>
+            <td style="text-align:center;">Level: {{ \App\Support\ArabicPdfText::shape(optional($class->level)->name) }} | Class: {{ \App\Support\ArabicPdfText::shape($class->name ?? '') }}</td>
             <td style="text-align:right;">Date: {{ $date ? substr($date,0,7) : date('Y-m') }}</td>
         </tr>
     </table>
@@ -68,7 +68,7 @@
         <tbody>
             @foreach($students as $student)
             <tr>
-                <td class="name">{{ strtoupper($student->lastName . ' ' . $student->firstName) }}</td>
+                <td class="name">{{ \App\Support\ArabicPdfText::shape(strtoupper($student->lastName . ' ' . $student->firstName)) }}</td>
                 <td class="billing">{{ $student->billingDate ?? '' }}</td>
                 <td class="st">
                     @php

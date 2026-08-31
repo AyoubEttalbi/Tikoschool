@@ -59,6 +59,7 @@ RUN apk add --no-cache \
     fileinfo \
     pcntl \
     posix \
+    calendar \
     && pecl install redis \
     && docker-php-ext-enable redis \
     && apk del $PHPIZE_DEPS
