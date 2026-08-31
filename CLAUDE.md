@@ -37,6 +37,10 @@ This is deliberate: the app depends on `JSON_LENGTH`/`JSON_CONTAINS`/`DATE_FORMA
 
 CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the suite against MySQL 8 and prints `route:list --columns=method,uri,name,middleware`.
 
+> **Customizations:** See [CUSTOMIZATIONS.md](CUSTOMIZATIONS.md) — instance-specific deltas not merged upstream.
+> That file is gitignored; keep CLAUDE.md generic and put school-specific overrides there.
+> Leave empty skeleton if no deltas yet; fill per deployment when needed.
+
 ## Architecture
 
 ### Request flow
