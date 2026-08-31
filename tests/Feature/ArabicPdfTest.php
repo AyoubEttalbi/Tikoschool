@@ -20,22 +20,31 @@ use App\Models\User;
  * unit contract alone does not prove the views actually call the shaper: a view that
  * prints `{{ $level->name }}` untouched still passes every ArabicPdfText unit test.
  *
- * WHAT COUNTS AS "GARBLED" IN THE CONTENT STREAM
- * ----------------------------------------------
+ * HOW THE PDF IS READ
+ * -------------------
  * dompdf compresses its content streams and writes text as two-byte glyph codes inside
- * TJ/Tj runs. Reading those runs gives the exact codepoints the document prints:
+ * TJ/Tj runs. dompdf embeds its TrueType subsets with Identity-H encoding and an
+ * identity ToUnicode map, so those two bytes ARE the Unicode codepoints (verified
+ * against real output: the /W width array of the embedded descendant font indexes by
+ * codepoint, and the ToUnicode CMap is the identity).
  *
- *   - Shaped Arabic appears as presentation forms (0xFExx pairs).
- *   - UNshaped Arabic — the bug — appears as base-block codepoints (0x06xx pairs).
+ * THE ASSERTIONS, AND WHY NOT "NO BASE CODEPOINTS ANYWHERE"
+ * ---------------------------------------------------------
+ * A shaped run still legitimately contains base 0x06XX codes: letters that never join
+ * forward (alef, waw, dal, reh) have the same drawing as their isolated presentation
+ * form, and Ar-PHP leaves a dual-joining letter base-coded when it stands in isolated
+ * position (e.g. the final ya of "إعدادي" — the alef before it does not join forward).
+ * A generic "no base codes" assertion would false-positive on correct output, and an
+ * adjacency heuristic cannot tell isolated position from mid-word once the run is in
+ * visual draw order. So the detector is exact instead, byte-for-byte:
  *
- * But not every base 0x06xx code is the bug: Arabic letters that never join to a
- * following letter (alef, waw, dal, reh...) have the SAME drawing as their isolated
- * presentation form, and Ar-PHP legitimately emits them as base codepoints. The
- * letters that DO join (beh, lam, seen...) are only ever printed as base codepoints
- * when shaping did not happen. So the detector is: a dual-joining letter appearing
- * as a base codepoint inside a text run. Verified by hand: with the heading reverted
- * to raw output the stream contains 06 27 06 44 06 23 (alef LAM alef-hamza — lam is
- * the joiner); shaped, the same word is FE F0 FE DF (lam-alef ligatures).
+ *   1. The lam-alef ligature MUST be present. "الأولى" contains lam+alef-hamza, and
+ *      lam-alef ligation is mandatory in every correct Arabic rendering — there is no
+ *      legitimate way to draw that pair unligated. Its presence proves shaping ran.
+ *   2. The raw logical-order byte sequence the bug wrote MUST be absent. The broken
+ *      render emitted exactly "06 27 06 44 06 23" (alef, lam, alef-hamza — the first
+ *      three letters of "الأولى" in memory order) inside a single text run. That byte
+ *      soup only ever appears when the unshaped string reached dompdf.
  */
 
 /** A level whose name mixes French and Arabic, like the client's real data. */
@@ -57,10 +66,7 @@ it('renders a level roster whose Arabic name is shaped, not raw base letters', f
         ->get(route('othersettings.levels.students.download', $level->id));
 
     $response->assertOk();
-
-    // The word الأولى contains ل (lam), a dual-joining letter. Shaped, lam can only
-    // appear as a presentation form; base-coded lam in the stream is the garble.
-    expect(arabicPdfUnshapedJoiners($response->getContent()))->toBeEmpty();
+    expect(arabicPdfTextIsShaped($response->getContent()))->toBeTrue();
 });
 
 it('renders the class roster and the absence sheet with the same guarantee', function () {
@@ -80,7 +86,7 @@ it('renders the class roster and the absence sheet with the same guarantee', fun
     $roster = test()->actingAs(User::factory()->create(['role' => 'admin']))
         ->get(route('classes.students.download', $class->id));
     $roster->assertOk();
-    expect(arabicPdfUnshapedJoiners($roster->getContent()))->toBeEmpty();
+    expect(arabicPdfTextIsShaped($roster->getContent()))->toBeTrue();
 
     $teacher = \App\Models\Teacher::factory()->create();
     \App\Models\Membership::factory()->create([
@@ -95,36 +101,32 @@ it('renders the class roster and the absence sheet with the same guarantee', fun
             'date' => '2026-08-01',
         ]));
     $absence->assertOk();
-    expect(arabicPdfUnshapedJoiners($absence->getContent()))->toBeEmpty();
+    expect(arabicPdfTextIsShaped($absence->getContent()))->toBeTrue();
 });
 
 /**
- * Dual-joining Arabic letters: they connect to both neighbours, so correct rendering
- * NEVER prints them as their base codepoint — only as one of the presentation forms.
- * Base-coded joiners in a text run are the fingerprint of unshaped Arabic.
+ * The ligature codepoints for lam+alef-hamza (the pair in "الأولى"), as they appear in
+ * the PDF's glyph stream: the high byte 0xFE followed by the ligature's low byte.
+ * U+FEF7 lam-alef-with-hamza-above (isolated) and U+FEF8 (final). Ar-PHP emits one of
+ * these for the pair; either proves shaping ran.
  */
-function arabicJoiningLetters(): array
-{
-    return [
-        0x0626, // yeh with hamza
-        0x0628, 0x062A, 0x062B, 0x062C, 0x062D, 0x062E, // beh..khah
-        0x0633, 0x0634, 0x0635, 0x0636, 0x0637, 0x0638, // seen..zah
-        0x0639, 0x063A, 0x0641, 0x0642, 0x0643, 0x0644, // ain..lam
-        0x0645, 0x0646, 0x0647, 0x064A, // meem, noon, heh, yeh
-    ];
-}
+const LAM_ALEF_HAMZA_HIGH_BYTES = ["\xFE\xF7", "\xFE\xF8"];
 
 /**
- * Text runs in the PDF that print a dual-joining Arabic letter as a base codepoint —
- * i.e. the garbled, unshaped Arabic that shipped to the client.
- *
- * The two-byte glyph codes in a TJ/Tj run ARE the Unicode codepoints here: dompdf
- * embeds its TrueType subsets with Identity-H encoding and an identity ToUnicode map
- * (verified against the real output). A base codepoint 0x06XX is written as the byte
- * pair 06 XX inside a parenthesised run string. The same bytes outside a text run are
- * positioning constants, not glyphs — hence per-run parsing.
+ * The unshaped fingerprint: alef (U+0627), lam (U+0644), alef-hamza (U+0623) as
+ * consecutive two-byte glyph codes in logical order — the exact bytes the broken
+ * render wrote for the start of "الأولى" (captured from a real garbled PDF).
  */
-function arabicPdfUnshapedJoiners(string $pdf): array
+const UNSHAPED_ALIF_LAM_ALIF_HAMZA = "\x06\x27\x06\x44\x06\x23";
+
+/**
+ * Does this PDF print "الأولى إعدادي" shaped?
+ *
+ * True when the lam-alef ligature is present AND the raw logical-order byte sequence
+ * is absent. Anything else — missing ligature, or the raw sequence still in a text
+ * run — is the bug.
+ */
+function arabicPdfTextIsShaped(string $pdf): bool
 {
     preg_match_all('/stream\r?\n(.*?)endstream/s', $pdf, $streams);
 
@@ -136,35 +138,19 @@ function arabicPdfUnshapedJoiners(string $pdf): array
         }
     }
 
-    // A PDF whose streams never inflated would pass vacuously — refuse that instead.
-    expect($inflated)->not->toBe('');
-
-    preg_match_all('/\[(.*?)\]\s*TJ|\((.*?)\)\s*Tj/s', $inflated, $runs, PREG_SET_ORDER);
-
-    $joiners = [];
-    foreach (arabicJoiningLetters() as $cp) {
-        $joiners[mb_chr($cp, 'UTF-8')] = true;
+    // A PDF whose streams never inflated would pass both checks vacuously —
+    // refuse that instead of reporting success on an unreadable document.
+    if ($inflated === '') {
+        return false;
     }
 
-    $offenders = [];
-    foreach ($runs as $run) {
-        $body = $run[1] !== '' ? $run[1] : ($run[2] ?? '');
-        if ($body === '' || ! preg_match_all('/\((.*?)\)/s', $body, $strings)) {
-            continue;
-        }
-
-        foreach ($strings[1] as $string) {
-            $chars = mb_str_split($string, 1, 'UTF-8');
-            for ($i = 0; $i < count($chars) - 1; $i++) {
-                if ($chars[$i] === "\x06" && isset($joiners[$chars[$i + 1]])) {
-                    $offenders[] = sprintf(
-                        'U+%04X',
-                        mb_ord("\x06".$chars[$i + 1], 'UTF-8')
-                    );
-                }
-            }
+    $hasLigature = false;
+    foreach (LAM_ALEF_HAMZA_HIGH_BYTES as $pair) {
+        if (str_contains($inflated, $pair)) {
+            $hasLigature = true;
+            break;
         }
     }
 
-    return array_values(array_unique($offenders));
+    return $hasLigature && ! str_contains($inflated, UNSHAPED_ALIF_LAM_ALIF_HAMZA);
 }
