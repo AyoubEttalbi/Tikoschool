@@ -34,8 +34,33 @@ export default function CameraCaptureModal({ open, onClose, onCapture }) {
         setError(null);
         setStarting(true);
 
+        // Une caméra bloquée au niveau du site (en-tête Permissions-Policy) ou un
+        // refus mémorisé échoue tous deux en NotAllowedError SANS que le navigateur
+        // n'affiche la moindre invite. On interroge l'état de la permission d'abord,
+        // pour afficher le bon conseil selon le cas.
+        navigator.permissions
+            ?.query({ name: "camera" })
+            .then(({ state }) => {
+                if (state === "denied" && !cancelled) {
+                    setError(
+                        "La caméra est bloquée pour ce site. Cliquez sur l'icône ⋮ ⋯ / cadenas à gauche de l'adresse → autorisez la caméra → rechargez la page.",
+                    );
+                }
+            })
+            .catch(() => {
+                /* Safari ne supporte pas permissions.query("camera") : le
+                   getUserMedia ci-dessous produira l'erreur appropriée. */
+            });
+
+        // getUserMedia n'existe que sur un contexte sécurisé (HTTPS, ou localhost).
+        if (!navigator.mediaDevices?.getUserMedia) {
+            setError("La caméra nécessite une connexion sécurisée (HTTPS).");
+            setStarting(false);
+            return;
+        }
+
         navigator.mediaDevices
-            ?.getUserMedia({
+            .getUserMedia({
                 video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 1280 } },
                 audio: false,
             })
@@ -53,7 +78,7 @@ export default function CameraCaptureModal({ open, onClose, onCapture }) {
                 if (!cancelled) {
                     setError(
                         e?.name === "NotAllowedError"
-                            ? "Accès à la caméra refusé. Autorisez-le dans votre navigateur."
+                            ? "Accès à la caméra refusé. Vérifiez l'autorisation caméra de ce site dans les réglages du navigateur (icône à gauche de la barre d'adresse), puis rechargez la page."
                             : "Caméra indisponible sur cet appareil.",
                     );
                 }
