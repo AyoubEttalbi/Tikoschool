@@ -51,8 +51,8 @@
     $subjects = collect($teachers ?? [])->pluck('subject')->filter()->unique()->values();
 @endphp
 
-{{-- The school copy first — it is the one that carries the pack price. --}}
-@foreach([[true, 'Copie école'], [false, 'Copie élève']] as [$isSchoolCopy, $copyName])
+{{-- The learner copy first — requested swap: REÇU (élève) first, FACTURE (école) second. --}}
+@foreach([[false, 'Copie élève'], [true, 'Copie école']] as [$isSchoolCopy, $copyName])
 
     <div class="copy">
         <table class="copy-header">
@@ -72,7 +72,7 @@
         <table class="fields">
             <tr>
                 <td class="label">Date de création :</td>
-                <td class="value">{{ $invoice->creationDate?->format('d/m/Y | H:i') }}</td>
+                <td class="value">{{ $invoice->created_at?->format('d/m/Y | H:i') }}</td>
             </tr>
             <tr>
                 <td class="label">Élève :</td>

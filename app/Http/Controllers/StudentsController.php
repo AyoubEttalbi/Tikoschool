@@ -11,6 +11,7 @@ use App\Models\Offer;
 use App\Models\Result;
 use App\Models\School;
 use App\Models\Student;
+use App\Models\InvoicePaymentLog;
 use App\Models\StudentMovement;
 use App\Models\Teacher;
 use App\Services\ProfileImageService;
@@ -402,7 +403,7 @@ class StudentsController extends Controller
                 'diseaseName' => 'nullable|required_if:hasDisease,1,true',
                 'medication' => 'nullable',
                 'assurance' => 'required',
-                'assuranceAmount' => 'nullable|numeric|min:0',
+                'assuranceAmount' => 'required_if:assurance,1|nullable|numeric|min:0',
                 'profile_image' => 'nullable|mimes:jpg,jpeg,png,webp,avif|max:5120', // Added for image upload
             ]);
 
@@ -465,7 +466,7 @@ class StudentsController extends Controller
 
             // Insert assurance invoice if needed
             if ($validatedData['assurance'] == 1 && $request->filled('assuranceAmount') && floatval($request->input('assuranceAmount')) > 0) {
-                Invoice::create([
+                $assuranceInvoice = Invoice::create([
                     'type' => 'assurance',
                     'assurance_amount' => $request->input('assuranceAmount'),
                     'membership_id' => null,
@@ -479,6 +480,7 @@ class StudentsController extends Controller
                     'created_by' => auth()->id(),
                     'months' => 1,
                 ]);
+                InvoicePaymentLog::recordDelta($assuranceInvoice, 0, auth()->id());
             }
 
             return redirect()->route('students.show', $student->id)->with('success', 'Student created successfully.');
@@ -841,7 +843,7 @@ class StudentsController extends Controller
                 'schoolId' => 'nullable',
                 'status' => 'required|in:active,inactive',
                 'assurance' => 'required',
-                'assuranceAmount' => 'nullable|numeric|min:0',
+                'assuranceAmount' => 'required_if:assurance,1|nullable|numeric|min:0',
                 'hasDisease' => 'sometimes',
                 'diseaseName' => 'nullable|string|max:255',
                 'medication' => 'nullable|string',
@@ -954,9 +956,11 @@ class StudentsController extends Controller
                     ->where('type', 'assurance')
                     ->orderByDesc('created_at')
                     ->first();
-                $amount = $request->input('assuranceAmount', 0);
+                $raw = $validatedData['assuranceAmount'] ?? $request->input('assuranceAmount', 0);
+                $amount = $raw === '' ? 0 : floatval($raw);
                 if ($assuranceInvoice) {
-                    // Update the existing invoice
+                    // Update the existing invoice - capture previous for delta
+                    $previousAmountPaid = $assuranceInvoice->amountPaid;
                     $assuranceInvoice->update([
                         'assurance_amount' => $amount,
                         'amountPaid' => $amount,
@@ -967,9 +971,10 @@ class StudentsController extends Controller
                         'created_by' => auth()->id(),
                         'months' => 1,
                     ]);
+                    InvoicePaymentLog::recordDelta($assuranceInvoice, $previousAmountPaid, auth()->id());
                 } else {
                     // Create a new invoice
-                    Invoice::create([
+                    $newAssuranceInvoice = Invoice::create([
                         'type' => 'assurance',
                         'assurance_amount' => $amount,
                         'membership_id' => null,
@@ -983,6 +988,7 @@ class StudentsController extends Controller
                         'created_by' => auth()->id(),
                         'months' => 1,
                     ]);
+                    InvoicePaymentLog::recordDelta($newAssuranceInvoice, 0, auth()->id());
                 }
             }
 

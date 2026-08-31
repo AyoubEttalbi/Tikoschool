@@ -196,8 +196,9 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
     } = useForm({
         resolver: zodResolver(schema),
         defaultValues: {
+            ...data,
             billingDate: defaultBillingDate,
-            assurance: data?.assurance === 1 ? "1" : data?.assurance === "1" ? "1" : "0",
+            assurance: String(data?.assurance) === "1" ? "1" : "0",
             assuranceAmount: data?.assuranceAmount?.toString() || "",
             status: data?.status || "active",
             hasDisease: data?.hasDisease === 1 ? "1" : "0",
@@ -205,7 +206,6 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
                 data?.hasDisease === 1 ? data?.diseaseName || "-" : "-",
             medication: data?.hasDisease === 1 ? data?.medication || "-" : "-",
             profile_image: null,
-            ...data, // Spread existing data for update
         },
     });
 
@@ -298,7 +298,7 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
     }, [selectedSchool, selectedLevel, classes, setValue]);
 
     // Handle form submission
-    const onSubmit = handleSubmit((formData) => {
+    const onSubmit = (formData) => {
         setServerErrors({});
         if (
             formData.hasDisease === "1" &&
@@ -405,16 +405,21 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
             });
                
         }
-    });
+    };
 
     return (
         <form
             className="flex flex-col gap-8 p-6 "
-            onSubmit={handleSubmit(onSubmit)}
+            onSubmit={handleSubmit(onSubmit, () => setLoading(false))}
         >
             <h1 className="text-2xl font-semibold text-gray-800">
                 {type === "create" ? "Créer un nouvel élève" : "Mettre à jour l'élève"}
             </h1>
+            {Object.keys(serverErrors).length > 0 && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600">
+                    {Object.values(serverErrors).flat().join(', ')}
+                </div>
+            )}
             <span className="text-xs text-gray-400 font-medium">
                 Informations de l'élève
             </span>
@@ -774,8 +779,8 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
                                 }}
                                 placeholder="Ex: 0.00"
                             />
-                            {errors.assuranceAmount && (
-                                <p className="text-xs text-red-400 mt-1">{errors.assuranceAmount.message}</p>
+                            {(errors.assuranceAmount || serverErrors.assuranceAmount) && (
+                                <p className="text-xs text-red-400 mt-1">{errors.assuranceAmount?.message || serverErrors.assuranceAmount}</p>
                             )}
                         </div>
                     )}
