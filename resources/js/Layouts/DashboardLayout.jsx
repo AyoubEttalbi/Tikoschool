@@ -3,6 +3,7 @@ import { Link, usePage } from "@inertiajs/react";
 import Menu from "@/Components/Menu";
 import Navbar from "@/Components/Navbar";
 import PaymentNoticeDialog from "@/Components/PaymentNoticeDialog";
+import WhatsAppGatewayDialog from "@/Components/WhatsAppGatewayDialog";
 import axios from "axios";
 import { getEcho, currentEcho } from "@/echo";
 
@@ -173,6 +174,7 @@ export default function DashboardLayout({ children }) {
                 {/* Mounted once here rather than per page: every controller that touches
                     teacher money flashes through the same channel, so no page has to opt in. */}
                 <PaymentNoticeDialog />
+                <WhatsAppGatewayDialog />
 
                 {children}
 

@@ -5,6 +5,8 @@ namespace App\Http\Middleware;
 use App\Models\User;
 use App\Support\ProfileImageUrl;
 use App\Support\SchoolScope;
+use App\Support\WhatsAppGateway;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
@@ -182,9 +184,18 @@ class HandleInertiaRequests extends Middleware
 
         return \App\Models\OutboundMessage::query()
             ->awaitingApproval()
-            ->whereHas('attendance')
+            ->whereHas('attendance', fn ($q) => $q->whereDate('date', '>=', Carbon::today()->subDays(6)))
             ->when($schoolIds !== null, fn ($q) => $q->whereIn('school_id', $schoolIds))
             ->count();
+    }
+
+    protected function gatewayStatus($user): ?string
+    {
+        if (! $user || $user->role !== 'admin') {
+            return null;
+        }
+
+        return WhatsAppGateway::state();
     }
 
     public function share(Request $request): array
@@ -228,6 +239,7 @@ class HandleInertiaRequests extends Middleware
             ] : null,
             'unreadCount' => fn () => $this->unreadAnnouncementCount($user),
             'pendingNoticesCount' => fn () => $this->pendingAbsenceNoticesCount($user),
+            'gatewayStatus' => fn () => $this->gatewayStatus($user),
         ];
     }
 }

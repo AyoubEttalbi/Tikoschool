@@ -13,6 +13,7 @@ use App\Models\Teacher;
 use App\Services\OutboundMessageService;
 use App\Support\PdfBudget;
 use App\Support\SchoolScope;
+use App\Support\WhatsAppGateway;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -900,7 +901,19 @@ class AttendanceController extends Controller
             abort(403);
         }
 
-        return Inertia::render('Menu/AbsenceLog');
+        return Inertia::render('Menu/AbsenceLog', [
+            'gateway' => $this->gatewayStateForAbsenceLog(),
+        ]);
+    }
+
+    private function gatewayStateForAbsenceLog(): array
+    {
+        $state = WhatsAppGateway::state();
+        return [
+            'state' => $state,
+            'canSend' => $state === WhatsAppGateway::OPEN || $state === WhatsAppGateway::NOT_APPLICABLE,
+            'holdReason' => WhatsAppGateway::holdReason(),
+        ];
     }
 
     /**
@@ -934,9 +947,12 @@ class AttendanceController extends Controller
             $query->whereHas('class', fn ($q) => $q->whereIn('school_id', $allowedSchoolIds));
         }
 
-        // Date filtering: optional — when omitted the log shows all days, newest first.
+        // Date filtering: supports 7-day period (default), single date, or all.
+        $period = $request->input('period');
         $date = $request->input('date');
-        if ($date) {
+        if ($period === 'last_7_days') {
+            $query->whereDate('date', '>=', Carbon::today()->subDays(6))->whereDate('date', '<=', Carbon::today());
+        } elseif ($date) {
             $query->whereDate('date', $date);
         }
 
@@ -982,18 +998,33 @@ class AttendanceController extends Controller
         });
 
         // How many notices wait for approval — drives the "valider et envoyer tout" bar.
-        // When no date is selected the count covers today (the actionable set); when a
-        // specific date is picked the bar matches the visible rows.
-        $awaitingDate = $date ?? now()->toDateString();
-        $awaitingCount = OutboundMessage::query()
-            ->awaitingApproval()
-            ->whereHas('attendance', fn ($q) => $q->whereDate('date', $awaitingDate))
-            ->when($allowedSchoolIds !== null, fn ($q) => $q->whereIn('school_id', $allowedSchoolIds))
-            ->count();
+        // Now supports 7-day period as default, keeps per-date when filtered.
+        $periodForAwaiting = $request->input('period');
+        if ($periodForAwaiting === 'last_7_days') {
+            $awaitingCount = OutboundMessage::query()
+                ->awaitingApproval()
+                ->whereHas('attendance', fn ($q) => $q->whereDate('date', '>=', Carbon::today()->subDays(6))->whereDate('date', '<=', Carbon::today()))
+                ->when($allowedSchoolIds !== null, fn ($q) => $q->whereIn('school_id', $allowedSchoolIds))
+                ->count();
+        } elseif ($date) {
+            $awaitingCount = OutboundMessage::query()
+                ->awaitingApproval()
+                ->whereHas('attendance', fn ($q) => $q->whereDate('date', $date))
+                ->when($allowedSchoolIds !== null, fn ($q) => $q->whereIn('school_id', $allowedSchoolIds))
+                ->count();
+        } else {
+            // Default to 7-day when no date/period supplied (covers initial load)
+            $awaitingCount = OutboundMessage::query()
+                ->awaitingApproval()
+                ->whereHas('attendance', fn ($q) => $q->whereDate('date', '>=', Carbon::today()->subDays(6)))
+                ->when($allowedSchoolIds !== null, fn ($q) => $q->whereIn('school_id', $allowedSchoolIds))
+                ->count();
+        }
 
         return response()->json([
             'data' => $data,
             'awaiting' => $awaitingCount,
+            'gateway' => $this->gatewayStateForAbsenceLog(),
             'current_page' => $absences->currentPage(),
             'last_page' => $absences->lastPage(),
             'per_page' => $absences->perPage(),
