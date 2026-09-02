@@ -289,8 +289,8 @@ const TeacherInvoicesTable = ({
     const renderRow = (item) => {
         if (!item) return null;
 
-        const billDate = item.billDate
-            ? new Date(item.billDate).toLocaleDateString()
+        const billDate = (item.invoiceBillDate || item.billDate)
+            ? new Date(item.invoiceBillDate || item.billDate).toLocaleDateString('fr-FR')
             : "N/A";
         const teacherAmount = Number(item.teacher_amount || 0).toFixed(2);
 

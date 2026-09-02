@@ -145,6 +145,7 @@ class TeacherEarnings
                         'student_school' => $schoolName,
                         'schoolId' => $schoolId,
                         'billDate' => $month.'-01',
+                        'invoiceBillDate' => $invoice->billDate ? ($invoice->billDate instanceof \Carbon\Carbon ? $invoice->billDate->format('Y-m-d') : date('Y-m-d', strtotime($invoice->billDate))) : null,
                         'month_display' => $monthDisplay,
                         'months' => $invoice->months,
                         'creationDate' => $invoice->creationDate,

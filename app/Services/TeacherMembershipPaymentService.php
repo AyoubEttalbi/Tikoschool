@@ -1500,7 +1500,10 @@ class TeacherMembershipPaymentService
             $selectedMonths = json_decode($selectedMonths, true) ?? [];
         }
 
-        if (empty($selectedMonths)) {
+        // Partial-only invoices (months=0 + includePartialMonth) are valid even when
+        // selected_months is empty. Choice B: allow 0 DH on last day of month too.
+        $isPartialOnly = (bool) ($validated['includePartialMonth'] ?? false);
+        if (empty($selectedMonths) && ! $isPartialOnly) {
             $errors[] = 'Cette facture ne couvre aucun mois. Sélectionnez au moins un mois.';
         }
 
