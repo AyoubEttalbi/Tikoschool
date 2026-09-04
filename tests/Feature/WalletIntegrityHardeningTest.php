@@ -398,11 +398,28 @@ test('reassigning a paid membership reverses the old teacher wallet credit', fun
 
     expect($creditedAtPayment)->toBeGreaterThan(0.0, 'Fixture is wrong — no commission was paid.');
 
-    // Reassign the membership to a different teacher.
-    $this->actingAs($admin)->put("/memberships/{$membership->id}", [
+    // Reassign the membership to a different teacher. First attempt only previews:
+    // a teacher change on a paid membership never executes without confirm.
+    $swap = [
         'student_id' => $student->id,
         'offer_id' => $offer->id,
         'teachers' => [['teacherId' => $replacement->id, 'subject' => 'Math', 'amount' => 100]],
+    ];
+
+    $this->actingAs($admin)->put("/memberships/{$membership->id}", $swap);
+
+    expect((float) $teacher->fresh()->wallet)->toBe(
+        $creditedAtPayment,
+        'The preview must not move money.'
+    );
+
+    $notice = session('payment_notice');
+    expect($notice)->not->toBeNull('Swapping a teacher must open the confirm dialog.');
+
+    // Confirm with the payload the dialog carries back.
+    $this->actingAs($admin)->put("/memberships/{$membership->id}", [
+        'confirm_teachers_change' => true,
+        'payload' => $notice['actions'][0]['data']['payload'],
     ]);
 
     $teacher->refresh();
@@ -412,7 +429,15 @@ test('reassigning a paid membership reverses the old teacher wallet credit', fun
         'The old teacher kept the commission after being replaced — the reversal never ran.'
     );
 
-    // And the payout records are still deactivated, as before.
-    expect(TeacherMembershipPayment::where('membership_id', $membership->id)->where('is_active', true)->count())
-        ->toBe(0);
+    // The old teacher's record stays dead; the replacement is paid immediately by
+    // the edit itself (reprocessMembershipInvoices) instead of waiting for someone
+    // to re-save the invoice.
+    expect(TeacherMembershipPayment::where('membership_id', $membership->id)->where('teacher_id', $teacher->id)->where('is_active', true)->count())
+        ->toBe(0, 'The removed teacher must stay dead.');
+
+    $replacement->refresh();
+
+    expect((float) $replacement->wallet)->toBe($creditedAtPayment, 'The replacement teacher is owed the same commission, immediately.')
+        ->and(TeacherMembershipPayment::where('membership_id', $membership->id)->where('teacher_id', $replacement->id)->where('is_active', true)->count())
+        ->toBe(1);
 });

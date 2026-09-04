@@ -527,11 +527,52 @@ class TeacherMembershipPaymentService
                 ->where('is_active', false)
                 ->get();
 
+            // Reactivation is a flag flip, never a payment — so it may only resurrect
+            // records that need no money: the teacher must STILL be assigned to the
+            // membership (a removed teacher's record reactivated here shows
+            // paid-in-full while the wallet is short), and the record must already
+            // be whole (money taken by a reversal is restored by reprocessing, which
+            // diffs against the record totals — flipping the flag instead would forge
+            // a paid-in-full record with the wallet short).
+            $membership = $invoice->membership;
+            $assignedIds = $membership && is_array($membership->teachers)
+                ? collect($membership->teachers)->pluck('teacherId')->map(fn ($v) => (int) $v)->all()
+                : [];
+
+            $flipped = 0;
+
             foreach ($records as $record) {
+                if (! in_array((int) $record->teacher_id, $assignedIds, true)) {
+                    Log::info('Skipped reactivation: teacher no longer assigned to the membership', [
+                        'record_id' => $record->id,
+                        'invoice_id' => $invoice->id,
+                        'teacher_id' => $record->teacher_id,
+                    ]);
+
+                    continue;
+                }
+
+                $paid = round((float) ($record->total_paid_to_teacher ?? 0), 2);
+                $owed = round((float) ($record->total_teacher_amount ?? 0), 2);
+
+                if ($paid < $owed - 0.01) {
+                    Log::info('Skipped reactivation: record is short, reprocessing must heal it', [
+                        'record_id' => $record->id,
+                        'invoice_id' => $invoice->id,
+                        'teacher_id' => $record->teacher_id,
+                        'total_paid_to_teacher' => $paid,
+                        'total_teacher_amount' => $owed,
+                    ]);
+
+                    continue;
+                }
+
                 $record->update([
                     'is_active' => true,
                     'months_rest_not_paid_yet' => [], // Clear unpaid months for fully paid invoices
                 ]);
+
+                $flipped++;
 
                 Log::info('Reactivated payment record', [
                     'record_id' => $record->id,
@@ -541,11 +582,11 @@ class TeacherMembershipPaymentService
             }
 
             $result['success'] = true;
-            $result['reactivated_records'] = $records->count();
+            $result['reactivated_records'] = $flipped;
 
             Log::info('Payment records reactivated', [
                 'invoice_id' => $invoice->id,
-                'reactivated_count' => $records->count(),
+                'reactivated_count' => $flipped,
             ]);
 
         } catch (\Exception $e) {
@@ -1726,6 +1767,230 @@ class TeacherMembershipPaymentService
     }
 
     /**
+     * Re-run payment processing for every invoice of a membership whose teachers were
+     * just edited — the second half of MembershipController::update().
+     *
+     * The edit first reverses all of the membership's teacher pay (wallets debited,
+     * records deactivated with truthful totals — see reverseTeacherPayment). Without
+     * this step, kept teachers stay short until someone happens to re-save each
+     * invoice — or forever, when no re-save ever comes.
+     *
+     * Reprocessing is safe by construction: it iterates the membership's CURRENT
+     * teachers, so kept teachers are reactivated and healed through the normal delta,
+     * newly added teachers get fresh records plus their immediate credit, and removed
+     * teachers are never touched — their records stay dead.
+     *
+     * Invoices with blocked reversals (past the deadline, empty wallet) are SKIPPED,
+     * unless part of the money was actually taken (partial recovery): no money
+     * moved there, so there is nothing to heal, and processing would only
+     * flip flags.
+     *
+     * @param  array<int>  $blockedInvoiceIds  invoice ids with a fully blocked reversal
+     */
+    public function reprocessMembershipInvoices(Membership $membership, array $blockedInvoiceIds = []): array
+    {
+        $result = [
+            'success' => true,
+            'reprocessed' => 0,
+            'skipped' => 0,
+            'errors' => [],
+        ];
+
+        $invoices = $membership->invoices()->get();
+
+        foreach ($invoices as $invoice) {
+            if (in_array($invoice->id, $blockedInvoiceIds, true)) {
+                $result['skipped']++;
+
+                continue;
+            }
+
+            $outcome = $this->processInvoicePayment($invoice, [
+                'totalAmount' => (float) ($invoice->totalAmount ?? 0),
+                'amountPaid' => (float) ($invoice->amountPaid ?? 0),
+                'rest' => (float) ($invoice->rest ?? 0),
+                'includePartialMonth' => (bool) ($invoice->includePartialMonth ?? false),
+                'partialMonthAmount' => (float) ($invoice->partialMonthAmount ?? 0),
+            ]);
+
+            if (! ($outcome['success'] ?? false)) {
+                $result['success'] = false;
+                $result['errors'][$invoice->id] = $outcome['errors'] ?? ['Unknown error'];
+
+                Log::error('Failed to reprocess invoice after membership edit', [
+                    'invoice_id' => $invoice->id,
+                    'membership_id' => $membership->id,
+                    'errors' => $result['errors'][$invoice->id],
+                ]);
+
+                continue;
+            }
+
+            $result['reprocessed']++;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Subjects in a teacher list that the offer does not teach.
+     *
+     * Compared case- and whitespace-insensitively (see OfferPercentages): "FR" on an
+     * offer listing "fr" is a match. An empty subject is always reported — a teacher
+     * row without a subject can never be paid correctly.
+     *
+     * When the offer lists no subjects at all there is nothing to judge against, so
+     * nothing is reported (the percentage keys are the fallback the payout path
+     * itself would use).
+     *
+     * @param  array<int, array<string, mixed>>  $teachers
+     * @return array<int, string> offending subjects in their submitted spelling
+     */
+    public static function unknownOfferSubjects(Offer $offer, array $teachers): array
+    {
+        $offerSubjects = is_array($offer->subjects) ? $offer->subjects : [];
+
+        if ($offerSubjects === []) {
+            $offerSubjects = is_array($offer->percentage) ? array_keys($offer->percentage) : [];
+        }
+
+        $known = array_map(
+            fn ($s) => OfferPercentages::normalise((string) $s),
+            $offerSubjects
+        );
+
+        if ($known === []) {
+            return [];
+        }
+
+        $bad = [];
+
+        foreach ($teachers as $teacherData) {
+            $subject = is_array($teacherData) ? (string) ($teacherData['subject'] ?? '') : '';
+
+            if ($subject === '' || ! in_array(OfferPercentages::normalise($subject), $known, true)) {
+                $bad[] = $subject === '' ? '(sans matière)' : $subject;
+            }
+        }
+
+        return array_values(array_unique($bad));
+    }
+
+    /**
+     * What changing a membership's teachers WOULD do to wallets, without doing it.
+     *
+     * Readonly: built from previewInvoiceReversal() (which never writes) plus ledger
+     * reads. Feeds the confirm dialog in MembershipController::update() so whoever
+     * presses save sees, per teacher, what leaves a wallet, what is blocked and why,
+     * and what a new teacher is estimated to receive.
+     *
+     * Amounts in the teacher rows are deliberately IGNORED for classification (only
+     * teacher + subject count): the form resubmits float dust (49.999998999999995),
+     * and the commission math never reads those amounts anyway.
+     *
+     * @param  array<int, array<string, mixed>>  $newTeachers
+     */
+    public function previewMembershipTeacherChange(Membership $membership, array $newTeachers, Offer $offer): array
+    {
+        $key = fn ($t) => (string) (is_array($t) ? ($t['teacherId'] ?? '') : '')
+            .'|'.OfferPercentages::normalise((string) (is_array($t) ? ($t['subject'] ?? '') : ''));
+
+        $oldTeachers = is_array($membership->teachers) ? $membership->teachers : [];
+        $oldKeys = array_map($key, $oldTeachers);
+        $newKeys = array_map($key, $newTeachers);
+
+        $removed = array_values(array_filter($oldTeachers, fn ($t) => ! in_array($key($t), $newKeys, true)));
+        $added = array_values(array_filter($newTeachers, fn ($t) => ! in_array($key($t), $oldKeys, true)));
+
+        // Every invoice's reversal preview, merged — the exact figures the confirm
+        // step would take back (or be blocked from taking).
+        $reversal = $this->emptyReversalOutcome(null, true);
+        $invoices = $membership->invoices()->get();
+
+        foreach ($invoices as $invoice) {
+            $outcome = $this->previewInvoiceReversal($invoice);
+            $reversal['applied'] = array_merge($reversal['applied'], $outcome['applied']);
+            $reversal['blocked'] = array_merge($reversal['blocked'], $outcome['blocked']);
+            $reversal['total_reversed'] += $outcome['total_reversed'];
+            $reversal['within_deadline'] = $reversal['within_deadline'] && $outcome['within_deadline'];
+        }
+
+        $reversal['total_reversed'] = round($reversal['total_reversed'], 2);
+        $reversal['reversed'] = $reversal['total_reversed'] > 0;
+        $reversal['messages'] = $this->buildReversalMessages($reversal);
+
+        // Per-teacher take-back, summed across the membership's invoices.
+        $takeBack = [];
+
+        foreach (array_merge($reversal['applied'], $reversal['blocked']) as $row) {
+            $k = ((int) ($row['teacher_id'] ?? 0)).'|'.OfferPercentages::normalise((string) ($row['subject'] ?? ''));
+
+            if (! isset($takeBack[$k])) {
+                $takeBack[$k] = [
+                    'teacher_id' => (int) ($row['teacher_id'] ?? 0),
+                    'teacher_name' => $row['teacher_name'] ?? '',
+                    'subject' => $row['subject'] ?? '',
+                    'amount' => 0.0,
+                    'blocked_reason' => null,
+                ];
+            }
+
+            $takeBack[$k]['amount'] = round($takeBack[$k]['amount'] + (float) ($row['amount'] ?? 0), 2);
+
+            if (($row['reason'] ?? 'reversed') !== 'reversed') {
+                $takeBack[$k]['blocked_reason'] = $row['reason'];
+            }
+        }
+
+        // New teachers have no records yet: estimate each invoice's total share with
+        // the NEW offer, through the same percentage resolution the payout path
+        // uses. A transient membership carries the new teacher list for the
+        // equal-distribution fallback, which reads it — no signature churn for a
+        // preview-only need.
+        $transient = new Membership;
+        $transient->setAttribute('teachers', array_values($newTeachers));
+
+        $estimates = [];
+
+        foreach ($invoices as $invoice) {
+            $studentPaid = round((float) ($invoice->amountPaid ?? 0), 2);
+
+            foreach ($added as $teacherData) {
+                $subject = (string) ($teacherData['subject'] ?? '');
+                $pct = $this->resolveTeacherPercentage($offer, $transient, $subject);
+                $k = ((string) ($teacherData['teacherId'] ?? '')).'|'.OfferPercentages::normalise($subject);
+
+                if (! isset($estimates[$k])) {
+                    $estimates[$k] = [
+                        'teacher_id' => (int) ($teacherData['teacherId'] ?? 0),
+                        'teacher_name' => $this->teacherLabel((int) ($teacherData['teacherId'] ?? 0)),
+                        'subject' => $subject,
+                        'share_pct' => $pct,
+                        'est_amount' => 0.0,
+                    ];
+                }
+
+                $estimates[$k]['est_amount'] = round($estimates[$k]['est_amount'] + $studentPaid * $pct / 100, 2);
+            }
+        }
+
+        return [
+            'membership_id' => $membership->id,
+            'invoice_ids' => $invoices->pluck('id')->all(),
+            'removed' => array_values(array_filter(array_map(
+                fn ($t) => $takeBack[(string) ($t['teacherId'] ?? '').'|'.OfferPercentages::normalise((string) ($t['subject'] ?? ''))] ?? null,
+                $removed
+            ))),
+            'kept_take_back' => array_values(array_filter(array_map(
+                fn ($t) => $takeBack[(string) ($t['teacherId'] ?? '').'|'.OfferPercentages::normalise((string) ($t['subject'] ?? ''))] ?? null,
+                array_values(array_filter($oldTeachers, fn ($t) => in_array($key($t), $newKeys, true)))
+            ))),
+            'added' => array_values($estimates),
+            'reversal' => $reversal,
+        ];
+    }
+
+    /**
      * A one-line-per-fact summary of the outcome.
      *
      * These land in the log and in the returned array. What the USER reads is built by
@@ -1782,6 +2047,25 @@ class TeacherMembershipPaymentService
                 Log::warning('Teacher not found for reversal', ['record_id' => $record->id]);
 
                 return;
+            }
+
+            // Re-read record and wallet under a row lock when a transaction is
+            // already open (callers run inside DB::transaction()). Two concurrent
+            // reversals of the same record would otherwise compute the claw-back
+            // — and the totals decrement below — from the same stale read. Same
+            // pattern as updateExistingRecord().
+            if (DB::transactionLevel() > 0) {
+                $lockedRecord = TeacherMembershipPayment::whereKey($record->id)->lockForUpdate()->first();
+
+                if ($lockedRecord) {
+                    $record = $lockedRecord;
+                }
+
+                $lockedTeacher = Teacher::whereKey($record->teacher_id)->lockForUpdate()->first();
+
+                if ($lockedTeacher) {
+                    $teacher = $lockedTeacher;
+                }
             }
 
             $paidToTeacher = round((float) ($record->total_paid_to_teacher ?? 0), 2);
@@ -1850,6 +2134,18 @@ class TeacherMembershipPaymentService
             if ($applied > 0) {
                 $outcome['total_reversed'] += $applied;
                 $outcome['applied'][] = $entry + ['amount' => $applied, 'reason' => 'reversed'];
+
+                // The record's own money fields must follow the wallet. They used to
+                // keep reading "fully paid" after the money was taken, so a later
+                // reprocessing diffed against stale totals, saw a delta of zero and
+                // credited nothing — an active, paid-in-full record on a live invoice
+                // with the wallet short. Decrement by what was ACTUALLY taken
+                // ($applied, post-clamp), never by what was requested: past-deadline
+                // and wallet-empty paths take nothing and must leave the totals alone.
+                $record->update([
+                    'total_paid_to_teacher' => round(max(0.0, $paidToTeacher - $applied), 2),
+                    'immediate_wallet_amount' => round(max(0.0, (float) ($record->immediate_wallet_amount ?? 0) - $applied), 2),
+                ]);
             }
 
             $shortfall = round($paidToTeacher - $applied, 2);

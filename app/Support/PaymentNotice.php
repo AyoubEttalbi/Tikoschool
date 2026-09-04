@@ -208,16 +208,114 @@ class PaymentNotice
             $rows[] = [
                 'label' => trim(($row['teacher_name'] ?? '').' — '.($row['subject'] ?? '')),
                 'value' => number_format((float) $row['amount'], 2, ',', ' ').' DH',
-                'note' => match ($row['reason'] ?? '') {
-                    'deadline_passed' => 'Conservé par l\'enseignant (délai dépassé)',
-                    'wallet_empty' => 'Non repris : portefeuille déjà vide',
-                    'wallet_insufficient' => 'Non repris : solde insuffisant',
-                    default => 'Non repris',
-                },
+                'note' => self::blockNote((string) ($row['reason'] ?? '')),
             ];
         }
 
         return $rows;
+    }
+
+    /**
+     * Ask before a membership teacher-change moves wallet money.
+     *
+     * The first save attempt writes NOTHING: this dialog shows what confirming WOULD
+     * do — per teacher taken back (or why it is blocked), what kept teachers get
+     * taken and re-credited, and what new teachers are estimated to receive — and the
+     * confirm action resubmits the full payload with the flag, so the server
+     * re-validates everything instead of trusting the preview.
+     *
+     * Per-teacher figures are admin-only (payroll), exactly like the deletion
+     * dialog: assistants see counts and the blocked warnings, which are the
+     * actionable part for them.
+     *
+     * @param  array<string, mixed>  $preview  from TeacherMembershipPaymentService::previewMembershipTeacherChange()
+     * @param  array<string, mixed>  $payload  validated student_id / offer_id / teachers to resubmit on confirm
+     */
+    public static function confirmMembershipChange(array $preview, int $membershipId, array $payload): self
+    {
+        $reversal = $preview['reversal'] ?? [];
+        $removed = $preview['removed'] ?? [];
+        $added = $preview['added'] ?? [];
+        $kept = $preview['kept_take_back'] ?? [];
+        $admin = self::canSeeTeacherAmounts();
+
+        $messages = [];
+
+        if (($reversal['total_reversed'] ?? 0) > 0) {
+            $messages[] = $admin
+                ? number_format((float) $reversal['total_reversed'], 2, ',', ' ').' DH seront repris des portefeuilles, puis recrédités aux enseignants conservés et versés aux nouveaux.'
+                : 'Les portefeuilles des enseignants seront ajustés : reprise puis reversement.';
+        }
+
+        foreach ($reversal['messages'] ?? [] as $message) {
+            $messages[] = $message;
+        }
+
+        if ($messages === []) {
+            $messages[] = 'Aucun portefeuille ne change.';
+        }
+
+        $details = [];
+
+        if ($admin) {
+            foreach ($removed as $row) {
+                $details[] = [
+                    'label' => trim(($row['teacher_name'] ?? '').' — '.($row['subject'] ?? '')).' (retiré)',
+                    'value' => number_format((float) $row['amount'], 2, ',', ' ').' DH',
+                    'note' => $row['blocked_reason'] === null
+                        ? 'Sera repris du portefeuille'
+                        : self::blockNote((string) $row['blocked_reason']),
+                ];
+            }
+
+            foreach ($kept as $row) {
+                $details[] = [
+                    'label' => trim(($row['teacher_name'] ?? '').' — '.($row['subject'] ?? '')).' (conservé)',
+                    'value' => number_format((float) $row['amount'], 2, ',', ' ').' DH',
+                    'note' => $row['blocked_reason'] === null
+                        ? 'Repris puis recrédité (solde inchangé)'
+                        : self::blockNote((string) $row['blocked_reason']),
+                ];
+            }
+
+            foreach ($added as $row) {
+                $details[] = [
+                    'label' => trim(($row['teacher_name'] ?? '').' — '.($row['subject'] ?? '')).' (ajouté)',
+                    'value' => number_format((float) $row['est_amount'], 2, ',', ' ').' DH',
+                    'note' => 'Sera versé (estimation)',
+                ];
+            }
+        }
+
+        return new self(
+            self::TONE_WARNING,
+            'Modifier les enseignants ?',
+            $messages,
+            $details,
+            [[
+                'label' => 'Confirmer la modification',
+                'url' => "/memberships/{$membershipId}",
+                'method' => 'put',
+                'style' => 'primary',
+                // The first request saved nothing, so the confirm resubmits the full
+                // payload plus the flag — the server re-validates from scratch.
+                'data' => [
+                    'confirm_teachers_change' => true,
+                    'payload' => $payload,
+                ],
+            ]],
+            $details === [] ? null : self::ADMIN_ONLY_NOTE,
+        );
+    }
+
+    private static function blockNote(string $reason): string
+    {
+        return match ($reason) {
+            'deadline_passed' => 'Conservé par l\'enseignant (délai dépassé)',
+            'wallet_empty' => 'Non repris : portefeuille déjà vide',
+            'wallet_insufficient' => 'Non repris : solde insuffisant',
+            default => 'Non repris',
+        };
     }
 
     /**

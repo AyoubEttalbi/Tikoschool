@@ -45,6 +45,13 @@ class TeacherWalletEntry extends Model
 
     public const REASON_ADJUSTMENT = 'manual.adjustment';
 
+    /**
+     * One-off repair top-up for a proven ledger-vs-record shortfall.
+     * Part of the idempotency key: stable per (teacher, invoice, month, subject),
+     * so re-running the repair is refused by the database instead of paying twice.
+     */
+    public const REASON_REPAIR = 'repair.shortfall';
+
     public function teacher()
     {
         return $this->belongsTo(Teacher::class);

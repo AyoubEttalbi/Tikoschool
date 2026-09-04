@@ -87,6 +87,10 @@ export default function PaymentNoticeDialog() {
 
         if (action.method === "delete") {
             router.delete(action.url, options);
+        } else if (action.method === "put") {
+            // Membership teacher-change confirm: resubmits the full payload plus the
+            // confirm flag, so the server re-validates from scratch.
+            router.put(action.url, action.data ?? {}, { preserveScroll: true });
         } else {
             router.post(action.url, action.data ?? {}, { preserveScroll: true });
         }

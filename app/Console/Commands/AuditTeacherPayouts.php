@@ -88,6 +88,13 @@ class AuditTeacherPayouts extends Command
         // ---- 6. Negative or suspicious wallets ----------------------------------
         $negativeWallets = Teacher::where('wallet', '<', 0)->get(['id', 'first_name', 'last_name', 'wallet']);
 
+        // ---- 7. Ledger-vs-record shortfalls (Sept 2026 class) -------------------
+        // A record says the teacher was paid X for a live invoice; the ledger must
+        // agree. Catches reactivated-without-money rows and reversed-never-restored
+        // rows that sections 1-6 structurally cannot see. @see LedgerShortfall.
+        $shortfalls = \App\Support\LedgerShortfall::find($threshold);
+        $shortfallTotal = round((float) $shortfalls->sum('shortfall'), 2);
+
         // ---- Report -------------------------------------------------------------
         $this->table(['Metric', 'Value'], [
             ['Teachers overpaid',                    $overpaidRows->count()],
@@ -99,6 +106,8 @@ class AuditTeacherPayouts extends Command
             ['Orphaned records (invoice gone)',      $orphaned],
             ['Duplicate (invoice,teacher,subject)',  $duplicates->count()],
             ['Teachers with a negative wallet',      $negativeWallets->count()],
+            ['Ledger-vs-record shortfall rows',      $shortfalls->count()],
+            ['  -> shortfall still owed',            number_format($shortfallTotal, 2)],
         ]);
 
         if ($negativeWallets->isNotEmpty()) {
@@ -116,7 +125,32 @@ class AuditTeacherPayouts extends Command
                 $d->invoice_id, $d->teacher_id, $d->teacher_subject, $d->copies,
             ])->all());
             if ($duplicates->count() > 25) {
-                $this->line('  ... and ' . ($duplicates->count() - 25) . ' more.');
+                $this->line('  ... and '.($duplicates->count() - 25).' more.');
+            }
+        }
+
+        if ($shortfalls->isNotEmpty()) {
+            $this->newLine();
+            $this->warn('Ledger-vs-record shortfalls: the record claims money the ledger never paid.');
+            $this->warn('AUTO = teacher still assigned (safe to repair). REVIEW = removed teacher (staffing decision).');
+            $names = Teacher::withTrashed()->whereIn('id', $shortfalls->pluck('teacher_id')->unique())
+                ->get(['id', 'first_name', 'last_name'])
+                ->mapWithKeys(fn ($t) => [$t->id => trim("{$t->first_name} {$t->last_name}")]);
+            $this->table(
+                ['Record', 'Teacher', 'Invoice', 'Subject', 'Claim', 'Ledger', 'Short', 'Action'],
+                $shortfalls->take(50)->map(fn ($s) => [
+                    $s['record']->id,
+                    $names[$s['teacher_id']] ?? ('#'.$s['teacher_id']),
+                    $s['invoice_id'],
+                    $s['subject'],
+                    number_format($s['claim'], 2),
+                    number_format($s['ledger'], 2),
+                    number_format($s['shortfall'], 2),
+                    $s['assigned'] ? 'AUTO' : 'REVIEW',
+                ])->all()
+            );
+            if ($shortfalls->count() > 50) {
+                $this->line('  ... and '.($shortfalls->count() - 50).' more.');
             }
         }
 
