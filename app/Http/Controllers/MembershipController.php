@@ -7,6 +7,7 @@ use App\Models\Membership;
 use App\Models\Offer;
 use App\Models\Student;
 use App\Models\Teacher;
+use App\Services\TeacherMembershipPaymentService;
 use App\Support\OfferPercentages;
 use App\Support\SchoolScope;
 use Illuminate\Http\Request;
@@ -447,12 +448,22 @@ class MembershipController extends Controller
         $membership = Membership::withTrashed()->with('student')->findOrFail($id);
         $this->authorizeMembership($membership);
 
-        // Hard block, before any transaction: a membership holding teacher money
-        // cannot be deleted. Deactivating the payout records WITHOUT reversing the
-        // wallets and then deleting the invoice afterwards finds no ACTIVE record
-        // left to reverse, so the claw-back silently never happens. Void each
-        // invoice through its own preview + confirm first; deleting the emptied
-        // membership stays one click.
+        // Deleting twice must not tombstone twice: the paid invoices are
+        // deliberately kept, so a second DELETE would re-run the settled path
+        // with zero active rows and write a duplicate trace.
+        if ($membership->trashed()) {
+            return redirect()->back()->withErrors(['error' => 'Adhésion déjà supprimée.']);
+        }
+
+        // Two tiers. FRESH money (a paid invoice inside the reversal window) keeps
+        // the hard block below: deactivating the payout records WITHOUT reversing
+        // the wallets and then deleting the invoice afterwards finds no ACTIVE
+        // record left to reverse, so the claw-back silently never happens. Void
+        // each invoice through its own preview + confirm first; deleting the
+        // emptied membership stays one click. SETTLED money (every paid invoice
+        // past the window) deletes freely instead — the teachers earned it long
+        // ago, so destroy() freezes their rows, writes no ledger row, and keeps
+        // the paid invoices as history.
         $block = $this->membershipDeleteBlock($membership, false);
 
         if ($block !== null) {
@@ -474,6 +485,38 @@ class MembershipController extends Controller
                 return redirect()->back()->with('payment_notice', $block);
             }
 
+            // Settled path: every paid invoice is past the reversal window, so the
+            // teachers keep what they earned long ago. Freeze their rows WITHOUT
+            // moving any wallet, tombstone the kept amounts, keep the paid
+            // invoices as financial history.
+            $settled = $this->settledDeleteContext($membership);
+
+            if ($settled !== null) {
+                $settled['rows'] = (new TeacherMembershipPaymentService)->settleMembershipPayouts($membership);
+                $settled['kept_total'] = round(array_sum(array_column($settled['rows'], 'kept')), 2);
+
+                $this->logActivity('deleted', $membership, $membership->toArray(), null, ['settled_delete' => [
+                    'membership_id' => $membership->id,
+                    'deadline_days' => TeacherMembershipPaymentService::REVERSAL_DEADLINE_DAYS,
+                    'invoices' => $settled['invoices'],
+                    'rows_kept' => array_map(fn ($row) => [
+                        'record_id' => $row['record_id'],
+                        'teacher_id' => $row['teacher_id'],
+                        'invoice_id' => $row['invoice_id'],
+                        'kept' => $row['kept'],
+                    ], $settled['rows']),
+                ]]);
+
+                // Delete the membership
+                $membership->delete();
+
+                DB::commit();
+
+                return redirect()->back()
+                    ->with('success', 'Adhésion supprimée.')
+                    ->with('payment_notice', \App\Support\PaymentNotice::fromSettledMembershipDelete($settled)->toArray());
+            }
+
             // Log the activity before deletion
             $this->logActivity('deleted', $membership, $membership->toArray(), null);
 
@@ -491,13 +534,51 @@ class MembershipController extends Controller
 
             DB::commit();
 
-            return redirect()->back()->with('success', 'Membership deleted successfully.');
+            return redirect()->back()->with('success', 'Adhésion supprimée.');
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error deleting membership:', ['error' => $e->getMessage()]);
 
             return redirect()->back()->withErrors(['error' => 'An error occurred while deleting the membership.']);
         }
+    }
+
+    /**
+     * Paid-money summary for a delete the block just let through, or null when the
+     * membership holds nothing at all.
+     *
+     * Called inside the destroy transaction right after the locked re-check, so
+     * everything listed here is settled by construction — the block would have
+     * stopped on anything fresh.
+     *
+     * @return array{deadline_days: int, invoices: array<int, array{id: int, amount_paid: float, days_since_payment: int|null}>}|null
+     */
+    private function settledDeleteContext(Membership $membership): ?array
+    {
+        $invoices = $membership->invoices()->lockForUpdate()->get()
+            ->filter(fn ($invoice) => round((float) ($invoice->amountPaid ?? 0), 2) > 0)
+            ->map(fn ($invoice) => [
+                'id' => $invoice->id,
+                'amount_paid' => round((float) $invoice->amountPaid, 2),
+                'days_since_payment' => TeacherMembershipPaymentService::reversalDeadlineState($invoice)[0],
+            ])
+            ->values()
+            ->all();
+
+        $hasPaidRows = \App\Models\TeacherMembershipPayment::where('membership_id', $membership->id)
+            ->where('is_active', true)
+            ->lockForUpdate()
+            ->get()
+            ->contains(fn ($record) => round((float) ($record->total_paid_to_teacher ?? 0), 2) > 0);
+
+        if ($invoices === [] && ! $hasPaidRows) {
+            return null;
+        }
+
+        return [
+            'deadline_days' => TeacherMembershipPaymentService::REVERSAL_DEADLINE_DAYS,
+            'invoices' => $invoices,
+        ];
     }
 
     /**
@@ -522,23 +603,39 @@ class MembershipController extends Controller
             // inside the re-check→deactivate window.
             Membership::whereKey($membership->id)->lockForUpdate()->first();
 
-            $livePaidInvoices = $membership->invoices()->lockForUpdate()->get()
-                ->filter(fn ($invoice) => (float) ($invoice->amountPaid ?? 0) > 0)
-                ->values();
-            $hasPaidPayouts = \App\Models\TeacherMembershipPayment::where('membership_id', $membership->id)
+            $liveInvoices = $membership->invoices()->lockForUpdate()->get();
+            $paidRows = \App\Models\TeacherMembershipPayment::where('membership_id', $membership->id)
                 ->where('is_active', true)
                 ->lockForUpdate()
                 ->get()
-                ->contains(fn ($record) => (float) ($record->total_paid_to_teacher ?? 0) > 0);
+                ->filter(fn ($record) => round((float) ($record->total_paid_to_teacher ?? 0), 2) > 0)
+                ->values();
         } else {
-            $livePaidInvoices = $membership->invoices()->where('amountPaid', '>', 0)->get();
-            $hasPaidPayouts = \App\Models\TeacherMembershipPayment::where('membership_id', $membership->id)
+            $liveInvoices = $membership->invoices()->get();
+            $paidRows = \App\Models\TeacherMembershipPayment::where('membership_id', $membership->id)
                 ->where('is_active', true)
-                ->where('total_paid_to_teacher', '>', 0)
-                ->exists();
+                ->get()
+                ->filter(fn ($record) => round((float) ($record->total_paid_to_teacher ?? 0), 2) > 0)
+                ->values();
         }
 
-        if ($livePaidInvoices->isEmpty() && ! $hasPaidPayouts) {
+        $livePaidInvoices = $liveInvoices
+            ->filter(fn ($invoice) => round((float) ($invoice->amountPaid ?? 0), 2) > 0)
+            ->values();
+
+        // Settled path: every paid invoice is past the reversal window AND every
+        // paid row sits on one of those settled invoices. No money can still move,
+        // so the delete may proceed — destroy() freezes the rows without touching
+        // the wallets. Anything else (a fresh invoice, a stranded row on a trashed
+        // invoice, a row on an edited-down zero invoice) keeps the hard block.
+        $settledInvoiceIds = $livePaidInvoices
+            ->filter(fn ($invoice) => TeacherMembershipPaymentService::isInvoiceSettled($invoice))
+            ->map(fn ($invoice) => (int) $invoice->id)
+            ->all();
+
+        $unsettled = $paidRows->reject(fn ($record) => in_array((int) $record->invoice_id, $settledInvoiceIds, true));
+
+        if (count($settledInvoiceIds) === $livePaidInvoices->count() && $unsettled->isEmpty()) {
             return null;
         }
 
@@ -603,7 +700,7 @@ class MembershipController extends Controller
     /**
      * Log activity for a model.
      */
-    protected function logActivity($action, $model, $oldData = null, $newData = null)
+    protected function logActivity($action, $model, $oldData = null, $newData = null, array $extraDeletedData = [])
     {
         $description = ucfirst($action).' '.class_basename($model).' ('.$model->id.')';
         $tableName = $model->getTable();
@@ -647,6 +744,10 @@ class MembershipController extends Controller
                 'teachers' => $oldData['teachers'],
             ];
         }
+
+        // Tombstones (e.g. settled_delete) live top-level so they stay queryable
+        // without digging through the entity snapshot.
+        $properties += $extraDeletedData;
 
         // Log the activity
         activity()

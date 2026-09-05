@@ -358,6 +358,15 @@ class InvoiceController extends Controller
                 ]);
             }
 
+            // The payment clock is stamped server-side, never trusted from the client.
+            // last_payment_date drives the reversal deadline (and through it the
+            // settled membership delete): a backdated value would convert a hard
+            // block into a delete that lets teachers keep fresh money. The update
+            // path already forces now(); store was the outlier.
+            $validated['last_payment_date'] = round((float) $validated['amountPaid'], 2) > 0
+                ? now()->toDateTimeString()
+                : null;
+
             // Create the invoice
             $invoice = Invoice::create($validated);
             Log::info('Invoice created successfully', ['invoice_id' => $invoice->id]);

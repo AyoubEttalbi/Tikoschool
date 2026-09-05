@@ -1621,7 +1621,7 @@ class TeacherMembershipPaymentService
      */
     public function previewInvoiceReversal(Invoice $invoice): array
     {
-        [$daysSincePayment, $withinDeadline] = $this->reversalDeadlineState($invoice);
+        [$daysSincePayment, $withinDeadline] = self::reversalDeadlineState($invoice);
 
         $outcome = $this->emptyReversalOutcome($daysSincePayment, $withinDeadline);
 
@@ -1684,9 +1684,13 @@ class TeacherMembershipPaymentService
      * How long ago this invoice's money actually moved, and whether that is still inside
      * the window.
      *
+     * Static on purpose: MembershipController asks the same question when deciding
+     * whether a membership holding paid invoices may be deleted, and the two call
+     * sites must never disagree about what "settled" means.
+     *
      * @return array{0: int|null, 1: bool}
      */
-    private function reversalDeadlineState(Invoice $invoice): array
+    public static function reversalDeadlineState(Invoice $invoice): array
     {
         // The payment moment, not the billing anchor: last_payment_date is stamped by
         // every amountPaid change, and created_at covers pay-on-create. See
@@ -1707,6 +1711,86 @@ class TeacherMembershipPaymentService
             $daysSincePayment,
             $daysSincePayment !== null && $daysSincePayment <= self::REVERSAL_DEADLINE_DAYS,
         ];
+    }
+
+    /**
+     * Whether an invoice's teacher money is settled: nothing paid, or the last
+     * payment is past the reversal window.
+     *
+     * This is the membership-delete predicate. A settled invoice's money is history —
+     * deleting its membership must freeze the rows, never move the wallets.
+     */
+    public static function isInvoiceSettled(Invoice $invoice): bool
+    {
+        if (round((float) ($invoice->amountPaid ?? 0), 2) <= 0) {
+            return true;
+        }
+
+        [, $withinDeadline] = self::reversalDeadlineState($invoice);
+
+        return ! $withinDeadline;
+    }
+
+    /**
+     * Freeze a deleted membership's payout rows WITHOUT moving any wallet money.
+     *
+     * Settled-delete only: the teachers earned this long ago. Totals stay
+     * byte-identical so the ledger keeps reconciling; the rows leave the active
+     * set and their queued months are cleared so the monthly cron can never pay
+     * them again. Never routed through reverseInvoicePayments(), which debits.
+     *
+     * @return array<int, array{record_id: int, teacher_id: int, teacher_name: string, subject: string|null, invoice_id: int|null, kept: float}>
+     */
+    public function settleMembershipPayouts(Membership $membership): array
+    {
+        $summary = [];
+
+        $rows = TeacherMembershipPayment::where('membership_id', $membership->id)
+            ->where('is_active', true)
+            ->lockForUpdate()
+            ->get();
+
+        $teachers = Teacher::whereIn('id', $rows->pluck('teacher_id')->unique())->get()->keyBy('id');
+
+        foreach ($rows as $record) {
+            // Fail closed: this function freezes money instead of reversing it, so
+            // it must never run on fresh money even if a future caller skips the
+            // delete block. Rows on trashed/zero invoices cannot reach here through
+            // the block, and are left to it — this guard only stops fresh ones.
+            $invoice = $record->invoice_id ? Invoice::find($record->invoice_id) : null;
+
+            if ($invoice && round((float) ($invoice->amountPaid ?? 0), 2) > 0 && ! self::isInvoiceSettled($invoice)) {
+                throw new \LogicException("Refusing to settle fresh invoice {$invoice->id}");
+            }
+
+            $kept = round((float) ($record->total_paid_to_teacher ?? 0), 2);
+
+            $record->update([
+                'is_active' => false,
+                'months_rest_not_paid_yet' => [],
+            ]);
+
+            Log::info('Settled teacher membership payment record on membership delete: totals frozen, no wallet movement', [
+                'record_id' => $record->id,
+                'teacher_id' => $record->teacher_id,
+                'membership_id' => $membership->id,
+                'invoice_id' => $record->invoice_id,
+                'kept_amount' => $kept,
+            ]);
+
+            $teacher = $teachers->get($record->teacher_id);
+
+            $summary[] = [
+                'record_id' => $record->id,
+                'teacher_id' => $record->teacher_id,
+                'teacher_name' => $teacher ? trim($teacher->first_name.' '.$teacher->last_name) : '',
+                'subject' => $record->teacher_subject,
+                'invoice_id' => $record->invoice_id,
+                'kept' => $kept,
+            ];
+        }
+
+        return $summary;
     }
 
     /**
@@ -1742,7 +1826,7 @@ class TeacherMembershipPaymentService
 
     public function reverseInvoicePayments(Invoice $invoice, ?array $oldData = null): array
     {
-        [$daysSincePayment, $withinDeadline] = $this->reversalDeadlineState($invoice);
+        [$daysSincePayment, $withinDeadline] = self::reversalDeadlineState($invoice);
 
         $outcome = $this->emptyReversalOutcome($daysSincePayment, $withinDeadline);
 

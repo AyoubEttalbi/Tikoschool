@@ -186,6 +186,63 @@ class PaymentNotice
     }
 
     /**
+     * Build the notice for a settled membership delete.
+     *
+     * Nothing moved: the paid invoices were all past the reversal window, so the
+     * teachers keep what they earned and the invoices stay as history. Keeping
+     * money is irreversible and dialog-worthy, hence warning whenever anything
+     * was kept — success only when the membership never paid a dirham.
+     *
+     * @param  array{deadline_days: int, invoices: array<int, array{id: int, amount_paid: float, days_since_payment: int|null}>, rows: array<int, array{teacher_name: string, subject: string|null, kept: float}>, kept_total: float}  $settled
+     */
+    public static function fromSettledMembershipDelete(array $settled): self
+    {
+        $deadline = $settled['deadline_days'] ?? 7;
+        $keptTotal = round((float) ($settled['kept_total'] ?? 0), 2);
+        $admin = self::canSeeTeacherAmounts();
+
+        $messages = $keptTotal > 0
+            ? [
+                "Dernier paiement de plus de {$deadline} jours : les enseignants gardent ce qui leur a été versé.",
+                "Les factures sont conservées comme historique financier ; aucun portefeuille n'a changé.",
+            ]
+            : [
+                'Aucun versement enseignant à reprendre : les portefeuilles ne changent pas.',
+                'Les factures sont conservées comme historique financier.',
+            ];
+
+        // Student-paid totals are cashier history, visible to every role — exactly
+        // like the delete-block details. Per-teacher kept amounts are payroll.
+        $details = [];
+        foreach ($settled['invoices'] ?? [] as $invoice) {
+            $details[] = [
+                'label' => 'Facture n°'.$invoice['id'],
+                'value' => number_format((float) $invoice['amount_paid'], 2, ',', ' ').' DH payés',
+                'note' => 'Conservée (délai dépassé)',
+            ];
+        }
+
+        if ($admin) {
+            foreach ($settled['rows'] ?? [] as $row) {
+                $details[] = [
+                    'label' => trim(($row['teacher_name'] ?? '').' — '.($row['subject'] ?? '')),
+                    'value' => number_format((float) $row['kept'], 2, ',', ' ').' DH',
+                    'note' => self::blockNote('deadline_passed'),
+                ];
+            }
+        }
+
+        return new self(
+            $keptTotal > 0 ? self::TONE_WARNING : self::TONE_SUCCESS,
+            $keptTotal > 0 ? 'Adhésion supprimée — versements conservés' : 'Adhésion supprimée',
+            $messages,
+            $details,
+            [],
+            $admin && ($settled['rows'] ?? []) !== [] ? self::ADMIN_ONLY_NOTE : null,
+        );
+    }
+
+    /**
      * Per-teacher rows. Admin only — this is payroll.
      *
      * @param  array<int, array<string, mixed>>  $applied

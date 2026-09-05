@@ -168,7 +168,7 @@ const MembershipForm = ({
 
     // Handle membership deletion
     const handleDelete = () => {
-        if (confirm("Êtes-vous sûr de vouloir supprimer cette adhésion ?")) {
+        if (confirm("Êtes-vous sûr de vouloir supprimer cette adhésion ? Les factures payées dont le délai est dépassé sont conservées comme historique et les enseignants gardent les montants déjà versés.")) {
             router.delete(`/memberships/${data.id}`, {
                 onSuccess: () => setOpen(false),
                 onError: (errors) => console.error("Delete failed:", errors),
