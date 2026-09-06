@@ -18,18 +18,12 @@ use Illuminate\Support\Facades\Log;
 class SchoolYearController extends Controller
 {
     /**
-     * Moroccan school year label: Sept (9) – Jun (8)
+     * Moroccan school year label: Sept (9) – Aug (8)
      * month 9–12 → "{Y}/{Y+1}", month 1–8 → "{Y-1}/{Y}"
      */
     private function academicYearLabel($date): string
     {
-        $d = Carbon::parse($date);
-        $m = (int) $d->format('n');
-        $y = (int) $d->format('Y');
-        if ($m >= 9 && $m <= 12) {
-            return $y . '/' . ($y + 1);
-        }
-        return ($y - 1) . '/' . $y;
+        return \App\Support\AcademicYear::label($date);
     }
 
     /**

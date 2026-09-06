@@ -530,11 +530,12 @@ class StudentsController extends Controller
         $teachers = Teacher::with('subjects')->get(); // Eager load subjects for each teacher
 
         // Fetch memberships for the student (including soft-deleted ones)
+        $nowLabel = \App\Support\AcademicYear::label(now());
         $memberships = Membership::withTrashed()
             ->where('student_id', $student->id)
             ->with(['offer', 'invoices'])
             ->get()
-            ->map(function ($membership) {
+            ->map(function ($membership) use ($nowLabel) {
                 // Process invoices for this membership
                 $membershipInvoices = $membership->invoices->map(function ($invoice) {
                     // Always send selectedMonths as array if present
@@ -575,6 +576,20 @@ class StudentsController extends Controller
                     'offer_name' => optional($membership->offer)->offer_name,
                     'offer_id' => optional($membership->offer)->id,
                     'price' => optional($membership->offer)->price,
+                    // The membership's OWN offer data. The student page level-filters
+                    // the offer list (right for CREATE), so a membership on an
+                    // old-level offer is never in it — the UPDATE form preloads
+                    // from these fields instead. Already eager-loaded above: no
+                    // new queries. (Offer carries no SoftDeletes trait, so the
+                    // relation resolves any existing row; nulls mean the row is
+                    // gone, which the FK cascade makes near-impossible.)
+                    'subjects' => optional($membership->offer)->subjects,
+                    'percentage' => optional($membership->offer)->percentage,
+                    // Visual signal only, never a rule: past-school-year record.
+                    'is_historical' => \App\Support\AcademicYear::isHistorical(
+                        $membership->end_date ?? $membership->created_at,
+                        $nowLabel
+                    ),
                     'teachers' => $membership->teachers,
                     'created_at' => $membership->created_at,
                     'payment_status' => $membership->payment_status,

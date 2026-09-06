@@ -28,7 +28,7 @@ export default function MembershipCard({
 
     // Helper function to find a teacher's name by ID
     const getTeacherName = (teacherId) => {
-        const teacher = teachers.find((t) => t.id === parseInt(teacherId));
+        const teacher = teachers.find((t) => String(t.id) === String(teacherId));
         return teacher
             ? `${teacher.first_name} ${teacher.last_name}`
             : "Enseignant inconnu";
@@ -93,6 +93,11 @@ export default function MembershipCard({
                                             (Supprimé)
                                         </span>
                                     )}
+                                    {!membership.deleted_at && membership.is_historical && (
+                                        <span className="ml-2 text-xs bg-amber-100 border border-amber-300 text-amber-800 px-2 py-0.5 rounded-full">
+                                            Historique
+                                        </span>
+                                    )}
                                 </span>
                                 {!membership.deleted_at && (() => {
                                     const paymentStatus = getPaymentStatus(membership);
@@ -121,7 +126,7 @@ export default function MembershipCard({
                                     <span>Enseignants :</span>
                                 </div>
                                 <div className="ml-6 space-y-1">
-                                    {membership.teachers.map(
+                                    {(membership.teachers || []).map(
                                         (teacher, index) => (
                                             <div
                                                 key={index}

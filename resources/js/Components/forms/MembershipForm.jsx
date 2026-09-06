@@ -52,12 +52,39 @@ const MembershipForm = ({
     const teachersWatch = watch("teachers");
 
     // Initialize form values when editing
+    // didInit: the effect below must run ONCE. Refs arrive async and parents
+    // re-render with new array identities — a second run would reset() away the
+    // user's picks or silently revert a deliberate offer switch.
+    const didInit = React.useRef(false);
     useEffect(() => {
+        if (didInit.current) {
+            return;
+        }
         if (type === "update" && data) {
-            // Find the selected offer
-            const offer = offers.find((o) => o.id === data.offer_id);
+            // The student page level-filters the offer list (right for CREATE),
+            // so a membership on an old-level offer is never in it. Preload from
+            // the membership's own offer data, which the backend always includes;
+            // fall back to the list lookup for callers without it.
+            // NOTE: the reconstructed offer intentionally carries only
+            // id/offer_name/price/subjects/percentage — this form must not read
+            // levelId or timestamps from it.
+            const hasOwnOffer =
+                Array.isArray(data.subjects) && data.subjects.length > 0;
+            const offer = hasOwnOffer
+                ? {
+                      id: data.offer_id,
+                      offer_name: data.offer_name,
+                      price: data.price,
+                      subjects: data.subjects,
+                      percentage: data.percentage,
+                  }
+                : offers.find((o) => String(o.id) === String(data.offer_id));
 
-            if (offer) {
+            if (
+                offer &&
+                Array.isArray(offer.subjects) &&
+                offer.subjects.length > 0
+            ) {
                 setSelectedOffer(offer);
                 setSelectedSubjects(offer.subjects);
                 setAmounts(calculateAmounts(offer));
@@ -65,7 +92,10 @@ const MembershipForm = ({
                 // Set initial values for teachers
                 const teachersObj = {};
                 // Map teachers either by explicit subject or by index fallback
-                data.teachers.forEach((teacher, index) => {
+                const teacherRows = Array.isArray(data.teachers)
+                    ? data.teachers
+                    : [];
+                teacherRows.forEach((teacher, index) => {
                     const subjectKey = teacher.subject || offer.subjects?.[index];
                     if (subjectKey) {
                         teachersObj[subjectKey] = {
@@ -76,14 +106,28 @@ const MembershipForm = ({
 
                 // Update form values
                 reset({ teachers: teachersObj });
+                didInit.current = true;
             }
         }
     }, [data, offers, type, reset]);
 
+    // Whether the user picked a different offer than the membership's own.
+    // Past that point the original teacher rows no longer apply: every row
+    // must be picked deliberately, never carried across by index.
+    const offerSwitched =
+        type === "update" &&
+        selectedOffer != null &&
+        data?.offer_id != null &&
+        String(selectedOffer.id) !== String(data.offer_id);
+
     // Handle offer selection change
     const handleOfferChange = (event) => {
         const offerId = parseInt(event.target.value);
-        const offer = offers.find((o) => o.id === offerId);
+        // Re-picking the current offer is a no-op — never wipe good picks.
+        if (String(offerId) === String(selectedOffer?.id)) {
+            return;
+        }
+        const offer = offers.find((o) => String(o.id) === String(offerId));
         if (offer) {
             setSelectedOffer(offer);
             setSelectedSubjects(offer.subjects);
@@ -93,6 +137,9 @@ const MembershipForm = ({
             setSelectedSubjects([]);
             setAmounts({});
         }
+        // New subjects mean new rows: start empty so no stale teacher id can
+        // leak into a subject it was never assigned to.
+        reset({ teachers: {} });
     };
 
     // Calculate amounts based on offer percentage
@@ -115,6 +162,13 @@ const MembershipForm = ({
             alert("Veuillez sélectionner une offre");
             return;
         }
+        // A missing percentage map means corrupt offer data — never submit
+        // confident-looking zeros. (Backend recomputes from DB rates, but the
+        // user deserves a loud failure, not a quiet 0 DH row.)
+        if (typeof selectedOffer.percentage !== "object" || selectedOffer.percentage === null) {
+            alert("L'offre sélectionnée n'a pas de pourcentages valides. Contactez l'administrateur.");
+            return;
+        }
 
         // Prepare data differently based on form type
         let finalData;
@@ -127,7 +181,7 @@ const MembershipForm = ({
                 teachers: Object.keys(formData.teachers).map((subject) => ({
                     subject,
                     teacherId: formData.teachers[subject].teacherId,
-                    percentage: selectedOffer.percentage[subject],
+                    percentage: selectedOffer.percentage?.[subject] ?? 0,
                     amount: amounts[subject] || 0,
                 })),
             };
@@ -137,15 +191,10 @@ const MembershipForm = ({
                 student_id: studentId,
                 offer_id: selectedOffer.id,
                 teachers: selectedSubjects.map((subject) => {
-                    // Find the matching teacher entry in the original data if available
-                    const originalTeacher = data.teachers.find(
-                        (t) => t.subject === subject,
-                    );
-
                     return {
                         subject,
                         teacherId: formData.teachers[subject]?.teacherId,
-                        percentage: selectedOffer.percentage[subject],
+                        percentage: selectedOffer.percentage?.[subject] ?? 0,
                         amount: amounts[subject] || 0,
                     };
                 }),
@@ -199,6 +248,14 @@ const MembershipForm = ({
                     value={selectedOffer?.id || ""}
                 >
                     <option value="">Sélectionner une offre</option>
+                    {selectedOffer != null &&
+                        !offers.some((o) => String(o.id) === String(selectedOffer.id)) && (
+                            <option
+                                key={`current-${selectedOffer.id}`}
+                                value={selectedOffer.id}
+                                disabled
+                            >{`${selectedOffer.offer_name} - ${selectedOffer.price} DH (offre actuelle)`}</option>
+                        )}
                     {offers.map((offer) => (
                         <option
                             key={offer.id}
@@ -211,12 +268,16 @@ const MembershipForm = ({
             {selectedSubjects.length > 0 && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {selectedSubjects.map((subject, idx) => {
-                        const defaultTeacher = String(
-                            (
-                                data?.teachers?.find((t) => t.subject === subject)
-                                    ?.teacherId ?? data?.teachers?.[idx]?.teacherId ?? ""
-                            ),
-                        );
+                        // After an offer switch the original rows no longer apply —
+                        // show empty selects so every pick is deliberate.
+                        const defaultTeacher = offerSwitched
+                            ? ""
+                            : String(
+                                  (
+                                      data?.teachers?.find((t) => t.subject === subject)
+                                          ?.teacherId ?? data?.teachers?.[idx]?.teacherId ?? ""
+                                  ),
+                              );
                         return (
                             <div
                                 key={subject}
@@ -280,12 +341,28 @@ const MembershipForm = ({
                 </div>
             )}
             {/* Action Buttons */}
+            {errors.teachers && (
+                <p className="text-xs text-red-500 mt-2">
+                    Veuillez sélectionner un enseignant pour chaque matière.
+                </p>
+            )}
             <div
                 className={`flex flex-row ${type === "create" ? "justify-center" : "justify-around"}`}
             >
                 <button
                     type="submit"
-                    className="mt-6 w-1/3 bg-blue-600 text-white py-3 rounded-md flex items-center justify-center gap-2 hover:bg-blue-700 transition-all"
+                    disabled={
+                        type !== "create"
+                            ? selectedSubjects.length === 0 ||
+                              selectedSubjects.some(
+                                  (s) => !teachersWatch?.[s]?.teacherId,
+                              )
+                            : selectedSubjects.some(
+                                  (s) => !teachersWatch?.[s]?.teacherId,
+                              )
+                    }
+                    title="Sélectionnez un enseignant pour chaque matière"
+                    className="mt-6 w-1/3 bg-blue-600 text-white py-3 rounded-md flex items-center justify-center gap-2 hover:bg-blue-700 transition-all disabled:opacity-50"
                 >
                     {type === "create" ? (
                         <CheckCircle className="w-5 h-5" />
