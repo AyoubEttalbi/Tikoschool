@@ -436,6 +436,32 @@ class StudentsController extends Controller
                 $validatedData['assurance'] = 0;
             }
 
+            // Duplicate-name check BEFORE any write (and before the image is
+            // stored, so a warned submit leaves no orphan file). Warn-only with
+            // confirm resubmission — never a block. Candidates stay inside the
+            // target school: other schools' pupils are unactionable noise, and
+            // an assistant must not learn them by guessing names. The confirm
+            // resubmit cannot carry the profile photo (dialog actions serialize
+            // to JSON) — the dialog says so when a photo was attached.
+            if (! $request->boolean('confirm_duplicate')) {
+                $duplicates = \App\Support\StudentName::duplicates(
+                    $validatedData['firstName'],
+                    $validatedData['lastName'],
+                    (int) $validatedData['schoolId']
+                );
+
+                if ($duplicates->isNotEmpty()) {
+                    return redirect()->back()->with('payment_notice', \App\Support\PaymentNotice::duplicateStudents(
+                        $duplicates,
+                        '/students',
+                        'post',
+                        $request->except(['_token', 'profile_image']),
+                        false,
+                        $request->hasFile('profile_image')
+                    )->toArray())->withInput();
+                }
+            }
+
             if ($request->hasFile('profile_image')) {
                 // May throw ValidationException — rethrown below so the form renders the field error.
                 $newImagePath = $this->profileImages->store($request->file('profile_image'), 'students');
@@ -909,6 +935,29 @@ class StudentsController extends Controller
             foreach (['CIN', 'phoneNumber', 'email', 'massarCode'] as $field) {
                 if (isset($validatedData[$field]) && $validatedData[$field] === '') {
                     $validatedData[$field] = null;
+                }
+            }
+
+            // Same duplicate-name warn-and-confirm as store, excluding self and
+            // scoped to the student's own school. Placed before the image swap
+            // so a warned submit stores no file.
+            if (! $request->boolean('confirm_duplicate')) {
+                $duplicates = \App\Support\StudentName::duplicates(
+                    $validatedData['firstName'],
+                    $validatedData['lastName'],
+                    (int) $student->schoolId,
+                    $student->id
+                );
+
+                if ($duplicates->isNotEmpty()) {
+                    return redirect()->back()->with('payment_notice', \App\Support\PaymentNotice::duplicateStudents(
+                        $duplicates,
+                        "/students/{$student->id}",
+                        'put',
+                        $request->except(['_token', 'profile_image', '_method']),
+                        true,
+                        $request->hasFile('profile_image')
+                    )->toArray())->withInput();
                 }
             }
 

@@ -1027,7 +1027,34 @@ class InvoiceController extends Controller
                 $paymentService = new \App\Services\TeacherMembershipPaymentService;
                 $reversal = $paymentService->reverseInvoicePayments($invoice);
 
+                $wasAssurance = $invoice->type === 'assurance';
+                $studentId = $invoice->student_id;
+
                 $invoice->delete();
+
+                // Assurance bills are the student's profile flags in disguise: the
+                // page reads assurance/assuranceAmount from the student COLUMNS, so
+                // voiding the bill must recompute them from the remaining live
+                // assurance bills — otherwise the profile keeps showing paid, and
+                // the next student save resurrects the bill through the update
+                // flow's find-or-create branch.
+                if ($wasAssurance && $studentId) {
+                    // Lock the student row so two concurrent deletes cannot each
+                    // elect the other's target as the surviving bill.
+                    \App\Models\Student::withTrashed()->whereKey($studentId)->lockForUpdate()->first();
+
+                    $remaining = Invoice::where('student_id', $studentId)
+                        ->where('type', 'assurance')
+                        ->whereNull('deleted_at')
+                        ->orderByDesc('created_at')
+                        ->orderByDesc('id')
+                        ->first();
+
+                    \App\Models\Student::withTrashed()->whereKey($studentId)->update([
+                        'assurance' => $remaining ? 1 : 0,
+                        'assuranceAmount' => $remaining ? $remaining->assurance_amount : null,
+                    ]);
+                }
             });
 
             $redirect = redirect()->back()->with('success', 'Facture supprimée.');

@@ -243,6 +243,61 @@ class PaymentNotice
     }
 
     /**
+     * Warn that a student with the same normalized name may already exist.
+     *
+     * Warn-only, never a block: homonyms and corrections legitimately collide.
+     * Each candidate links straight to its record (trashed ones get no link —
+     * the student page 404s on trashed rows). The confirm action resubmits the
+     * full payload plus the flag, so the server re-validates from scratch.
+     *
+     * @param  \Illuminate\Support\Collection<int, \App\Models\Student>  $candidates
+     */
+    public static function duplicateStudents($candidates, string $url, string $method, array $payload, bool $isUpdate, bool $photoDropped = false): self
+    {
+        $details = [];
+
+        foreach ($candidates as $candidate) {
+            $place = trim(
+                ($candidate->level?->name ?? '').' / '.($candidate->class?->name ?? ''),
+                ' /'
+            );
+            $trashed = $candidate->trashed();
+
+            $details[] = [
+                'label' => trim($candidate->firstName.' '.$candidate->lastName),
+                'value' => $place !== '' ? $place : '—',
+                'note' => $trashed ? 'Supprimé' : 'Doublon probable',
+                'url' => $trashed ? null : "/students/{$candidate->id}",
+            ];
+        }
+
+        $messages = [
+            'Un élève au même nom (sans tenir compte de la casse, des accents ni des espaces) existe déjà. Ouvrez sa fiche pour vérifier avant de continuer.',
+        ];
+
+        if ($photoDropped) {
+            $messages[] = "La photo de profil n'a pas été conservée : ré-ajoutez-la via Modifier.";
+        }
+
+        return new self(
+            self::TONE_WARNING,
+            'Cet élève existe peut-être déjà ?',
+            $messages,
+            $details,
+            [[
+                'label' => $isUpdate ? 'Modifier quand même' : 'Créer quand même',
+                'url' => $url,
+                'method' => $method,
+                'style' => 'primary',
+                // Echoed back so the server knows the warning was shown and
+                // accepted — same pattern as the invoice confirm actions.
+                // array_merge (not union): a replayed false must not win.
+                'data' => array_merge($payload, ['confirm_duplicate' => true]),
+            ]],
+        );
+    }
+
+    /**
      * Per-teacher rows. Admin only — this is payroll.
      *
      * @param  array<int, array<string, mixed>>  $applied

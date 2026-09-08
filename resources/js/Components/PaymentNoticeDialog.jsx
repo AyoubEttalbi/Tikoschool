@@ -153,7 +153,20 @@ export default function PaymentNoticeDialog() {
                                 {details.map((row, index) => (
                                     <tr key={index}>
                                         <td className="py-2 pr-3 text-slate-700">
-                                            {row.label}
+                                            {row.url ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setOpen(false);
+                                                        router.get(row.url);
+                                                    }}
+                                                    className="font-medium text-sky-700 underline decoration-sky-300 underline-offset-2 hover:text-sky-900"
+                                                >
+                                                    {row.label}
+                                                </button>
+                                            ) : (
+                                                row.label
+                                            )}
                                         </td>
                                         <td className="whitespace-nowrap py-2 pr-3 text-right font-medium tabular-nums text-slate-900">
                                             {row.value}

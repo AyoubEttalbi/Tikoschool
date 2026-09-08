@@ -73,6 +73,17 @@ class Student extends Model
     {
         parent::boot();
 
+        // Stamp the duplicate-detection keys on every save. Direct attribute
+        // assignment (not fillable): keys are derived, never client input.
+        static::saving(function ($student) {
+            [$firstKey, $lastKey] = \App\Support\StudentName::keys(
+                (string) ($student->firstName ?? ''),
+                (string) ($student->lastName ?? '')
+            );
+            $student->firstNameKey = $firstKey;
+            $student->lastNameKey = $lastKey;
+        });
+
         // Capture the old class ID before update
         static::updating(function ($student) {
             $student->oldClassId = $student->getOriginal('classId');

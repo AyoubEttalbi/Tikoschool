@@ -767,15 +767,17 @@ const StudentForm = ({ type, data, levels, classes, schools, setOpen }) => {
                         <div className="mt-2">
                             <label className="text-xs text-gray-600 font-medium mb-1 block">Montant payé pour l'assurance <span className="text-red-500">*</span></label>
                             <input
-                                type="number"
-                                min="0"
-                                step="0.01"
+                                type="text"
+                                inputMode="decimal"
                                 className="w-full px-3 py-2 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors bg-blue-50 text-blue-900 font-semibold"
                                 {...register("assuranceAmount")}
                                 value={assuranceAmount}
                                 onChange={e => {
-                                    setAssuranceAmount(e.target.value);
-                                    setValue("assuranceAmount", e.target.value);
+                                    // FR keyboards offer "," — normalize to "." so
+                                    // "90,50" validates instead of hard-rejecting.
+                                    const normalized = e.target.value.replace(',', '.');
+                                    setAssuranceAmount(normalized);
+                                    setValue("assuranceAmount", normalized);
                                 }}
                                 placeholder="Ex: 0.00"
                             />
