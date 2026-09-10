@@ -301,7 +301,12 @@ const InvoicesForm = ({
         ).getDate();
         const remainingDays = daysInMonth - billDateObj.getDate();
         const dailyRate = selectedMembership.price / daysInMonth;
-        return Math.round(dailyRate * remainingDays);
+        // Tikoschool: round to the nearest 5 DH (school keeps no change) — mirrors the server,
+        // including its floor (a raw 1-2 DH charge becomes one 5 DH coin, never free).
+        const rawPartial = dailyRate * remainingDays;
+        if (rawPartial <= 0) return 0;
+        const roundedPartial = Math.round(rawPartial / 5) * 5;
+        return roundedPartial === 0 ? 5 : roundedPartial;
     };
 
     // Calculate the total amount (partial month + full months)

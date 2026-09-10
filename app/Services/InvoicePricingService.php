@@ -101,6 +101,11 @@ class InvoicePricingService
             $discount = round($serverTotal - $clientTotal, 2);
         }
 
+        // A discount (or a stale client total below the server price) can push the
+        // total UNDER the computed partial — never store partial > total, or the
+        // teacher commission (a share of partial) would exceed the cash received.
+        $partialMonthAmount = min($computed['partialMonthAmount'], $total);
+
         // A payment can never exceed the (possibly discounted) total.
         $amountPaid = min(round((float) ($validated['amountPaid'] ?? 0), 2), $total);
         $amountPaid = max($amountPaid, 0.0);
@@ -111,7 +116,7 @@ class InvoicePricingService
             // Always derived. Accepting `rest` from the client allowed total/paid/rest to
             // disagree, which the payout engine then treated as authoritative.
             'rest' => round($total - $amountPaid, 2),
-            'partialMonthAmount' => $computed['partialMonthAmount'],
+            'partialMonthAmount' => $partialMonthAmount,
             'discountApplied' => $discount,
         ];
     }
@@ -120,6 +125,12 @@ class InvoicePricingService
      * Pro-rata charge for the remainder of the billing month.
      *
      * daily rate = price / days in month; charged for the days AFTER the billing date.
+     *
+     * Tikoschool customization (CUSTOMIZATIONS.md): the school keeps no coin change,
+     * so the charge is rounded to the nearest multiple of 5 DH. Stored rows are never
+     * migrated, and InvoiceController::update keeps the stored price whenever the
+     * billing inputs are unchanged — editing an old invoice (e.g. recording a later
+     * payment) must not reprice its partial.
      */
     private function partialMonthAmount(float $monthlyPrice, Carbon|string|null $billDate): float
     {
@@ -135,7 +146,18 @@ class InvoicePricingService
             return 0.0;
         }
 
-        return (float) round(($monthlyPrice / $daysInMonth) * $remainingDays);
+        $raw = ($monthlyPrice / $daysInMonth) * $remainingDays;
+        if ($raw <= 0) {
+            // A free offer stays free — the floor below is only for real charges.
+            return 0.0;
+        }
+
+        $rounded = round($raw / 5) * 5;
+
+        // A raw 1-2 DH charge would round to a FREE partial while days remain, which
+        // flips the `partial > 0` payout branches into the full-immediate path.
+        // Floor at one 5 DH coin instead.
+        return (float) ($rounded == 0 ? 5 : $rounded);
     }
 
     private function parseDate(Carbon|string|null $billDate): Carbon

@@ -796,6 +796,24 @@ class InvoiceController extends Controller
                 'billDate' => $validated['billDate'] ?? null,
             ]);
 
+            // Tikoschool rounding (CUSTOMIZATIONS.md) must not reprice history: when the
+            // billing inputs are unchanged, the stored price stands — a legacy unrounded
+            // partial (e.g. 192) stays 192 even though a fresh computation would give 190.
+            // Recording a later payment then changes only the payment fields.
+            $billingInputsChanged =
+                (int) ($validated['membership_id'] ?? 0) !== (int) $invoice->membership_id
+                || substr((string) ($validated['billDate'] ?? ''), 0, 10) !== substr((string) $invoice->billDate, 0, 10)
+                || $pricing->normaliseMonths($selectedMonths) !== $pricing->normaliseMonths($invoice->selected_months)
+                || (bool) ($validated['includePartialMonth'] ?? false) !== (bool) $invoice->includePartialMonth;
+            if (! $billingInputsChanged) {
+                $priced['partialMonthAmount'] = (float) $invoice->partialMonthAmount;
+                $priced['totalAmount'] = (float) $invoice->totalAmount;
+                $priced['discountApplied'] = 0.0;
+                $priced['amountPaid'] = min(round((float) ($validated['amountPaid'] ?? 0), 2), $priced['totalAmount']);
+                $priced['amountPaid'] = max($priced['amountPaid'], 0.0);
+                $priced['rest'] = round($priced['totalAmount'] - $priced['amountPaid'], 2);
+            }
+
             $validated['totalAmount'] = $priced['totalAmount'];
             $validated['amountPaid'] = $priced['amountPaid'];
             $validated['rest'] = $priced['rest'];
