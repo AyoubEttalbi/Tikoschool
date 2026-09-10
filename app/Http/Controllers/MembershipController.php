@@ -312,7 +312,7 @@ class MembershipController extends Controller
             // rather than one per invoice — or, as before, none at all.
             $reversal = [
                 'reversed' => false, 'total_reversed' => 0.0, 'deadline_days' => \App\Services\TeacherMembershipPaymentService::REVERSAL_DEADLINE_DAYS,
-                'days_since_payment' => null, 'within_deadline' => true, 'applied' => [], 'blocked' => [], 'messages' => [],
+                'days_since_payment' => null, 'within_deadline' => true, 'applied' => [], 'blocked' => [], 'skipped' => [], 'messages' => [],
             ];
             $blockedInvoiceIds = [];
 
@@ -348,6 +348,10 @@ class MembershipController extends Controller
 
                         $reversal['applied'] = array_merge($reversal['applied'], $outcome['applied']);
                         $reversal['blocked'] = array_merge($reversal['blocked'], $outcome['blocked']);
+                        // Carried for telemetry (and the skipped-aware dialog): skipped
+                        // rows are already healed to zero, so reprocessing below is
+                        // safe and they stay out of $blockedInvoiceIds on purpose.
+                        $reversal['skipped'] = array_merge($reversal['skipped'], $outcome['skipped'] ?? []);
                         $reversal['messages'] = array_merge($reversal['messages'], $outcome['messages']);
                         $reversal['total_reversed'] += $outcome['total_reversed'];
                         $reversal['within_deadline'] = $reversal['within_deadline'] && $outcome['within_deadline'];

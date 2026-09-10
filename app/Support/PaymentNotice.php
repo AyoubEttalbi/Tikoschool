@@ -93,8 +93,9 @@ class PaymentNotice
     {
         $blocked = $outcome['blocked'] ?? [];
         $applied = $outcome['applied'] ?? [];
+        $skipped = $outcome['skipped'] ?? [];
 
-        if ($blocked === [] && $applied === []) {
+        if ($blocked === [] && $applied === [] && $skipped === []) {
             return null;
         }
 
@@ -102,7 +103,7 @@ class PaymentNotice
         $tone = $blocked === [] ? self::TONE_SUCCESS : self::TONE_WARNING;
         $admin = self::canSeeTeacherAmounts();
 
-        $details = $admin ? self::breakdown($applied, $blocked) : [];
+        $details = $admin ? self::breakdown($applied, $blocked, $skipped) : [];
 
         return new self(
             $tone,
@@ -145,6 +146,10 @@ class PaymentNotice
             $messages[] = self::canSeeTeacherAmounts()
                 ? number_format((float) $outcome['total_reversed'], 2, ',', ' ').' DH repris des portefeuilles.'
                 : 'Les montants ont été repris des portefeuilles.';
+        }
+
+        if (($outcome['skipped'] ?? []) !== [] && ($outcome['total_reversed'] ?? 0) <= 0) {
+            $messages[] = 'Certains montants avaient déjà été repris : aucun nouveau mouvement.';
         }
 
         return $messages;
@@ -302,9 +307,10 @@ class PaymentNotice
      *
      * @param  array<int, array<string, mixed>>  $applied
      * @param  array<int, array<string, mixed>>  $blocked
+     * @param  array<int, array<string, mixed>>  $skipped
      * @return array<int, array{label: string, value: string, note: string}>
      */
-    private static function breakdown(array $applied, array $blocked): array
+    private static function breakdown(array $applied, array $blocked, array $skipped = []): array
     {
         $rows = [];
 
@@ -317,6 +323,14 @@ class PaymentNotice
         }
 
         foreach ($blocked as $row) {
+            $rows[] = [
+                'label' => trim(($row['teacher_name'] ?? '').' — '.($row['subject'] ?? '')),
+                'value' => number_format((float) $row['amount'], 2, ',', ' ').' DH',
+                'note' => self::blockNote((string) ($row['reason'] ?? '')),
+            ];
+        }
+
+        foreach ($skipped as $row) {
             $rows[] = [
                 'label' => trim(($row['teacher_name'] ?? '').' — '.($row['subject'] ?? '')),
                 'value' => number_format((float) $row['amount'], 2, ',', ' ').' DH',
@@ -426,6 +440,7 @@ class PaymentNotice
             'deadline_passed' => 'Conservé par l\'enseignant (délai dépassé)',
             'wallet_empty' => 'Non repris : portefeuille déjà vide',
             'wallet_insufficient' => 'Non repris : solde insuffisant',
+            'already_reversed' => 'Déjà repris (aucun mouvement)',
             default => 'Non repris',
         };
     }

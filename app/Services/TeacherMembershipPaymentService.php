@@ -7,6 +7,7 @@ use App\Models\Membership;
 use App\Models\Offer;
 use App\Models\Teacher;
 use App\Models\TeacherMembershipPayment;
+use App\Models\TeacherWalletEntry;
 use App\Support\OfferPercentages;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -1598,6 +1599,7 @@ class TeacherMembershipPaymentService
      *     within_deadline: bool,
      *     applied: array<int, array<string, mixed>>,
      *     blocked: array<int, array<string, mixed>>,
+     *     skipped: array<int, array<string, mixed>>,
      *     messages: array<int, string>
      * }
      */
@@ -1633,6 +1635,23 @@ class TeacherMembershipPaymentService
             }
 
             $paid = round((float) ($record->total_paid_to_teacher ?? 0), 2);
+
+            // Same ledger-truth cap as the real reversal, or the dialog promises
+            // money that is already gone. Fully reversed rows are dropped so a
+            // no-op edit does not open a confirm dialog for nothing. (Confirm
+            // additionally records the refusal as `skipped` and heals the stale
+            // totals; preview only hides — amounts agree either way.)
+            $held = $paid > 0
+                ? $this->ledgerHeldForInvoice($teacher->id, $invoice->id, $record->teacher_subject ?? null)
+                : 0.0;
+
+            if ($held !== null) {
+                if ($held <= 0) {
+                    continue;
+                }
+
+                $paid = min($paid, $held);
+            }
 
             if ($paid <= 0) {
                 continue;
@@ -1820,6 +1839,10 @@ class TeacherMembershipPaymentService
             'within_deadline' => $withinDeadline,
             'applied' => [],
             'blocked' => [],
+            // Rows the guard refused: the money was already taken back, so there
+            // is nothing to recover — deliberately separate from `blocked`,
+            // which means money the school must still recover by hand.
+            'skipped' => [],
             'messages' => [],
         ];
     }
@@ -2119,6 +2142,54 @@ class TeacherMembershipPaymentService
      *
      * @param  array<string, mixed>  $outcome  accumulated by reference for the caller's report
      */
+    /**
+     * What the wallet still holds for one record, per the ledger.
+     *
+     * The reversal guard: record totals went stale before they decremented on
+     * reversal, so a later edit re-read the old total and took the same money
+     * twice (prod Sept 2026, invoice 7027: +100, −100, −100).
+     *
+     * Scoped to the record's SUBJECT, not just (teacher, invoice): one teacher
+     * can hold several subjects on the same invoice, and a pool-scoped cap lets
+     * a stale subject re-fire out of a sibling subject's money. Unstamped ('')
+     * rows fall back to the pool — same as the pre-subject behavior.
+     *
+     * Cash payouts are excluded (money handed over, orthogonal to what the
+     * invoice still holds).
+     *
+     * Returns null when the ledger knows nothing about the invoice: pre-ledger
+     * rows carry totals but no entries, and their legitimate reversal must
+     * still fire (see the legacy-path test).
+     */
+    private function ledgerHeldForInvoice(int $teacherId, int $invoiceId, ?string $subject = null): ?float
+    {
+        // Payout reasons are cash handed over, orthogonal to what the invoice
+        // still holds. Kept dynamic: not every project defines every reason.
+        $cashOut = [TeacherWalletEntry::REASON_PAYOUT];
+
+        if (defined(TeacherWalletEntry::class.'::REASON_PAYOUT_LAST_YEAR')) {
+            $cashOut[] = TeacherWalletEntry::REASON_PAYOUT_LAST_YEAR;
+        }
+
+        $base = TeacherWalletEntry::where('teacher_id', $teacherId)
+            ->where('invoice_id', $invoiceId)
+            ->whereNotIn('reason', $cashOut);
+
+        if ($subject !== null && $subject !== '') {
+            $slice = (clone $base)->where('teacher_subject', $subject);
+
+            if ((clone $slice)->exists()) {
+                return round((float) (clone $slice)->sum('amount'), 2);
+            }
+        }
+
+        if (! (clone $base)->exists()) {
+            return null;
+        }
+
+        return round((float) (clone $base)->sum('amount'), 2);
+    }
+
     private function reverseTeacherPayment(
         TeacherMembershipPayment $record,
         Invoice $invoice,
@@ -2154,6 +2225,37 @@ class TeacherMembershipPaymentService
 
             $paidToTeacher = round((float) ($record->total_paid_to_teacher ?? 0), 2);
 
+            // Ledger-truth cap: never take back more than the wallet still holds
+            // for this invoice. Without it a stale record total reverses money
+            // that is already gone (see ledgerHeldForInvoice()).
+            $alreadyReversed = false;
+            $requestedTotal = $paidToTeacher;
+            $held = $paidToTeacher > 0
+                ? $this->ledgerHeldForInvoice($teacher->id, $invoice->id, $record->teacher_subject ?? null)
+                : 0.0;
+
+            if ($held !== null && $held < $paidToTeacher) {
+                if ($held <= 0.0) {
+                    Log::info('Reversal skipped: nothing still held for this invoice (already reversed)', [
+                        'record_id' => $record->id,
+                        'teacher_id' => $teacher->id,
+                        'invoice_id' => $invoice->id,
+                        'record_total' => $paidToTeacher,
+                    ]);
+                } else {
+                    Log::warning('Reversal capped at ledger truth', [
+                        'record_id' => $record->id,
+                        'teacher_id' => $teacher->id,
+                        'invoice_id' => $invoice->id,
+                        'record_total' => $paidToTeacher,
+                        'ledger_held' => $held,
+                    ]);
+                }
+
+                $alreadyReversed = $held <= 0.0;
+                $paidToTeacher = max(0.0, $held);
+            }
+
             $entry = [
                 'record_id' => $record->id,
                 'teacher_id' => $teacher->id,
@@ -2162,6 +2264,26 @@ class TeacherMembershipPaymentService
                 'amount' => $paidToTeacher,
                 'cancelled_months' => array_values($record->months_rest_not_paid_yet ?? []),
             ];
+
+            if ($alreadyReversed) {
+                // Report what was already taken, not the post-cap zero — the
+                // row must explain itself in the dialog.
+                $outcome['skipped'][] = $entry + ['reason' => 'already_reversed', 'amount' => $requestedTotal];
+
+                // Heal the stale totals to the ledger reality, or the audit flags
+                // this row forever and reprocessing diffs against a phantom 150.
+                // A negatively-held (over-reversed) invoice heals to 0.0 too —
+                // negative totals would be nonsense — and the audit keeps
+                // flagging the negative net until a human repairs it. Intended.
+                $record->update([
+                    'total_paid_to_teacher' => 0.0,
+                    'immediate_wallet_amount' => 0.0,
+                ]);
+
+                $this->stopFutureMonths($record, $invoice);
+
+                return;
+            }
 
             if (! $withinDeadline) {
                 if ($paidToTeacher > 0) {
