@@ -1618,7 +1618,7 @@ class TeacherMembershipPaymentService
      *     reversed: bool, total_reversed: float, days_since_payment: int|null,
      *     deadline_days: int, within_deadline: bool,
      *     applied: array<int, array<string, mixed>>, blocked: array<int, array<string, mixed>>,
-     *     messages: array<int, string>
+     *     skipped: array<int, array<string, mixed>>, messages: array<int, string>
      * }
      */
     public function previewInvoiceReversal(Invoice $invoice): array
@@ -2226,7 +2226,7 @@ class TeacherMembershipPaymentService
             $paidToTeacher = round((float) ($record->total_paid_to_teacher ?? 0), 2);
 
             // Ledger-truth cap: never take back more than the wallet still holds
-            // for this invoice. Without it a stale record total reverses money
+            // for this record. Without it a stale record total reverses money
             // that is already gone (see ledgerHeldForInvoice()).
             $alreadyReversed = false;
             $requestedTotal = $paidToTeacher;
@@ -2242,6 +2242,8 @@ class TeacherMembershipPaymentService
                         'invoice_id' => $invoice->id,
                         'record_total' => $paidToTeacher,
                     ]);
+
+                    $alreadyReversed = true;
                 } else {
                     Log::warning('Reversal capped at ledger truth', [
                         'record_id' => $record->id,
@@ -2252,7 +2254,6 @@ class TeacherMembershipPaymentService
                     ]);
                 }
 
-                $alreadyReversed = $held <= 0.0;
                 $paidToTeacher = max(0.0, $held);
             }
 
