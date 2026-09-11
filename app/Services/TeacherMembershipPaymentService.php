@@ -8,6 +8,7 @@ use App\Models\Offer;
 use App\Models\Teacher;
 use App\Models\TeacherMembershipPayment;
 use App\Models\TeacherWalletEntry;
+use App\Support\LedgerShortfall;
 use App\Support\OfferPercentages;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -463,10 +464,16 @@ class TeacherMembershipPaymentService
         // It used to be just (teacher, invoice), so a teacher listed twice on the same
         // membership for two different subjects collided on one record: the second subject
         // overwrote the first and the teacher was paid for only one of the two.
+        //
+        // The subject match is normalised (trim/case/whitespace): secretaries retype
+        // subjects by hand ('Math' vs ' math '), and a raw comparison forks a second
+        // record plus a second immediate credit for the same pay. Displayed values
+        // keep their original spelling; only the lookup is normalised.
         $existingRecord = TeacherMembershipPayment::where('teacher_id', $teacher->id)
             ->where('invoice_id', $invoice->id)
-            ->where('teacher_subject', $teacherSubject)
-            ->first();
+            ->get()
+            ->first(fn ($row) => OfferPercentages::normalise((string) ($row->teacher_subject ?? ''))
+                === OfferPercentages::normalise((string) ($teacherSubject ?? '')));
 
         if ($existingRecord) {
             Log::info('Found existing record - updating', [
@@ -763,8 +770,43 @@ class TeacherMembershipPaymentService
             }
         }
 
+        // Era guard (prod Sept 2026, hiba −750 across 11 live 2025–26 invoices):
+        // the immediate is money for the CURRENT month handed over now. When the
+        // current month is nowhere in this invoice's months, there is nothing to
+        // (re)compute — recomputing against wall-clock now() zeroes a correctly
+        // paid past immediate on every re-save, with no dialog and no log row
+        // naming money. Preserve it; real changes still flow through totals,
+        // monthlies and back-pay below. Adding the current month to an old
+        // invoice keeps working: it lands in $allSelectedMonths, so this passes.
+        if (! $isCurrentMonthIncluded) {
+            $newImmediateWalletAmount = $oldImmediateWalletAmount;
+        }
+
         // 3. Calculate the difference in immediate wallet amount
         $walletDifference = round(($newImmediateWalletAmount - $oldImmediateWalletAmount), 2);
+
+        // Cap adjustment debits at what the wallet still holds for this record,
+        // mirroring the reversal guard: a stale recompute must never take back
+        // more than the invoice's attributed net.
+        if ($walletDifference < 0 && $currentInvoice) {
+            $held = $this->ledgerHeldForInvoice(
+                (int) $record->teacher_id,
+                (int) $currentInvoice->id,
+                $record->teacher_subject ?? null
+            );
+
+            if ($held !== null && $held < abs($walletDifference)) {
+                Log::warning('Adjustment debit capped at ledger truth', [
+                    'record_id' => $record->id,
+                    'teacher_id' => $record->teacher_id,
+                    'invoice_id' => $currentInvoice->id,
+                    'requested_debit' => abs($walletDifference),
+                    'ledger_held' => $held,
+                ]);
+
+                $walletDifference = -max(0.0, $held);
+            }
+        }
 
         // Only modify wallet if there's a difference
         if ($walletDifference != 0) {
@@ -1047,6 +1089,23 @@ class TeacherMembershipPaymentService
                     continue;
                 }
 
+                // Roster check: a removed teacher's still-active record must not
+                // be paid by the cron (expired-swap shape: no reversal ever ran,
+                // so the queue looks payable). The month stays queued — dropping
+                // it would hide the row from the audit and the repair commands.
+                if (! LedgerShortfall::isAssigned($record)) {
+                    Log::warning('Monthly cron skipped unassigned teacher', [
+                        'record_id' => $record->id,
+                        'teacher_id' => $record->teacher_id,
+                        'invoice_id' => $record->invoice_id,
+                        'month' => $currentMonth,
+                    ]);
+
+                    DB::commit();
+
+                    continue;
+                }
+
                 // Increment teacher wallet
                 $teacher = $record->teacher;
                 $monthlyAmount = round((float) $record->monthly_teacher_amount, 2);
@@ -1198,6 +1257,21 @@ class TeacherMembershipPaymentService
             $records = TeacherMembershipPayment::where('invoice_id', $invoice->id)->get();
 
             foreach ($records as $record) {
+                // Removed or dead rows are never resurrected here: prod Sept 2026
+                // re-credited swapped-off teachers (t6/7135, t7/7285, t23/7096)
+                // through exactly this loop. Assigned + active rows only; the
+                // audit surfaces anything else for a human.
+                if (! $record->is_active || ! LedgerShortfall::isAssigned($record)) {
+                    Log::info('Reconcile skipped unassigned or inactive record', [
+                        'record_id' => $record->id,
+                        'teacher_id' => $record->teacher_id,
+                        'invoice_id' => $invoice->id,
+                        'is_active' => $record->is_active,
+                    ]);
+
+                    continue;
+                }
+
                 try {
                     DB::beginTransaction();
 
@@ -1692,6 +1766,27 @@ class TeacherMembershipPaymentService
             }
         }
 
+        // Same sweep as the real reversal: inactive rows holding money must
+        // appear in the dialog, or confirm promises a clean slate it cannot deliver.
+        $stale = TeacherMembershipPayment::where('invoice_id', $invoice->id)
+            ->where('is_active', false)
+            ->get()
+            ->filter(fn ($row) => round((float) ($row->total_paid_to_teacher ?? 0), 2) > 0);
+
+        foreach ($stale as $record) {
+            $staleTeacher = Teacher::find($record->teacher_id);
+
+            $outcome['blocked'][] = [
+                'record_id' => $record->id,
+                'teacher_id' => $record->teacher_id,
+                'teacher_name' => $staleTeacher ? trim($staleTeacher->first_name.' '.$staleTeacher->last_name) : '',
+                'subject' => $record->teacher_subject,
+                'amount' => round((float) $record->total_paid_to_teacher, 2),
+                'cancelled_months' => [],
+                'reason' => 'record_inactive',
+            ];
+        }
+
         $outcome['total_reversed'] = round($outcome['total_reversed'], 2);
         $outcome['reversed'] = $outcome['total_reversed'] > 0;
         $outcome['messages'] = $this->buildReversalMessages($outcome);
@@ -1847,14 +1942,42 @@ class TeacherMembershipPaymentService
         ];
     }
 
-    public function reverseInvoicePayments(Invoice $invoice, ?array $oldData = null): array
+    public function reverseInvoicePayments(Invoice $invoice, ?array $oldData = null, bool $clearQueue = true): array
     {
         [$daysSincePayment, $withinDeadline] = self::reversalDeadlineState($invoice);
 
         $outcome = $this->emptyReversalOutcome($daysSincePayment, $withinDeadline);
 
+        // Inactive rows still holding money (blocked-path leftovers, pre-fix
+        // reversals without decrement): the old code skipped them silently and
+        // the delete looked clean while money stayed out. Report them as
+        // blocked — a human decides whether to recover or formalise the keep.
+        // Never debited here: only active rows reverse.
+        //
+        // BEFORE the loop on purpose: the loop itself deactivates rows (without
+        // decrementing on blocked paths), and sweeping after would re-report
+        // those same rows as a second blocked line for one event.
+        $stale = TeacherMembershipPayment::where('invoice_id', $invoice->id)
+            ->where('is_active', false)
+            ->get()
+            ->filter(fn ($row) => round((float) ($row->total_paid_to_teacher ?? 0), 2) > 0);
+
+        foreach ($stale as $record) {
+            $teacher = Teacher::find($record->teacher_id);
+
+            $outcome['blocked'][] = [
+                'record_id' => $record->id,
+                'teacher_id' => $record->teacher_id,
+                'teacher_name' => $teacher ? trim($teacher->first_name.' '.$teacher->last_name) : '',
+                'subject' => $record->teacher_subject,
+                'amount' => round((float) $record->total_paid_to_teacher, 2),
+                'cancelled_months' => [],
+                'reason' => 'record_inactive',
+            ];
+        }
+
         foreach ($this->reversibleRecords($invoice) as $record) {
-            $this->reverseTeacherPayment($record, $invoice, $withinDeadline, $outcome);
+            $this->reverseTeacherPayment($record, $invoice, $withinDeadline, $outcome, $clearQueue);
         }
 
         $outcome['total_reversed'] = round($outcome['total_reversed'], 2);
@@ -2176,7 +2299,11 @@ class TeacherMembershipPaymentService
             ->whereNotIn('reason', $cashOut);
 
         if ($subject !== null && $subject !== '') {
-            $slice = (clone $base)->where('teacher_subject', $subject);
+            // Slice on the normalised spelling: writers store normalised (see
+            // TeacherWalletService::move), so an exact match is a true match.
+            // Pre-normalisation rows with raw spelling miss and fall back to
+            // the whole-invoice sum below — same as before this guard existed.
+            $slice = (clone $base)->where('teacher_subject', \App\Support\OfferPercentages::normalise($subject));
 
             if ((clone $slice)->exists()) {
                 return round((float) (clone $slice)->sum('amount'), 2);
@@ -2194,7 +2321,8 @@ class TeacherMembershipPaymentService
         TeacherMembershipPayment $record,
         Invoice $invoice,
         bool $withinDeadline,
-        array &$outcome
+        array &$outcome,
+        bool $clearQueue = true
     ): void {
         try {
             $teacher = Teacher::find($record->teacher_id);
@@ -2281,7 +2409,7 @@ class TeacherMembershipPaymentService
                     'immediate_wallet_amount' => 0.0,
                 ]);
 
-                $this->stopFutureMonths($record, $invoice);
+                $this->stopFutureMonths($record, $invoice, $clearQueue);
 
                 return;
             }
@@ -2291,13 +2419,13 @@ class TeacherMembershipPaymentService
                     $outcome['blocked'][] = $entry + ['reason' => 'deadline_passed'];
                 }
 
-                $this->stopFutureMonths($record, $invoice);
+                $this->stopFutureMonths($record, $invoice, $clearQueue);
 
                 return;
             }
 
             if ($paidToTeacher <= 0) {
-                $this->stopFutureMonths($record, $invoice);
+                $this->stopFutureMonths($record, $invoice, $clearQueue);
 
                 return;
             }
@@ -2316,7 +2444,7 @@ class TeacherMembershipPaymentService
                     'requested_reversal' => $paidToTeacher,
                 ]);
 
-                $this->stopFutureMonths($record, $invoice);
+                $this->stopFutureMonths($record, $invoice, $clearQueue);
 
                 return;
             }
@@ -2400,13 +2528,22 @@ class TeacherMembershipPaymentService
      * expires — the cancellation never does. Leaving the months queued on a deleted invoice
      * is how a teacher keeps being credited, month after month, for a bill that no longer
      * exists; the monthly cron selects purely on months_rest_not_paid_yet.
+     *
+     * $clearQueue=false keeps the months queued (membership teacher-change confirm:
+     * reprocess rebuilds from the preserved queue — wiping it strands kept teachers'
+     * future months with no error anywhere). The record is always deactivated;
+     * only the queue clearing is conditional. Destroy always clears: the invoice
+     * is gone, so nothing must ever match again.
      */
-    private function stopFutureMonths(TeacherMembershipPayment $record, Invoice $invoice): void
+    private function stopFutureMonths(TeacherMembershipPayment $record, Invoice $invoice, bool $clearQueue = true): void
     {
-        $record->update([
-            'is_active' => false,
-            'months_rest_not_paid_yet' => [],
-        ]);
+        $update = ['is_active' => false];
+
+        if ($clearQueue) {
+            $update['months_rest_not_paid_yet'] = [];
+        }
+
+        $record->update($update);
 
         Log::info('Deactivated teacher membership payment record and cancelled its scheduled months', [
             'record_id' => $record->id,

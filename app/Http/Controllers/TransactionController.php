@@ -1702,9 +1702,14 @@ class TransactionController extends Controller
         // a 400-character note could not be edited afterwards without silently failing
         // validation — and the resulting error never rendered on the payments page.
         $rules = [
+            // No TYPE_WALLET here on purpose: wallet top-ups are created only
+            // through the teacher wallet panel (admin-only, reason required) or
+            // wallet:adjust (console, dry-run default, idempotent). Accepting it
+            // on this form let any assistant mint ledger money with a crafted
+            // POST — uncapped, note-free and idempotency-exempt. The batch and
+            // recurring paths force their own types and never read this rule.
             'type' => 'required|in:'.implode(',', [
                 Transaction::TYPE_SALARY,
-                Transaction::TYPE_WALLET,
                 Transaction::TYPE_PAYMENT,
                 Transaction::TYPE_EXPENSE,
             ]),

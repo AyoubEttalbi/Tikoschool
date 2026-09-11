@@ -260,7 +260,34 @@ class InvoiceController extends Controller
                         }
                     },
                 ],
-                'selected_months' => 'nullable', // Accept array or stringified JSON
+                'selected_months' => ['nullable', function ($attribute, $value, $fail) use ($request) {
+                    // Gapped selections price at zero full months server-side; storing
+                    // one would record a zeroed invoice and debit teachers on update.
+                    // The form sends `selectedMonths`; validate the effective source.
+                    $pricing = new \App\Services\InvoicePricingService;
+                    $rawMonths = $request->input('selectedMonths', $value);
+                    $months = $pricing->normaliseMonths($rawMonths);
+
+                    // normaliseMonths() drops malformed tokens silently. A raw
+                    // 'garbage' token must FAIL, not vanish: storage used the
+                    // raw array, so ['2026-09','garbage'] passed as a clean
+                    // single month while 'garbage' was stored — and every
+                    // month-count downstream (shares, future/release queues)
+                    // counted it as a real month, diluting teacher pay.
+                    $rawTokens = is_string($rawMonths) ? (json_decode($rawMonths, true) ?: []) : (is_array($rawMonths) ? $rawMonths : []);
+                    $rawTokens = array_values(array_filter(
+                        array_map(fn ($m) => is_string($m) ? trim($m) : null, $rawTokens),
+                        fn ($m) => $m !== null && $m !== ''
+                    ));
+
+                    if (count($rawTokens) !== count($months)) {
+                        $fail('Les mois sélectionnés contiennent des valeurs invalides.');
+                    }
+
+                    if (count($months) > 1 && ! $pricing->areMonthsConsecutive($months)) {
+                        $fail('Les mois sélectionnés doivent être consécutifs.');
+                    }
+                }], // Accept array or stringified JSON
                 'billDate' => 'required|date',
                 'creationDate' => 'nullable|date',
                 // Money fields are floored at 0. `rest` may legitimately be 0 but never negative.
@@ -313,12 +340,39 @@ class InvoiceController extends Controller
                 $selectedMonths = [];
             }
 
-            $validated['selected_months'] = json_encode($selectedMonths);
+            // Store the normalised array, never the raw input: with the validator
+            // above rejecting dropped tokens the two now agree, and no future
+            // reader has to wonder whether a stored token is a real month.
+            $validated['selected_months'] = json_encode(
+                (new \App\Services\InvoicePricingService)->normaliseMonths($selectedMonths)
+            );
             // Set the creator
             $validated['created_by'] = auth()->email ?? auth()->id(); // Fallback to ID if email is not available
 
             // Fetch the membership (including deleted ones)
             $membership = Membership::withTrashed()->findOrFail($validated['membership_id']);
+
+            // The membership must belong to the billed student AND to this
+            // staff member's school. membership_id is only `exists:`-checked,
+            // so without this an assistant could bill their own student
+            // against another school's membership — crediting the wrong
+            // roster from a legitimate-looking invoice. AccessDeniedException
+            // escapes the generic catch below by design (it extends \Error).
+            $membershipOwner = $membership->student;
+
+            if (! $membershipOwner) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'membership_id' => 'Adhésion introuvable.',
+                ]);
+            }
+
+            SchoolScope::authorizeStudent($membershipOwner);
+
+            if ((int) $membership->student_id !== (int) $validated['student_id']) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'membership_id' => 'Cette adhésion n’appartient pas à cet étudiant.',
+                ]);
+            }
 
             // Pré-vérifications bloquantes pour éviter des factures invalides
             if (! $membership->offer) {
@@ -669,7 +723,23 @@ class InvoiceController extends Controller
         // processInvoicePayment, which credits teacher wallets. This is the second half
         // of the wallet-fraud chain described in the audit (§5.1) — the first half being
         // MembershipController::update accepting an arbitrary teachers array.
-        $this->authorizeInvoice(Invoice::findOrFail($id));
+        $invoiceForScope = Invoice::findOrFail($id);
+        $this->authorizeInvoice($invoiceForScope);
+
+        // The update authorises the OLD invoice only (above); a changed student_id
+        // must be scoped like a new billing, or staff could walk rows across
+        // schools. Before the try AND the transaction: SchoolScope throws
+        // AccessDeniedException (extends \Error, escapes the generic catch),
+        // but keep the check outside anyway — a denial must never depend on
+        // catch-block subtleties to surface as a 403.
+        $incomingStudentId = $request->input('student_id');
+
+        if ($incomingStudentId !== null && $incomingStudentId !== ''
+            && (int) $incomingStudentId !== (int) $invoiceForScope->student_id) {
+            \App\Support\SchoolScope::authorizeStudent(
+                \App\Models\Student::findOrFail($incomingStudentId)
+            );
+        }
 
         DB::beginTransaction();
 
@@ -709,7 +779,34 @@ class InvoiceController extends Controller
                         }
                     },
                 ],
-                'selected_months' => 'nullable', // Accept array or stringified JSON
+                'selected_months' => ['nullable', function ($attribute, $value, $fail) use ($request) {
+                    // Gapped selections price at zero full months server-side; storing
+                    // one would record a zeroed invoice and debit teachers on update.
+                    // The form sends `selectedMonths`; validate the effective source.
+                    $pricing = new \App\Services\InvoicePricingService;
+                    $rawMonths = $request->input('selectedMonths', $value);
+                    $months = $pricing->normaliseMonths($rawMonths);
+
+                    // normaliseMonths() drops malformed tokens silently. A raw
+                    // 'garbage' token must FAIL, not vanish: storage used the
+                    // raw array, so ['2026-09','garbage'] passed as a clean
+                    // single month while 'garbage' was stored — and every
+                    // month-count downstream (shares, future/release queues)
+                    // counted it as a real month, diluting teacher pay.
+                    $rawTokens = is_string($rawMonths) ? (json_decode($rawMonths, true) ?: []) : (is_array($rawMonths) ? $rawMonths : []);
+                    $rawTokens = array_values(array_filter(
+                        array_map(fn ($m) => is_string($m) ? trim($m) : null, $rawTokens),
+                        fn ($m) => $m !== null && $m !== ''
+                    ));
+
+                    if (count($rawTokens) !== count($months)) {
+                        $fail('Les mois sélectionnés contiennent des valeurs invalides.');
+                    }
+
+                    if (count($months) > 1 && ! $pricing->areMonthsConsecutive($months)) {
+                        $fail('Les mois sélectionnés doivent être consécutifs.');
+                    }
+                }], // Accept array or stringified JSON
                 'billDate' => 'required|date',
                 'creationDate' => 'nullable|date',
                 'totalAmount' => 'required|numeric|min:0|max:9999999.99',
@@ -763,15 +860,51 @@ class InvoiceController extends Controller
             if (! is_array($selectedMonths)) {
                 $selectedMonths = [];
             }
-            $validated['selected_months'] = json_encode($selectedMonths);
+            // Store the normalised array, never the raw input: with the validator
+            // above rejecting dropped tokens the two now agree, and no future
+            // reader has to wonder whether a stored token is a real month.
+            $validated['selected_months'] = json_encode(
+                (new \App\Services\InvoicePricingService)->normaliseMonths($selectedMonths)
+            );
 
             // Ensure membership_id exists: default to the invoice's current membership when not provided
             if (empty($validated['membership_id'])) {
                 $validated['membership_id'] = $invoice->membership_id;
             }
 
+            // Invoices are never re-pointed once they carry teacher money: moving
+            // the membership mints a second pay chain on the new roster while the
+            // old chain keeps paying every month. Void and rebill instead.
+            if ((int) $validated['membership_id'] !== (int) $invoice->membership_id
+                && \App\Models\TeacherMembershipPayment::where('invoice_id', $invoice->id)->exists()) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'membership_id' => 'Cette facture a déjà généré des versements : annulez-la et créez-en une nouvelle au lieu de changer d’adhésion.',
+                ]);
+            }
+
             // Fetch the membership (including deleted ones)
             $membership = Membership::withTrashed()->findOrFail($validated['membership_id']);
+
+            // Same binding as store(): the membership must belong to the
+            // (possibly inferred) billed student and to this staff member's
+            // school. Without this, omitting student_id let the inference
+            // above walk the invoice onto a foreign membership unchecked —
+            // the pre-try scope check only sees an explicitly posted id.
+            $membershipOwner = $membership->student;
+
+            if (! $membershipOwner) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'membership_id' => 'Adhésion introuvable.',
+                ]);
+            }
+
+            SchoolScope::authorizeStudent($membershipOwner);
+
+            if ((int) $membership->student_id !== (int) $validated['student_id']) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'membership_id' => 'Cette adhésion n’appartient pas à cet étudiant.',
+                ]);
+            }
 
             // Pré-vérifications bloquantes pour éviter des factures invalides
             if (! $membership->offer) {
@@ -954,6 +1087,15 @@ class InvoiceController extends Controller
         ]);
 
         $membership = Membership::withTrashed()->findOrFail($validated['membership_id']);
+
+        // Read-only quote, but membership_id is attacker-chosen: without this
+        // any logged-in user could enumerate other schools' memberships and
+        // their pricing. Teachers never reach here (route middleware).
+        if (! $membership->student) {
+            return response()->json(['message' => 'Adhésion introuvable.'], 422);
+        }
+
+        SchoolScope::authorizeStudent($membership->student);
 
         if (! $membership->offer) {
             return response()->json(['message' => 'Offre introuvable pour cette adhésion.'], 422);

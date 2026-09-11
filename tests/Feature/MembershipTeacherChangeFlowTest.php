@@ -181,6 +181,46 @@ test('changing the offer without fixing the teachers is blocked and names the su
 });
 
 test('swapping teachers on an unpaid membership saves directly with no dialog', function () {
+    // No paid invoice and no paid rows anywhere: there is no money to protect,
+    // whatever the status flag says.
+    $school = App\Models\School::factory()->create();
+    $admin = User::factory()->create(['role' => 'admin']);
+
+    $teacher = Teacher::factory()->create(['wallet' => 0]);
+    $teacher->schools()->attach($school->id);
+    $replacement = Teacher::factory()->create(['wallet' => 0]);
+    $replacement->schools()->attach($school->id);
+
+    $student = Student::factory()->create(['schoolId' => $school->id]);
+    $offer = Offer::factory()->create([
+        'price' => 200.0,
+        'subjects' => ['Math'],
+        'percentage' => ['Math' => 50],
+    ]);
+
+    $membership = Membership::factory()->create([
+        'student_id' => $student->id,
+        'offer_id' => $offer->id,
+        'payment_status' => 'pending',
+        'is_active' => true,
+        'teachers' => [['teacherId' => $teacher->id, 'subject' => 'Math']],
+    ]);
+
+    $this->actingAs($admin)->put("/memberships/{$membership->id}", [
+        'student_id' => $student->id,
+        'offer_id' => $offer->id,
+        'teachers' => [['teacherId' => $replacement->id, 'subject' => 'Math', 'amount' => 100]],
+    ])->assertRedirect();
+
+    expect($membership->fresh()->teachers[0]['teacherId'])->toBe((int) $replacement->id)
+        ->and(session()->has('payment_notice'))->toBeFalse('No money ever moved: no dialog.');
+});
+
+test('a stale pending flag does not disarm the money path when invoices are paid', function () {
+    // The gate keys on paid invoices, never on payment_status: the flag goes
+    // stale (paid rows on a pending membership), and gating on it let swaps on
+    // expired memberships skip the reversal, the dialog and the reprocess
+    // while the cron kept paying whoever was removed (prod Sept 2026).
     $f = makeFlowMembership();
     extract($f);
 
@@ -192,8 +232,19 @@ test('swapping teachers on an unpaid membership saves directly with no dialog', 
         'teachers' => [['teacherId' => $replacement->id, 'subject' => 'Math', 'amount' => 100]],
     ])->assertRedirect();
 
-    expect($membership->fresh()->teachers[0]['teacherId'])->toBe((int) $replacement->id)
-        ->and(session()->has('payment_notice'))->toBeFalse('No money ever moved: no dialog.');
+    expect(session()->has('payment_notice'))->toBeTrue('Paid invoices exist: the confirm dialog must open.');
+
+    $this->actingAs($admin)->put("/memberships/{$membership->id}", [
+        'confirm_teachers_change' => true,
+        'payload' => [
+            'student_id' => $student->id,
+            'offer_id' => $offer->id,
+            'teachers' => [['teacherId' => $replacement->id, 'subject' => 'Math', 'amount' => 100]],
+        ],
+    ])->assertRedirect();
+
+    expect(round((float) $teacher->fresh()->wallet, 2))->toBe(0.0, 'Old teacher reversed on confirm.')
+        ->and(round((float) $replacement->fresh()->wallet, 2))->toBe(100.0, 'Replacement credited on confirm.');
 });
 
 test('a partially recovered invoice still reprocesses on confirm', function () {

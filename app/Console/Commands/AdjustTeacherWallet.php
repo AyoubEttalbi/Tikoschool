@@ -98,12 +98,76 @@ class AdjustTeacherWallet extends Command
             return self::FAILURE;
         }
 
+        // Subject is key material AND the ledger slice key: normalise it the
+        // same way every other path does (OfferPercentages::normalise,
+        // lowercase). Uppercasing here while the service stores raw spelling
+        // split one subject into two keys — the idempotency key missed and
+        // the reversal-cap slice fell back to the whole-invoice sum.
+        $subject = $this->option('subject') !== null
+            ? \App\Support\OfferPercentages::normalise((string) $this->option('subject'))
+            : null;
+
+        // The teacher must be linked to the invoice at the SUBJECT level when
+        // one is given: a Math record must not justify PC money (the new PC
+        // teacher was already paid — see LedgerShortfall::isAssigned). Without
+        // a subject, any record or any current roster spot links them.
+        $records = \App\Models\TeacherMembershipPayment::where('invoice_id', $invoice->id)
+            ->where('teacher_id', $teacher->id)
+            ->get();
+
+        $subjectLinked = $subject !== null && $subject !== ''
+            ? $records->contains(fn ($r) => \App\Support\OfferPercentages::normalise((string) ($r->teacher_subject ?? '')) === $subject)
+            : $records->isNotEmpty();
+
+        if (! $subjectLinked) {
+            $membership = \App\Models\Membership::withTrashed()->find($invoice->membership_id);
+            $rostered = $membership && is_array($membership->teachers)
+                && collect($membership->teachers)->contains(fn ($t) => (int) ($t['teacherId'] ?? 0) === (int) $teacher->id
+                    && ($subject === null || $subject === '' || \App\Support\OfferPercentages::normalise((string) ($t['subject'] ?? '')) === $subject));
+
+            if (! $rostered) {
+                $scope = ($subject !== null && $subject !== '') ? " for subject '{$subject}'" : '';
+                $this->error("Teacher {$teacher->id} has no record and no roster spot on invoice {$invoice->id}{$scope} — refused.");
+
+                return self::FAILURE;
+            }
+        }
+
         $recordId = $this->option('record');
 
         if ($recordId !== null && ! ctype_digit((string) $recordId)) {
             $this->error('Record id must be a positive integer.');
 
             return self::FAILURE;
+        }
+
+        // A --record must belong to THIS teacher and THIS invoice: otherwise
+        // the ledger row points at someone else's record and per-invoice
+        // audits go blind on it. A --subject must agree with the record's
+        // own subject, or the row lands in a slice the monitors never join
+        // back to this record.
+        if ($recordId !== null) {
+            $record = \App\Models\TeacherMembershipPayment::find((int) $recordId);
+
+            if (! $record || (int) $record->teacher_id !== (int) $teacher->id || (int) $record->invoice_id !== (int) $invoice->id) {
+                $this->error("Record {$recordId} does not belong to teacher {$teacher->id} on invoice {$invoice->id} — refused.");
+
+                return self::FAILURE;
+            }
+
+            if ($subject !== null && $subject !== ''
+                && \App\Support\OfferPercentages::normalise((string) ($record->teacher_subject ?? '')) !== $subject) {
+                $this->error("Record {$recordId} is for '{$record->teacher_subject}', not '{$subject}' — refused.");
+
+                return self::FAILURE;
+            }
+
+            // No --subject with a --record: inherit the record's own subject.
+            // A subject-less adjustment against a Math record would land in
+            // the '' slice, which no per-subject audit joins back to it.
+            if ($subject === null || $subject === '') {
+                $subject = \App\Support\OfferPercentages::normalise((string) ($record->teacher_subject ?? ''));
+            }
         }
 
         $month = $this->option('month') ?: now()->format('Y-m');
@@ -113,12 +177,6 @@ class AdjustTeacherWallet extends Command
 
             return self::FAILURE;
         }
-
-        // Subject is key material: normalise it so FR/fr/FR-with-spaces cannot
-        // triple-apply one movement. Reruns must repeat month + subject exactly.
-        $subject = $this->option('subject') !== null
-            ? mb_strtoupper(trim((string) $this->option('subject')))
-            : null;
 
         $note = $this->option('note');
 

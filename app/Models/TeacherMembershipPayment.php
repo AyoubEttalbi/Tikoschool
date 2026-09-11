@@ -57,7 +57,12 @@ class TeacherMembershipPayment extends Model
 
     public function invoice()
     {
-        return $this->belongsTo(Invoice::class);
+        // withTrashed: updateExistingRecord() reads $record->invoice for the
+        // cumulative paid figure and stamps the adjustment with its id. On a
+        // trashed invoice the relation resolved to null, so the delta was
+        // computed against 0 paid and the adjustment lost its invoice link —
+        // invisible to the guard and both audits.
+        return $this->belongsTo(Invoice::class)->withTrashed();
     }
 
     /**
@@ -90,9 +95,9 @@ class TeacherMembershipPayment extends Model
     public function scopeWithUnpaidCurrentMonth($query, $currentMonth = null)
     {
         $currentMonth = $currentMonth ?? now()->format('Y-m');
-        
+
         return $query->whereJsonContains('selected_months', $currentMonth)
-                    ->whereJsonContains('months_rest_not_paid_yet', $currentMonth);
+            ->whereJsonContains('months_rest_not_paid_yet', $currentMonth);
     }
 
     /**
@@ -109,10 +114,10 @@ class TeacherMembershipPayment extends Model
     public function markMonthAsPaid($month)
     {
         $unpaidMonths = $this->months_rest_not_paid_yet ?? [];
-        $unpaidMonths = array_filter($unpaidMonths, function($m) use ($month) {
+        $unpaidMonths = array_filter($unpaidMonths, function ($m) use ($month) {
             return $m !== $month;
         });
-        
+
         $this->update(['months_rest_not_paid_yet' => array_values($unpaidMonths)]);
     }
 

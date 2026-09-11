@@ -210,9 +210,14 @@ Route::middleware('auth')->group(function () {
         Route::get('/{id}/pdf', 'generateInvoicePdf')->name('invoices.pdf');
         Route::get('/{id}/download', 'download')->name('invoices.download');
         Route::post('/bulk-download', 'bulkDownload')->name('invoices.bulk.download');
-        Route::get('/{id}/validate', 'validateInvoice')->name('invoices.validate')->where('id', '[0-9]+');
+        Route::get('/{id}/validate', 'validateInvoice')->name('invoices.validate')->where('id', '[0-9]+')
+            // Writes money (reconcile) behind a read-only name: staff roles only,
+            // and it 403s instead of redirecting so a denial never looks like data.
+            ->middleware(\App\Http\Middleware\RequireRole::class.':admin,assistant');
         // Server-side price quote for the invoice form (see InvoicePricingService).
-        Route::post('/price', 'priceQuote')->name('invoices.price');
+        // Staff-only like validate: membership_id is attacker-chosen.
+        Route::post('/price', 'priceQuote')->name('invoices.price')
+            ->middleware(\App\Http\Middleware\RequireRole::class.':admin,assistant');
     });
 
     // Teacher invoices bulk download route

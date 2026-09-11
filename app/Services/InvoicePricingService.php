@@ -197,7 +197,10 @@ class InvoicePricingService
 
         $months = array_values(array_unique(array_filter(
             array_map(fn ($m) => is_string($m) ? trim($m) : null, $months),
-            fn ($m) => $m !== null && preg_match('/^\d{4}-\d{2}$/', $m) === 1
+            // Month 01-12 enforced here, not just shape: '2026-13' is not a
+            // month, and downstream code trusts these tokens for counting and
+            // release queues.
+            fn ($m) => $m !== null && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $m) === 1
         )));
 
         sort($months);

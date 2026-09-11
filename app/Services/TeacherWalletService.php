@@ -74,8 +74,10 @@ class TeacherWalletService
         // '' rather than null: teacher_subject is part of the unique idempotency key, and
         // MySQL treats NULLs as distinct — a null here would exempt the row from the
         // constraint entirely, which is the opposite of what the key is for.
-        // See 2026_08_07_120000_add_teacher_subject_to_wallet_ledger_idempotency.
-        $teacherSubject = (string) ($teacherSubject ?? '');
+        // Normalised (lowercase, trimmed) so every path — service credits with
+        // raw offer spelling, wallet:adjust, audits — shares ONE key per
+        // subject. See 2026_08_07_120000_add_teacher_subject_to_wallet_ledger_idempotency.
+        $teacherSubject = \App\Support\OfferPercentages::normalise((string) ($teacherSubject ?? ''));
 
         return DB::transaction(function () use ($teacher, $signedAmount, $reason, $paymentRecordId, $month, $invoiceId, $note, $teacherSubject) {
             // Lock the row so two concurrent payments cannot both read the same balance.

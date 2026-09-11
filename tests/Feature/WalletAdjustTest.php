@@ -12,15 +12,31 @@ use App\Models\TeacherWalletEntry;
  * duplicate runs refused by the ledger idempotency key.
  */
 
+/** A teacher rostered on a membership holding one invoice (adjust requires the link). */
+function linkedAdjustFixture(float $wallet = 0.0): array
+{
+    $teacher = Teacher::factory()->create(['wallet' => $wallet]);
+    $student = \App\Models\Student::factory()->create();
+    $membership = \App\Models\Membership::factory()->create([
+        'student_id' => $student->id,
+        'teachers' => [['teacherId' => $teacher->id, 'subject' => 'Math']],
+    ]);
+    $invoice = \App\Models\Invoice::factory()->create([
+        'membership_id' => $membership->id,
+        'student_id' => $student->id,
+    ]);
+
+    return [$teacher, $invoice];
+}
+
 test('a dry run writes nothing', function () {
-    $teacher = Teacher::factory()->create(['wallet' => 100.0]);
-    $invoiceId = \App\Models\Invoice::factory()->create()->id;
+    [$teacher, $invoice] = linkedAdjustFixture(100.0);
 
     $this->artisan('wallet:adjust', [
         '--teacher' => $teacher->id,
         '--amount' => 50,
         '--reason' => 'manual.adjustment',
-        '--invoice' => $invoiceId,
+        '--invoice' => $invoice->id,
         '--note' => 'dry-run-probe',
     ])->assertExitCode(0);
 
@@ -29,15 +45,14 @@ test('a dry run writes nothing', function () {
 });
 
 test('a confirmed credit moves the wallet and writes the ledger row', function () {
-    $teacher = Teacher::factory()->create(['wallet' => 100.0]);
-    $invoiceId = \App\Models\Invoice::factory()->create()->id;
+    [$teacher, $invoice] = linkedAdjustFixture(100.0);
 
     $this->artisan('wallet:adjust', [
         '--teacher' => $teacher->id,
         '--amount' => 50,
         '--reason' => 'manual.adjustment',
-        '--invoice' => $invoiceId,
-        '--subject' => 'FR',
+        '--invoice' => $invoice->id,
+        '--subject' => 'Math',
         '--note' => 'test-credit',
         '--confirm' => true,
     ])->assertExitCode(0);
@@ -48,20 +63,19 @@ test('a confirmed credit moves the wallet and writes the ledger row', function (
 
     expect($entry->reason)->toBe('manual.adjustment')
         ->and((float) $entry->amount)->toBe(50.0)
-        ->and((int) $entry->invoice_id)->toBe($invoiceId)
-        ->and($entry->teacher_subject)->toBe('FR')
+        ->and((int) $entry->invoice_id)->toBe($invoice->id)
+        ->and($entry->teacher_subject)->toBe('math', 'Ledger subjects are stored normalised.')
         ->and((float) $entry->balance_after)->toBe(150.0);
 });
 
 test('a confirmed debit respects the zero floor', function () {
-    $teacher = Teacher::factory()->create(['wallet' => 30.0]);
-    $invoiceId = \App\Models\Invoice::factory()->create()->id;
+    [$teacher, $invoice] = linkedAdjustFixture(30.0);
 
     $this->artisan('wallet:adjust', [
         '--teacher' => $teacher->id,
         '--amount' => 100,
         '--debit' => true,
-        '--invoice' => $invoiceId,
+        '--invoice' => $invoice->id,
         '--note' => 'test-debit',
         '--confirm' => true,
     ])->assertExitCode(0);
@@ -71,16 +85,15 @@ test('a confirmed debit respects the zero floor', function () {
 });
 
 test('an identical rerun is refused, not double-applied', function () {
-    $teacher = Teacher::factory()->create(['wallet' => 0.0]);
-    $invoiceId = \App\Models\Invoice::factory()->create()->id;
+    [$teacher, $invoice] = linkedAdjustFixture(0.0);
 
     $args = [
         '--teacher' => $teacher->id,
         '--amount' => 100,
         '--reason' => 'manual.adjustment',
-        '--invoice' => $invoiceId,
+        '--invoice' => $invoice->id,
         '--month' => '2026-09',
-        '--subject' => 'FR',
+        '--subject' => 'Math',
         '--note' => 'test-idempotent',
         '--confirm' => true,
     ];

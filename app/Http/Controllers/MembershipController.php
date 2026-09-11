@@ -299,7 +299,21 @@ class MembershipController extends Controller
 
             $paymentService = new \App\Services\TeacherMembershipPaymentService;
             $teachersChanged = self::membershipTeachersChanged($membership, $validated);
-            $isPaid = $membership->payment_status === 'paid';
+
+            // Paid-money gate, keyed on invoices — never on payment_status. The
+            // status flips to `expired` when end dates pass while paid records
+            // and queues stay live; gating on it let teacher swaps on expired
+            // memberships skip the reversal, the dialog and the reprocess, and
+            // the cron kept paying whoever was removed.
+            $hasPaidMoney = $membership->invoices()
+                ->where(function ($query) {
+                    $query->where('amountPaid', '>', 0)
+                        ->orWhereHas('teacherMembershipPayments', function ($q) {
+                            $q->where('is_active', true)
+                                ->where('total_paid_to_teacher', '>', 0);
+                        });
+                })
+                ->exists();
 
             // Reverse the teacher wallet credits before re-pointing the membership.
             //
@@ -316,7 +330,7 @@ class MembershipController extends Controller
             ];
             $blockedInvoiceIds = [];
 
-            if ($teachersChanged && $isPaid) {
+            if ($teachersChanged && $hasPaidMoney) {
                 // Preview first: this request writes NOTHING. When it would move
                 // money, the dialog resubmits the same payload with the confirm
                 // flag to execute. Step 0 of the guard: edits that change no
@@ -344,7 +358,11 @@ class MembershipController extends Controller
                     DB::beginTransaction();
                 } else {
                     foreach ($membership->invoices()->get() as $invoice) {
-                        $outcome = $paymentService->reverseInvoicePayments($invoice);
+                        // $clearQueue = false: the queue describes the schedule, not the
+                        // money. Wiping it here strands kept teachers' future months
+                        // with no error anywhere; reprocess rebuilds from the preserved
+                        // queue instead. Destroy (invoice gone) still clears.
+                        $outcome = $paymentService->reverseInvoicePayments($invoice, null, false);
 
                         $reversal['applied'] = array_merge($reversal['applied'], $outcome['applied']);
                         $reversal['blocked'] = array_merge($reversal['blocked'], $outcome['blocked']);
@@ -396,7 +414,7 @@ class MembershipController extends Controller
             // nothing to heal. Inside the surrounding transaction: a failure rolls
             // the whole edit back rather than committing pointed teachers with
             // taken money.
-            if ($teachersChanged && $isPaid && $confirmed) {
+            if ($teachersChanged && $hasPaidMoney && $confirmed) {
                 $reprocess = $paymentService->reprocessMembershipInvoices($membership, $blockedInvoiceIds);
 
                 if (! ($reprocess['success'] ?? false)) {
@@ -420,7 +438,7 @@ class MembershipController extends Controller
 
             // A confirmed swap reversed AND re-credited wallets; the plain text says
             // so, or the post-save "repris" dialog reads as money taken and kept.
-            $feedback = ($teachersChanged && $isPaid && $confirmed)
+            $feedback = ($teachersChanged && $hasPaidMoney && $confirmed)
                 ? 'Adhésion mise à jour. Les portefeuilles des enseignants ont été recalculés.'
                 : 'Adhésion mise à jour.';
 

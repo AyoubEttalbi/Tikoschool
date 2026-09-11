@@ -106,6 +106,16 @@ return Application::configure(basePath: dirname(__DIR__))
             ->appendOutputTo(storage_path('logs/schedule.log'))
             ->onFailure(fn () => $reportScheduledFailure('wallet:check'));
 
+        // Per-invoice record-vs-ledger reconciliation (the 7027 class that
+        // wallet:check cannot see: cache and ledger agree while a record does
+        // not). Read-only; same three channels on failure.
+        $schedule->command('wallet:audit-invoices')
+            ->dailyAt('04:45')
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->appendOutputTo(storage_path('logs/schedule.log'))
+            ->onFailure(fn () => $reportScheduledFailure('wallet:audit-invoices'));
+
         /*
          * Two-way profile-image integrity (DB -> filesystem, filesystem -> DB), daily
          * before the wallet check. Report-only by design: --strict only flips the exit

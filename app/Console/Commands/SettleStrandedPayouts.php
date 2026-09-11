@@ -6,6 +6,7 @@ use App\Models\Teacher;
 use App\Models\TeacherMembershipPayment;
 use App\Models\TeacherWalletEntry;
 use App\Services\TeacherWalletService;
+use App\Support\LedgerShortfall;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -180,6 +181,21 @@ class SettleStrandedPayouts extends Command
             }
 
             DB::transaction(function () use ($wallet, $teacher, $record, $amount, &$credited, &$skippedDuplicate, &$movedTotal) {
+                // Roster gate (prod Sept 2026): settling pays whoever holds the
+                // record, and records outlive roster removals. A removed teacher's
+                // gap is not stranded earnings — it is money that must not move
+                // without a human decision. Mirror RepairLedgerShortfall, not the
+                // old settle-everything behavior.
+                if (! LedgerShortfall::isAssigned($record)) {
+                    Log::warning('payouts:settle-stranded skipped unassigned teacher', [
+                        'record_id' => $record->id,
+                        'teacher_id' => $record->teacher_id,
+                        'invoice_id' => $record->invoice_id,
+                    ]);
+
+                    return;
+                }
+
                 // Fixed marker rather than now()->format('Y-m'): it makes the idempotency
                 // key stable across runs, so re-running this command in a different month
                 // cannot credit the same record a second time.

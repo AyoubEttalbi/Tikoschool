@@ -27,13 +27,21 @@ use App\Services\TeacherMembershipPaymentService;
 function payoutRecord(float $owed, float $paid, array $queuedMonths, float $monthly): array
 {
     $teacher = Teacher::factory()->create(['wallet' => 0]);
-    $invoice = Invoice::factory()->create();
+    $student = App\Models\Student::factory()->create();
+    $membership = App\Models\Membership::factory()->create([
+        'student_id' => $student->id,
+        'teachers' => [['teacherId' => $teacher->id, 'subject' => 'Math']],
+    ]);
+    $invoice = Invoice::factory()->create([
+        'membership_id' => $membership->id,
+        'student_id' => $student->id,
+    ]);
 
     $record = TeacherMembershipPayment::create([
         'teacher_id' => $teacher->id,
         'invoice_id' => $invoice->id,
         'student_id' => $invoice->student_id,
-        'membership_id' => $invoice->membership_id,
+        'membership_id' => $membership->id,
         'teacher_subject' => 'Math',
         'teacher_percentage' => 50,
         'total_teacher_amount' => $owed,

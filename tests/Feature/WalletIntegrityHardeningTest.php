@@ -34,17 +34,18 @@ test('a UI wallet top-up lands in the ledger, not just on the cached column', fu
     // $teacher->save()` — no ledger row, no row lock, no transaction, no idempotency.
     // Within a single update() call the revert half WAS ledgered and the apply half was
     // not, so the two disagreed by construction.
+    //
+    // Top-ups go through the admin-only wallet panel (a reason is required); the
+    // generic transaction form no longer accepts type=wallet at all, so a crafted
+    // POST cannot mint ledger money.
     $email = fake()->unique()->safeEmail();
     $teacher = Teacher::factory()->create(['email' => $email, 'wallet' => 0]);
     $teacherUser = User::factory()->create(['role' => 'teacher', 'email' => $email]);
     $admin = User::factory()->create(['role' => 'admin']);
 
-    $this->actingAs($admin)->post('/transactions', [
-        'user_id' => $teacherUser->id,
-        'type' => 'wallet',
-        'amount' => 250,
-        'payment_date' => now()->toDateString(),
-        'description' => 'Top-up',
+    $this->actingAs($admin)->post("/teachers/{$teacher->id}/wallet", [
+        'new_balance' => 250,
+        'note' => 'Top-up probe',
     ]);
 
     $teacher->refresh();
@@ -431,7 +432,8 @@ test('reassigning a paid membership reverses the old teacher wallet credit', fun
 
     // The old teacher's record stays dead; the replacement is paid immediately by
     // the edit itself (reprocessMembershipInvoices) instead of waiting for someone
-    // to re-save the invoice.
+    // to re-save the invoice — the wait was prod Sept 2026 (invoices 7053/7064),
+    // where the replacement was only paid because a clerk happened to re-save.
     expect(TeacherMembershipPayment::where('membership_id', $membership->id)->where('teacher_id', $teacher->id)->where('is_active', true)->count())
         ->toBe(0, 'The removed teacher must stay dead.');
 

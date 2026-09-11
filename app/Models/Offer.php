@@ -28,8 +28,9 @@ class Offer extends Model
      * recomputes gains from the CURRENT row while wallets froze the creation-era
      * share. A silent % edit therefore moves every gains display with no invoice
      * touched and no trace — the Sept 2026 Zakaria investigation burned hours on
-     * exactly that. Percentage changes are audit-logged with old/new values;
-     * renames and price edits are not.
+     * exactly that. Percentage AND price changes are audit-logged with old/new
+     * values (a price change reprices every future invoice the same silent way);
+     * renames are not.
      */
     protected static function booted(): void
     {
@@ -41,22 +42,38 @@ class Offer extends Model
                 ->sortKeys()
                 ->all();
 
-            if ($normalise($offer->getOriginal('percentage')) === $normalise($offer->percentage)) {
+            $percentChanged = $normalise($offer->getOriginal('percentage')) !== $normalise($offer->percentage);
+            $priceChanged = round((float) $offer->getOriginal('price'), 2) !== round((float) $offer->price, 2);
+
+            if (! $percentChanged && ! $priceChanged) {
                 return;
+            }
+
+            $properties = [];
+
+            if ($percentChanged) {
+                $properties['percentage'] = [
+                    'old' => self::decodedPercentages($offer->getOriginal('percentage')),
+                    'new' => self::decodedPercentages($offer->percentage),
+                ];
+            }
+
+            if ($priceChanged) {
+                $properties['price'] = [
+                    'old' => $offer->getOriginal('price'),
+                    'new' => $offer->price,
+                ];
             }
 
             $log = activity()
                 ->performedOn($offer)
-                ->withProperties(['percentage' => [
-                    'old' => self::decodedPercentages($offer->getOriginal('percentage')),
-                    'new' => self::decodedPercentages($offer->percentage),
-                ]]);
+                ->withProperties($properties);
 
             if ($user = auth()->user()) {
                 $log->causedBy($user);
             }
 
-            $log->log('Offer percentages updated');
+            $log->log($percentChanged ? 'Offer percentages updated' : 'Offer price updated');
         });
     }
 
