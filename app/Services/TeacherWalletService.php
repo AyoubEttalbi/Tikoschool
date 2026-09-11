@@ -182,9 +182,21 @@ class TeacherWalletService
             return false;
         }
 
+        // Seed the GAP, not the whole wallet: teachers with a partial ledger
+        // (restored databases, mid-migration runs) already hold some of this
+        // money as rows. Crediting the full wallet double-counts that part.
+        $held = round((float) TeacherWalletEntry::where('teacher_id', $teacher->id)->sum('amount'), 2);
+        $opening = round($wallet - $held, 2);
+
+        // Never seed a non-positive gap: wallet BELOW the ledger is a real
+        // over-credit, and an opening entry would launder it into the books.
+        if ($opening <= 0.0) {
+            return false;
+        }
+
         TeacherWalletEntry::create([
             'teacher_id' => $teacher->id,
-            'amount' => $wallet,
+            'amount' => $opening,
             'balance_after' => $wallet,
             'reason' => TeacherWalletEntry::REASON_ADJUSTMENT,
             'note' => 'opening balance',

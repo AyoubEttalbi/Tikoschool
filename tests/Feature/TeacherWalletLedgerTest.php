@@ -17,7 +17,7 @@ test('a credit moves the wallet and records a ledger entry', function () {
     $teacher = Teacher::factory()->create(['wallet' => 0]);
     $invoice = Invoice::factory()->create();
 
-    $ok = (new TeacherWalletService())->credit(
+    $ok = (new TeacherWalletService)->credit(
         $teacher, 150.0, TeacherWalletEntry::REASON_MONTHLY, null, '2025-09', $invoice->id
     );
 
@@ -31,7 +31,7 @@ test('a credit moves the wallet and records a ledger entry', function () {
 test('the same month cannot be credited twice for the same invoice', function () {
     $teacher = Teacher::factory()->create(['wallet' => 0]);
     $invoice = Invoice::factory()->create();
-    $service = new TeacherWalletService();
+    $service = new TeacherWalletService;
 
     $first = $service->credit($teacher, 150.0, TeacherWalletEntry::REASON_MONTHLY, null, '2025-09', $invoice->id);
     // Exactly the scenario that caused the 167% overpayment: a second credit for the same
@@ -49,7 +49,7 @@ test('the same month cannot be credited twice for the same invoice', function ()
 test('different months for the same invoice are both credited', function () {
     $teacher = Teacher::factory()->create(['wallet' => 0]);
     $invoice = Invoice::factory()->create();
-    $service = new TeacherWalletService();
+    $service = new TeacherWalletService;
 
     $service->credit($teacher, 100.0, TeacherWalletEntry::REASON_MONTHLY, null, '2025-09', $invoice->id);
     $service->credit($teacher, 100.0, TeacherWalletEntry::REASON_MONTHLY, null, '2025-10', $invoice->id);
@@ -61,7 +61,7 @@ test('different months for the same invoice are both credited', function () {
 
 test('repeat payouts are allowed because they carry no invoice', function () {
     $teacher = Teacher::factory()->create(['wallet' => 500]);
-    $service = new TeacherWalletService();
+    $service = new TeacherWalletService;
 
     // invoice_id is NULL for payouts; MySQL treats NULLs as distinct in a unique index,
     // so these are deliberately exempt from the idempotency constraint.
@@ -77,7 +77,7 @@ test('repeat payouts are allowed because they carry no invoice', function () {
 test('a debit is clamped so the wallet never goes negative', function () {
     $teacher = Teacher::factory()->create(['wallet' => 40]);
 
-    (new TeacherWalletService())->debit($teacher, 100.0, TeacherWalletEntry::REASON_REVERSAL);
+    (new TeacherWalletService)->debit($teacher, 100.0, TeacherWalletEntry::REASON_REVERSAL);
 
     $teacher->refresh();
 
@@ -87,7 +87,7 @@ test('a debit is clamped so the wallet never goes negative', function () {
 test('the ledger sum matches the cached wallet', function () {
     $teacher = Teacher::factory()->create(['wallet' => 0]);
     $invoice = Invoice::factory()->create();
-    $service = new TeacherWalletService();
+    $service = new TeacherWalletService;
 
     $service->credit($teacher, 300.0, TeacherWalletEntry::REASON_IMMEDIATE, null, '2025-09', $invoice->id);
     $service->debit($teacher, 50.0, TeacherWalletEntry::REASON_PAYOUT);
@@ -100,7 +100,7 @@ test('the ledger sum matches the cached wallet', function () {
 
 test('drift is detected when the wallet is changed behind the ledger', function () {
     $teacher = Teacher::factory()->create(['wallet' => 0]);
-    $service = new TeacherWalletService();
+    $service = new TeacherWalletService;
 
     $service->credit($teacher, 100.0, TeacherWalletEntry::REASON_ADJUSTMENT);
 
@@ -113,10 +113,37 @@ test('drift is detected when the wallet is changed behind the ledger', function 
 
 test('an opening balance is only ever recorded once', function () {
     $teacher = Teacher::factory()->create(['wallet' => 250]);
-    $service = new TeacherWalletService();
+    $service = new TeacherWalletService;
 
     expect($service->recordOpeningBalance($teacher))->toBeTrue()
         ->and($service->recordOpeningBalance($teacher))->toBeFalse()
         ->and($service->ledgerBalance($teacher))->toBe(250.0)
         ->and($service->drift())->toBeEmpty();
+});
+
+test('an opening balance seeds only the gap over a partial ledger', function () {
+    $teacher = Teacher::factory()->create(['wallet' => 0]);
+    $service = new TeacherWalletService;
+    $service->credit($teacher, 100.0, TeacherWalletEntry::REASON_ADJUSTMENT);
+
+    // 100 moved through the ledger; another 150 predates it.
+    Teacher::whereKey($teacher->id)->update(['wallet' => 250]);
+    $teacher->refresh();
+
+    expect($service->recordOpeningBalance($teacher))->toBeTrue()
+        ->and($service->ledgerBalance($teacher))->toBe(250.0)
+        ->and($service->drift())->toBeEmpty('Crediting the full wallet would double-count the ledgered 100.');
+});
+
+test('an opening balance never masks an over-credit', function () {
+    $teacher = Teacher::factory()->create(['wallet' => 0]);
+    $service = new TeacherWalletService;
+    $service->credit($teacher, 100.0, TeacherWalletEntry::REASON_ADJUSTMENT);
+
+    // Wallet dropped below the ledger: money left with no record.
+    Teacher::whereKey($teacher->id)->update(['wallet' => 50]);
+    $teacher->refresh();
+
+    expect($service->recordOpeningBalance($teacher))->toBeFalse()
+        ->and($service->drift())->not->toBeEmpty('A negative opening entry would launder the over-credit.');
 });
