@@ -468,10 +468,10 @@ class OutboundMessageService
             // leading emoji or digit cannot let the first Latin word decide it.
             'rtl' => "\u{200F}",
 
-            // There is no gender field on students, so the message has always addressed
-            // guardians in the masculine. Kept as-is rather than guessed from a name.
-            'pronoun' => 'ابنكم',
-            'verb' => 'تغيب',
+            // There is no gender field on students, so the notice uses the
+            // gender-neutral parenthesised forms (client wording, Sep 2026).
+            'pronoun' => 'ابنكم (ابنتكم)',
+            'verb' => 'تغيب(ت)',
         ])->render());
     }
 
