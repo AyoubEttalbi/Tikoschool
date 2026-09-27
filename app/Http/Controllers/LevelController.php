@@ -105,8 +105,7 @@ class LevelController extends Controller
             // Both eager loads are consumed by the Blade. Without them this is two queries
             // per student — the N+1 the absence sheet had to fix for the same reason.
             ->with(['memberships.offer'])
-            ->orderBy('lastName')
-            ->orderBy('firstName');
+            ->printOrder();
 
         if ($allowedSchoolIds !== null) {
             $query->whereIn('schoolId', $allowedSchoolIds);

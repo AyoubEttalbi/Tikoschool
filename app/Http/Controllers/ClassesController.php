@@ -480,8 +480,7 @@ class ClassesController extends Controller
             ->where('schoolId', $class->school_id)
             ->where('status', 'active')
             ->with(['memberships.offer'])
-            ->orderBy('lastName')
-            ->orderBy('firstName');
+            ->printOrder();
 
         // Teachers see only students they teach via memberships.teachers JSON (same relation
         // as /students "Tous les étudiants" and ClassesController::show). Assistants are

@@ -196,6 +196,22 @@ class Student extends Model
         return $this->hasMany(Membership::class, 'student_id');
     }
 
+    /**
+     * Order for printed pupil lists (level roster, class roster, absence
+     * sheet): newest inscription first, oldest last. created_at is the row
+     * creation day — immutable, unlike billingDate which staff can edit.
+     * Caveat: a backdated registration sorts on its entry day, and the
+     * "Date d'inscription" column still displays billingDate. id breaks
+     * same-second ties deterministically. Qualified with the table name so
+     * the scope stays safe on joined queries. One scope so the three PDFs
+     * cannot drift apart.
+     */
+    public function scopePrintOrder($query)
+    {
+        return $query->orderByDesc('students.created_at')
+            ->orderByDesc('students.id');
+    }
+
     // Relationship to Invoices (through memberships)
     public function invoices()
     {
