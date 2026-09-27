@@ -188,6 +188,71 @@ class InvoiceController extends Controller
     }
 
     /**
+     * Every YYYY-MM month an invoice covers: its normalised selected_months
+     * plus, when it carries a partial-month charge, the billDate month. A
+     * partial payment occupies its month like a normal payment — one payment
+     * per membership per month, no stacking a full invoice on a partial.
+     * A non-partial invoice's billDate is deliberately ignored (never trusted
+     * for coverage), so a stray billDate on a full invoice cannot false-block.
+     */
+    private function effectiveBilledMonths(mixed $selectedMonths, mixed $includePartialMonth, mixed $billDate): array
+    {
+        $months = (new \App\Services\InvoicePricingService)->normaliseMonths($selectedMonths);
+        $includePartialMonth = (bool) $includePartialMonth;
+
+        if ($includePartialMonth) {
+            $day = $billDate instanceof \DateTimeInterface
+                ? $billDate->format('Y-m-d')
+                : (is_string($billDate) ? substr($billDate, 0, 10) : '');
+            if (preg_match('/^(\d{4})-(0[1-9]|1[0-2])-\d{2}$/', $day, $m) !== 1) {
+                // Fail closed: a partial charge with no parseable month must
+                // never silently cover zero months and slip past the guard.
+                throw new \Exception('Date de facturation invalide pour un mois partiel.');
+            }
+            $months[] = $m[1].'-'.$m[2];
+        }
+
+        $months = array_values(array_unique($months));
+        sort($months);
+
+        return $months;
+    }
+
+    /**
+     * Reject months that another (non-deleted) invoice of the same membership
+     * already covers. A deleted/voided invoice frees its months.
+     * $exceptInvoiceId excludes the invoice being edited so an update that
+     * keeps its own months never trips the guard.
+     */
+    private function assertMonthsNotBilled(Membership $membership, array $months, ?int $exceptInvoiceId = null): void
+    {
+        if ($months === []) {
+            return;
+        }
+
+        $query = Invoice::where('membership_id', $membership->id);
+        if ($exceptInvoiceId !== null) {
+            $query->where('id', '!=', $exceptInvoiceId);
+        }
+
+        // lockForUpdate: the guard runs inside store()/update()'s transaction,
+        // so two concurrent same-month posts (double-click, two cashiers)
+        // serialise here instead of both reading "month free" and committing
+        // a double bill with double teacher pay.
+        $billed = [];
+        foreach ($query->lockForUpdate()->get(['selected_months', 'billDate', 'includePartialMonth']) as $invoice) {
+            foreach ($this->effectiveBilledMonths($invoice->selected_months, $invoice->includePartialMonth, $invoice->billDate) as $token) {
+                $billed[] = $token;
+            }
+        }
+
+        $overlap = array_values(array_intersect($months, $billed));
+        if ($overlap !== []) {
+            throw new \Exception('Ce mois est déjà facturé pour cette adhésion ('.implode(', ', $overlap).'). Choisissez un autre mois.');
+        }
+    }
+
+    /**
      * Show the form for creating a new invoice.
      */
     public function create(Request $request)
@@ -199,15 +264,29 @@ class InvoiceController extends Controller
             $membership = Membership::withTrashed()->with(['student', 'offer'])->findOrFail($membership_id);
         }
 
-        $studentMemberships = Membership::withTrashed()->with(['student', 'offer'])
-            ->where('payment_status', 'pending')
+        $studentMemberships = Membership::with(['student', 'offer', 'invoices'])
+            // Billable = pending or paid: a fully-paid membership is exactly the
+            // one due for the next month. Never soft-deleted (default scope, no
+            // withTrashed) and never expired. Carries the same shape the live
+            // create form (StudentsController@show) sends, so the dropdown rule
+            // in resources/js/Components/forms/InvoicesFrom.jsx holds here too.
+            ->whereIn('payment_status', ['pending', 'paid'])
             ->get()
             ->map(function ($membership) {
+                $pricing = new \App\Services\InvoicePricingService;
+
                 return [
                     'id' => $membership->id,
                     'offer_name' => $membership->student->name.' - '.$membership->offer->name,
                     'price' => $membership->offer->price,
                     'offer_id' => $membership->offer_id,
+                    'payment_status' => $membership->payment_status,
+                    'deleted_at' => $membership->deleted_at,
+                    'invoices' => $membership->invoices->map(fn ($invoice) => [
+                        'selectedMonths' => $pricing->normaliseMonths($invoice->selected_months),
+                        'billDate' => $invoice->billDate?->format('Y-m-d'),
+                        'includePartialMonth' => (bool) $invoice->includePartialMonth,
+                    ])->values(),
                 ];
             });
 
@@ -373,6 +452,24 @@ class InvoiceController extends Controller
                     'membership_id' => 'Cette adhésion n’appartient pas à cet étudiant.',
                 ]);
             }
+
+            // A paid membership stays billable for NEW months — but without this
+            // guard nothing stopped billing the same month twice. Effective
+            // months: selected_months plus the billDate month when the invoice
+            // carries a partial charge (a partial occupies its month like a
+            // normal payment). Non-deleted invoices only — a voided invoice
+            // frees its months, which is the correct semantic.
+            //
+            // Row lock: held to commit, so a concurrent same-month post
+            // (double-click, two cashiers) reads this invoice instead of an
+            // empty overlap set. The sibling-row lock inside the guard alone
+            // cannot do this when no invoice exists yet.
+            Membership::whereKey($membership->id)->lockForUpdate()->first();
+            $this->assertMonthsNotBilled($membership, $this->effectiveBilledMonths(
+                $selectedMonths,
+                $validated['includePartialMonth'] ?? false,
+                $validated['billDate'] ?? null
+            ), null);
 
             // Pré-vérifications bloquantes pour éviter des factures invalides
             if (! $membership->offer) {
@@ -904,6 +1001,26 @@ class InvoiceController extends Controller
                 throw \Illuminate\Validation\ValidationException::withMessages([
                     'membership_id' => 'Cette adhésion n’appartient pas à cet étudiant.',
                 ]);
+            }
+
+            // Same duplicate-month guard as store(), excluding the invoice being
+            // edited so keeping its own months never trips it. Runs only when
+            // the covered months actually change: topping up amountPaid on a
+            // pre-guard duplicate must stay possible (void-and-rebill is the
+            // fix for the duplicate, not blocking the cashier's receipt).
+            $newEffectiveMonths = $this->effectiveBilledMonths(
+                $selectedMonths,
+                $validated['includePartialMonth'] ?? false,
+                $validated['billDate'] ?? null
+            );
+            $currentEffectiveMonths = $this->effectiveBilledMonths(
+                $invoice->selected_months,
+                $invoice->includePartialMonth,
+                $invoice->billDate
+            );
+            if ($newEffectiveMonths !== $currentEffectiveMonths) {
+                Membership::whereKey($membership->id)->lockForUpdate()->first();
+                $this->assertMonthsNotBilled($membership, $newEffectiveMonths, (int) $invoice->id);
             }
 
             // Pré-vérifications bloquantes pour éviter des factures invalides

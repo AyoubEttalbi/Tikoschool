@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import InputField from "../InputField";
 import { router } from "@inertiajs/react";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 // Helper function to format date to 'YYYY-MM-DD' without timezone issues
 const formatDateToYYYYMMDD = (date) => {
@@ -41,8 +41,6 @@ const InvoicesForm = ({
     StudentMemberships = [],
     studentId,
 }) => {
-    
-    console.log(data);
     const today = new Date();
     const todayFormatted = formatDateToYYYYMMDD(today);
     // Use invoice creation date as the base when updating an existing invoice
@@ -228,6 +226,31 @@ const InvoicesForm = ({
         setValue("selectedMonths", selectedMonths);
     }, [selectedMonths, setValue]);
 
+    // The months the form opened with, so the preselect below only fires while
+    // the user has not picked months manually yet.
+    const defaultMonthsRef = useRef(selectedMonths);
+
+    // When a paid membership is picked on a new invoice, preselect the month
+    // right after its last billed month — that IS the "pay next month" action.
+    // Fires on membership change only, and only while the user has not picked
+    // months manually yet. If the next month falls outside the school-year
+    // picker window the default stands and the server message guides instead.
+    useEffect(() => {
+        if (type !== "create" || !selectedMembershipId) return;
+        const membership = StudentMemberships.find(
+            (m) => m.id === parseInt(selectedMembershipId),
+        );
+        if (!membership || membership.payment_status !== "paid") return;
+        const billed = billedMonthsOf(membership);
+        if (billed.length === 0) return;
+        const next = nextMonthAfter(billed[billed.length - 1]);
+        if (!monthsList.some((m) => m.value === next)) return;
+        const def = [...defaultMonthsRef.current].sort().join(",");
+        setSelectedMonths((current) =>
+            [...current].sort().join(",") === def ? [next] : current,
+        );
+    }, [selectedMembershipId, StudentMemberships, type]);
+
     // Keep billDate and endDate in sync with selection
     useEffect(() => {
         setValue("billDate", calculateBillingDate());
@@ -241,6 +264,51 @@ const InvoicesForm = ({
     const selectedMembership = StudentMemberships.find(
         (membership) => membership.id === parseInt(selectedMembershipId),
     );
+
+    // French month names shared by the school-year picker above.
+    const frenchMonthNames = [
+        'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+        'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'
+    ];
+
+    // "2026-09" -> "Septembre 2026". Falls back to the raw token when malformed.
+    const formatMonthValue = (value) => {
+        const parts = String(value ?? "").split("-").map(Number);
+        if (parts.length !== 2 || parts.some((n) => !Number.isFinite(n))) return String(value ?? "");
+        const [y, m] = parts;
+        if (m < 1 || m > 12) return String(value ?? "");
+        return `${frenchMonthNames[m - 1]} ${y}`;
+    };
+
+    // Every YYYY-MM month already invoiced on this membership, sorted unique:
+    // selected months plus, for partial-month charges, the billDate month (a
+    // partial occupies its month like a normal payment — mirrors the server
+    // guard in InvoiceController). Both the live student-page prop
+    // (StudentsController@show) and the legacy create() prop carry
+    // invoices[] with selectedMonths/billDate/includePartialMonth; when the
+    // key is absent the guards below degrade to full-months-only.
+    const billedMonthsOf = (membership) => {
+        if (!membership || !Array.isArray(membership.invoices)) return [];
+        const months = [];
+        membership.invoices.forEach((inv) => {
+            const list = Array.isArray(inv?.selectedMonths) ? inv.selectedMonths : [];
+            list.forEach((m) => {
+                if (typeof m === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(m)) months.push(m);
+            });
+            if (inv?.includePartialMonth && typeof inv?.billDate === "string") {
+                const partialMonth = inv.billDate.slice(0, 7);
+                if (/^\d{4}-(0[1-9]|1[0-2])$/.test(partialMonth)) months.push(partialMonth);
+            }
+        });
+        return [...new Set(months)].sort();
+    };
+
+    // "2026-09" -> "2026-10", "2026-12" -> "2027-01".
+    const nextMonthAfter = (value) => {
+        const [y, m] = String(value).split("-").map(Number);
+        const d = new Date(y, m, 1); // m is 1-based, so this lands on the next month
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    };
 
 
 
@@ -732,29 +800,45 @@ const InvoicesForm = ({
                                                 Sélectionnez une adhésion
                                             </option>
                                             {StudentMemberships
-                                                .filter(membership => membership.payment_status !== "paid" && !membership.deleted_at)
+                                                // Billable = pending or paid: a fully-paid membership
+                                                // is exactly the one due for the next month. Never
+                                                // soft-deleted, never expired. Unpaid first so the
+                                                // actionable memberships sit on top. Mirrors the
+                                                // server rule in InvoiceController@create.
+                                                .filter((membership) =>
+                                                    (membership.payment_status === "pending" ||
+                                                        membership.payment_status === "paid") &&
+                                                    !membership.deleted_at,
+                                                )
+                                                .sort((a, b) =>
+                                                    (a.payment_status === "paid" ? 1 : 0) -
+                                                    (b.payment_status === "paid" ? 1 : 0),
+                                                )
                                                 .map(
-                                                    (membership) => (
-                                                        <option
-                                                            key={membership.id}
-                                                            value={membership.id}
-                                                            className={
-                                                                membership.payment_status !==
-                                                                "paid"
-                                                                    ? "bg-amber-50 font-medium"
-                                                                    : ""
-                                                            }
-                                                        >
-                                                            {membership.offer_name}{" "}
-                                                            (Prix :{" "}
-                                                            {Math.round(
-                                                                membership.price,
-                                                            )}{" "}
-                                                            DH)
-                                                            {membership.payment_status !==
-                                                                "paid" && " - Impayé"}
-                                                        </option>
-                                                    ),
+                                                    (membership) => {
+                                                        const isPaid = membership.payment_status === "paid";
+                                                        const billed = isPaid ? billedMonthsOf(membership) : [];
+                                                        const lastBilled = billed.length > 0
+                                                            ? billed[billed.length - 1]
+                                                            : null;
+                                                        return (
+                                                            <option
+                                                                key={membership.id}
+                                                                value={membership.id}
+                                                                className={isPaid ? "bg-green-50" : "bg-amber-50 font-medium"}
+                                                            >
+                                                                {membership.offer_name}{" "}
+                                                                (Prix :{" "}
+                                                                {Math.round(
+                                                                    membership.price,
+                                                                )}{" "}
+                                                                DH)
+                                                                {isPaid
+                                                                    ? ` - Payé${lastBilled ? ` jusqu'en ${formatMonthValue(lastBilled)}` : ""}`
+                                                                    : " - Impayé"}
+                                                            </option>
+                                                        );
+                                                    },
                                                 )}
                                         </>
                                     )}
