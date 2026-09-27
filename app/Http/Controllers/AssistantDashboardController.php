@@ -232,9 +232,10 @@ class AssistantDashboardController extends Controller
     }
 
     /**
-     * Absence notices waiting for approval — the top of the work queue. The shared
-     * pendingNoticesCount prop carries the number; this is what to actually review.
-     * Released/declined rows are gone from here, so the section empties as it is worked.
+     * Absence notices waiting for approval for TODAY — the top of the work queue.
+     * Same day-scope as the shared pendingNoticesCount prop (which carries the
+     * number); this is what to actually review. Released/declined rows are gone
+     * from here, so the section empties as it is worked.
      */
     private function pendingNoticesList($user, int $limit = 5): array
     {
@@ -244,8 +245,7 @@ class AssistantDashboardController extends Controller
         }
 
         return \App\Models\OutboundMessage::query()
-            ->awaitingApproval()
-            ->whereHas('attendance')
+            ->awaitingForDate(Carbon::today())
             ->with('attendance.student:id,firstName,lastName')
             ->whereIn('school_id', $schoolIds)
             ->orderBy('created_at')

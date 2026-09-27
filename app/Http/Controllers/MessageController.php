@@ -217,17 +217,16 @@ class MessageController extends Controller
 
         $user = auth()->user();
 
-        // The sidebar badge for the absence log: the same awaiting-approval count, so it
-        // can refresh on the 60s reconciliation poll the chat already runs. Nil for
-        // teachers without querying — they never see the log.
+        // The sidebar badge for the absence log: the same awaiting-approval count
+        // for TODAY, so it can refresh on the 60s reconciliation poll the chat
+        // already runs. Nil for teachers without querying — they never see the log.
         $schoolIds = $user && in_array($user->role, ['admin', 'assistant'], true)
             ? \App\Support\SchoolScope::schoolIdsFor($user)
             : null;
 
         $pendingNotices = $schoolIds !== null || $user?->role === 'admin'
             ? \App\Models\OutboundMessage::query()
-                ->awaitingApproval()
-                ->whereHas('attendance')
+                ->awaitingForDate(\Carbon\Carbon::today())
                 ->when($schoolIds !== null, fn ($q) => $q->whereIn('school_id', $schoolIds))
                 ->count()
             : 0;

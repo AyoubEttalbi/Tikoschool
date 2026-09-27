@@ -167,7 +167,7 @@ class HandleInertiaRequests extends Middleware
     }
 
     /**
-     * Absence notices waiting for approval, for the sidebar badge.
+     * Absence notices waiting for approval for TODAY, for the sidebar badge.
      *
      * NULL for teachers: they record and correct, they never release — a count of work
      * they cannot see or perform would be noise. Edged by the same school scope the
@@ -183,8 +183,7 @@ class HandleInertiaRequests extends Middleware
         $schoolIds = SchoolScope::schoolIdsFor($user);
 
         return \App\Models\OutboundMessage::query()
-            ->awaitingApproval()
-            ->whereHas('attendance', fn ($q) => $q->whereDate('date', '>=', Carbon::today()->subDays(6)))
+            ->awaitingForDate(Carbon::today())
             ->when($schoolIds !== null, fn ($q) => $q->whereIn('school_id', $schoolIds))
             ->count();
     }

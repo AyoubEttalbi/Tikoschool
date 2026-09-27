@@ -181,7 +181,7 @@ export default function AssistantDashboard({ identity, kpis, queue, announcement
                         icon={Bell}
                         label="À valider"
                         value={pendingNoticesCount}
-                        sub="avis d'absence"
+                        sub="avis d'absence du jour"
                         tone="amber"
                         alert={pendingNoticesCount}
                         href="/absence-log"

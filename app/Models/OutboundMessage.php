@@ -122,6 +122,17 @@ class OutboundMessage extends Model
         return $query->where('status', self::STATUS_AWAITING_APPROVAL);
     }
 
+    /**
+     * Awaiting notices for one register day. The journal, the menu badge, the
+     * poll and the cockpit KPI all mean "today" by the same predicate — one
+     * scope so the next change cannot drift them apart again.
+     */
+    public function scopeAwaitingForDate($query, $date)
+    {
+        return $query->awaitingApproval()
+            ->whereHas('attendance', fn ($q) => $q->whereDate('date', $date));
+    }
+
     /** A human answer for the admin screen, never the provider's raw response. */
     public function reason(): ?string
     {

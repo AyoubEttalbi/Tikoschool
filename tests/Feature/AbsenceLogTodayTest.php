@@ -96,3 +96,109 @@ it('returns absences recorded today in the unfiltered newest-first log', functio
 
     expect($json['data']['data'][0]['date'])->toBe(Carbon::today()->toDateString());
 });
+
+/*
+ * THE JOURNAL OPENS ON TODAY.
+ *
+ * The log defaults to the current day and every awaiting counter (log page,
+ * menu badge seed, 60s poll) counts today's register only — yesterday's
+ * unreleased notices must not inflate today's number.
+ *
+ * Setup reuses the real register path (saveSheet / approvalStudent /
+ * approvalClass / absentRow from AbsenceApprovalTest): one awaiting notice
+ * for today (2026-08-24, the frozen now) and one for 2026-08-21.
+ */
+
+function todayNotices(): array
+{
+    $admin = User::factory()->create(['role' => 'admin']);
+    $school = School::factory()->create();
+    $level = Level::factory()->create();
+    $class = Classes::factory()->create(['school_id' => $school->id, 'level_id' => $level->id]);
+
+    $makeStudent = fn () => Student::factory()->create([
+        'status' => 'active',
+        'guardianNumber' => '0612345678',
+        'schoolId' => $school->id,
+        'classId' => $class->id,
+        'levelId' => $level->id,
+    ]);
+
+    // Through the real register route, like the register page posts it.
+    $saveDay = function (Student $student, string $date) use ($admin, $class) {
+        test()->actingAs($admin)->post(route('attendances.store'), [
+            'class_id' => $class->id,
+            'date' => $date,
+            'teacher_id' => \App\Models\Teacher::factory()->create()->id,
+            'attendances' => [
+                ['student_id' => $student->id, 'status' => 'absent', 'reason' => null, 'subject' => 'Maths'],
+            ],
+        ])->assertSessionHasNoErrors();
+    };
+
+    $saveDay($makeStudent(), '2026-08-24');
+    $saveDay($makeStudent(), '2026-08-21');
+
+    return [$admin];
+}
+
+it('scopes the unfiltered log awaiting count to today', function () {
+    [$admin] = todayNotices();
+
+    $json = $this->actingAs($admin)
+        ->get('/api/absence-log')
+        ->assertOk()
+        ->json();
+
+    expect($json['awaiting'])->toBe(1);
+});
+
+it('seeds the menu badge with today only', function () {
+    [$admin] = todayNotices();
+
+    $page = test()->actingAs($admin)->get(route('absence.log.page'))->assertOk()->inertiaPage();
+
+    expect($page['props']['pendingNoticesCount'])->toBe(1);
+});
+
+it('refreshes the badge poll with today only', function () {
+    [$admin] = todayNotices();
+
+    test()->actingAs($admin)
+        ->getJson('/unread-count')
+        ->assertOk()
+        ->assertJsonPath('pending_notices', 1);
+});
+
+it('answers the page-load request with the requested day only', function () {
+    [$admin] = todayNotices();
+
+    // What AbsenceLog.jsx fetches on mount: ?date=<today>.
+    $today = $this->actingAs($admin)
+        ->get('/api/absence-log?date=2026-08-24')
+        ->assertOk()
+        ->json();
+
+    expect($today['awaiting'])->toBe(1)
+        ->and(count($today['data']['data']))->toBe(1);
+
+    $older = $this->actingAs($admin)
+        ->get('/api/absence-log?date=2026-08-21')
+        ->assertOk()
+        ->json();
+
+    expect($older['awaiting'])->toBe(1)
+        ->and(count($older['data']['data']))->toBe(1);
+});
+
+it('keeps the explicit 7-day window covering both days', function () {
+    [$admin] = todayNotices();
+
+    $json = $this->actingAs($admin)
+        ->get('/api/absence-log?period=last_7_days')
+        ->assertOk()
+        ->json();
+
+    expect($json['awaiting'])->toBe(2)
+        ->and(count($json['data']['data']))->toBe(2);
+});

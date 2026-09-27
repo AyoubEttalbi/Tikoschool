@@ -19,7 +19,9 @@ const AbsenceLog = () => {
     const [data, setData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [filters, setFilters] = useState({ date: "", period: "last_7_days" });
+    // The journal opens on the current day; staff can still switch to
+    // "7 derniers jours" or "Tout" from the filter bar.
+    const [filters, setFilters] = useState({ date: getToday(), period: "" });
     const [pagination, setPagination] = useState({ current_page: 1, last_page: 1, per_page: 20, total: 0 });
     // Notices the register recorded without sending, for the day being viewed. This page
     // is the review surface: fix what is wrong, then release the rest in one motion.

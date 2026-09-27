@@ -909,6 +909,7 @@ class AttendanceController extends Controller
     private function gatewayStateForAbsenceLog(): array
     {
         $state = WhatsAppGateway::state();
+
         return [
             'state' => $state,
             'canSend' => $state === WhatsAppGateway::OPEN || $state === WhatsAppGateway::NOT_APPLICABLE,
@@ -947,7 +948,7 @@ class AttendanceController extends Controller
             $query->whereHas('class', fn ($q) => $q->whereIn('school_id', $allowedSchoolIds));
         }
 
-        // Date filtering: supports 7-day period (default), single date, or all.
+        // Date filtering: supports 7-day period, single date, or all.
         $period = $request->input('period');
         $date = $request->input('date');
         if ($period === 'last_7_days') {
@@ -998,7 +999,7 @@ class AttendanceController extends Controller
         });
 
         // How many notices wait for approval — drives the "valider et envoyer tout" bar.
-        // Now supports 7-day period as default, keeps per-date when filtered.
+        // Explicit 7-day period or per-date when filtered, today when not.
         $periodForAwaiting = $request->input('period');
         if ($periodForAwaiting === 'last_7_days') {
             $awaitingCount = OutboundMessage::query()
@@ -1008,15 +1009,14 @@ class AttendanceController extends Controller
                 ->count();
         } elseif ($date) {
             $awaitingCount = OutboundMessage::query()
-                ->awaitingApproval()
-                ->whereHas('attendance', fn ($q) => $q->whereDate('date', $date))
+                ->awaitingForDate($date)
                 ->when($allowedSchoolIds !== null, fn ($q) => $q->whereIn('school_id', $allowedSchoolIds))
                 ->count();
         } else {
-            // Default to 7-day when no date/period supplied (covers initial load)
+            // Default to today when no date/period supplied (covers initial load —
+            // the journal opens on the current day).
             $awaitingCount = OutboundMessage::query()
-                ->awaitingApproval()
-                ->whereHas('attendance', fn ($q) => $q->whereDate('date', '>=', Carbon::today()->subDays(6)))
+                ->awaitingForDate(Carbon::today())
                 ->when($allowedSchoolIds !== null, fn ($q) => $q->whereIn('school_id', $allowedSchoolIds))
                 ->count();
         }
@@ -1168,7 +1168,7 @@ class AttendanceController extends Controller
         $allStudents = $class->students()
             ->where('status', 'active')
             ->with('memberships')
-            ->orderBy('lastName')
+            ->printOrder()
             ->get();
 
         // Filter students to only include those taught by the selected teacher through memberships
