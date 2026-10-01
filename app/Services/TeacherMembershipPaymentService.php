@@ -1057,11 +1057,22 @@ class TeacherMembershipPaymentService
 
         $records = TeacherMembershipPayment::active()
             ->withUnpaidCurrentMonth($currentMonth)
-            ->with(['teacher', 'membership', 'student'])
+            ->with(['teacher', 'membership', 'student', 'invoice'])
             ->get();
 
         $processedCount = 0;
         $totalAmount = 0;
+
+        // Months the guard held back: record reads settled, ledger disagrees.
+        // Returned (not just logged) so the scheduled run surfaces them in its
+        // own output instead of re-logging them into the void every month.
+        $heldCount = 0;
+        $heldRecordIds = [];
+
+        // Hoisted: the era guard below needs it per settled record, and the
+        // ledger only ever gains rows — one read per run is exact enough.
+        // Null (empty ledger table) means enforce everywhere: nothing predates it.
+        $ledgerStart = TeacherWalletEntry::min('created_at');
 
         foreach ($records as $record) {
             try {
@@ -1080,6 +1091,7 @@ class TeacherMembershipPaymentService
                 // Re-reading also picks up any change committed since the collection was
                 // fetched, so the deltas below are computed from current state.
                 $record = TeacherMembershipPayment::whereKey($record->id)
+                    ->with(['teacher', 'membership', 'student', 'invoice'])
                     ->lockForUpdate()
                     ->first();
 
@@ -1133,6 +1145,50 @@ class TeacherMembershipPaymentService
                 $owed = round((float) $record->total_teacher_amount, 2);
 
                 if ($owed > 0 && $alreadyPaid >= $owed - 0.01) {
+                    // Trust, but verify against the ledger.
+                    //
+                    // Oct 2026 (CRC): a second scheduler wrote wallet increments
+                    // with no ledger rows and marked tracker records settled.
+                    // The guard below used to clear the month on the record's
+                    // word alone, cementing teacher pay the ledger never saw.
+                    // A record that reads settled while the ledger holds
+                    // nothing for the invoice stays queued and gets loud
+                    // instead — a human backfills it
+                    // (wallet:backfill-monthly) rather than the cron burying it.
+                    //
+                    // Era guard: invoices born before the ledger started
+                    // recording have no rows by design and keep the old path.
+                    $invoiceForEra = $record->invoice;
+                    $predatesLedger = $ledgerStart
+                        && $invoiceForEra
+                        && $invoiceForEra->created_at
+                        && $invoiceForEra->created_at < $ledgerStart;
+
+                    $held = $this->ledgerHeldForInvoice(
+                        (int) $record->teacher_id,
+                        (int) $record->invoice_id,
+                        $record->teacher_subject
+                    );
+
+                    if (! $predatesLedger && ($held === null || $held < $owed - 0.01)) {
+                        Log::warning('Monthly payout held: record reads settled but the ledger does not', [
+                            'record_id' => $record->id,
+                            'teacher_id' => $record->teacher_id,
+                            'invoice_id' => $record->invoice_id,
+                            'month' => $currentMonth,
+                            'total_teacher_amount' => $owed,
+                            'total_paid_to_teacher' => $alreadyPaid,
+                            'ledger_held' => $held,
+                        ]);
+
+                        $heldCount++;
+                        $heldRecordIds[] = $record->id;
+
+                        DB::commit();
+
+                        continue;
+                    }
+
                     Log::warning('Monthly payout skipped: record is already paid in full', [
                         'record_id' => $record->id,
                         'teacher_id' => $record->teacher_id,
@@ -1230,12 +1286,16 @@ class TeacherMembershipPaymentService
             'month' => $currentMonth,
             'processed_count' => $processedCount,
             'total_amount' => $totalAmount,
+            'held_count' => $heldCount,
+            'held_record_ids' => $heldRecordIds,
         ]);
 
         return [
             'processed_count' => $processedCount,
             'total_amount' => $totalAmount,
             'month' => $currentMonth,
+            'held_count' => $heldCount,
+            'held_record_ids' => $heldRecordIds,
         ];
     }
 

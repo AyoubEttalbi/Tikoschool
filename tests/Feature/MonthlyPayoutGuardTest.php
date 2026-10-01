@@ -57,9 +57,24 @@ function payoutRecord(float $owed, float $paid, array $queuedMonths, float $mont
 }
 
 test('a record already paid in full is not paid again by the monthly cron', function () {
-    // Production invoice 842 reproduced exactly.
+    // Production invoice 842 reproduced exactly — with the ledger movement to
+    // prove it (Oct 2026 rule: paid-on-paper alone no longer settles a month;
+    // the ledger must agree).
+    // Backdated before the invoice so the era exemption cannot be what clears
+    // the month: this test must exercise the ledger leg, not the bypass.
     $month = now()->format('Y-m');
     [$teacher, $record] = payoutRecord(owed: 270, paid: 270, queuedMonths: [$month], monthly: 90);
+
+    $row = TeacherWalletEntry::create([
+        'teacher_id' => $teacher->id,
+        'invoice_id' => $record->invoice_id,
+        'amount' => 270.0,
+        'balance_after' => 270.0,
+        'reason' => TeacherWalletEntry::REASON_MONTHLY,
+        'month' => $month,
+        'teacher_subject' => 'math',
+    ]);
+    $row->forceFill(['created_at' => now()->subDay()])->save();
 
     (new TeacherMembershipPaymentService)->processMonthlyPayments($month);
 
