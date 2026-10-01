@@ -1,6 +1,7 @@
 import React from "react";
 import { FaHistory } from "react-icons/fa";
 import { GraduationCap, CheckCircle, XCircle, UserPlus, UserMinus } from "lucide-react";
+import { parseDateOnly } from "@/utils/dateOnly";
 
 export default function StudentAcademicHistory({ promotionsHistory = [], movements = [], student }) {
     const hasPromotions = promotionsHistory && promotionsHistory.length > 0;
@@ -165,10 +166,13 @@ export default function StudentAcademicHistory({ promotionsHistory = [], movemen
                                         </tr>
                                     );
                                 } else {
-                                    // movement: inscribed / abandoned — compact row
+                                    // movement: inscribed / abandoned — compact row.
+                                    // movement_date is DATE-only: local construction so
+                                    // devices behind UTC never render the previous day.
                                     const m = ev.data;
-                                    const formattedDate = m.movement_date
-                                        ? new Date(m.movement_date).toLocaleDateString("fr-FR", {
+                                    const moveLocal = parseDateOnly(m.movement_date);
+                                    const formattedDate = moveLocal
+                                        ? moveLocal.toLocaleDateString("fr-FR", {
                                               day: "2-digit",
                                               month: "long",
                                               year: "numeric",

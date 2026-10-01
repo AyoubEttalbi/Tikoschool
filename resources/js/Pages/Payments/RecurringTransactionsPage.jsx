@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { router } from "@inertiajs/react";
+import { parseDateOnly } from "@/utils/dateOnly";
 import PageHeader from "@/Components/PaymentsAndTransactions/PageHeader";
 import Alert from "@/Components/PaymentsAndTransactions/Alert";
 import DashboardLayout from "@/Layouts/DashboardLayout";
@@ -108,15 +109,22 @@ const RecurringTransactionsPage = ({
         }
     };
 
-    // Format date for display
+    // Format date for display. payment_date / next_payment_date are
+    // DATE-only: local construction so devices behind UTC never render the
+    // previous day (see @/utils/dateOnly).
     const formatDate = (dateString) => {
         if (!dateString) return "N/A";
-        const date = new Date(dateString);
-        return date.toLocaleDateString("fr-FR", {
-            year: "numeric",
-            month: "short",
-            day: "numeric",
-        });
+        try {
+            const local = parseDateOnly(dateString);
+            const date = local ?? new Date(dateString);
+            return date.toLocaleDateString("fr-FR", {
+                year: "numeric",
+                month: "short",
+                day: "numeric",
+            });
+        } catch {
+            return "N/A";
+        }
     };
 
     // Get more descriptive month label based on current date

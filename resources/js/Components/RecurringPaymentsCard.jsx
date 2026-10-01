@@ -10,6 +10,7 @@ import {
     BadgeDollarSign,
 } from "lucide-react";
 import { format } from "date-fns";
+import { parseDateOnly } from "@/utils/dateOnly";
 import PaymentsPagination from "./PaymentsPagination";
 
 const PaymentTypeBadge = ({ type, isRecurring }) => {
@@ -77,7 +78,10 @@ const PaymentStatus = ({ transaction }) => {
 const formatDate = (dateString) => {
     if (!dateString) return "Non planifié";
     try {
-        return format(new Date(dateString), "dd MMM yyyy");
+        // payment_date is DATE-only: local construction, immune to device
+        // timezone (see @/utils/dateOnly).
+        const local = parseDateOnly(dateString);
+        return format(local ?? new Date(dateString), "dd MMM yyyy");
     } catch (e) {
         return "Date invalide";
     }

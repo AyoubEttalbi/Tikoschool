@@ -1,6 +1,7 @@
 import { Head, router, useForm, usePage } from "@inertiajs/react";
 import { useState } from "react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
+import { parseDateOnly } from "@/utils/dateOnly";
 import {
     CalendarDays,
     CheckCircle2,
@@ -128,7 +129,12 @@ function TaskCard({ task, onDragStart }) {
                         }`}
                     >
                         <CalendarDays className="w-3 h-3" aria-hidden="true" />
-                        {new Date(task.due_date).toLocaleDateString("fr-FR")}
+                        {(() => {
+                            // due_date is DATE-only: local construction so devices
+                            // behind UTC never render the previous day.
+                            const local = parseDateOnly(task.due_date);
+                            return local ? local.toLocaleDateString("fr-FR") : "—";
+                        })()}
                     </span>
                 )}
                 {task.assigned_to_name && (

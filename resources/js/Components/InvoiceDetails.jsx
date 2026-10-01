@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "@inertiajs/react";
+import { parseDateOnly } from "@/utils/dateOnly";
 import {
     AlertCircle,
     Calendar,
@@ -56,20 +57,15 @@ const InvoiceDetails = ({ invoice, onClose }) => {
 
 
 
-    // Format date helper - handles date-only strings without timezone conversion
+    // Format date helper. billDate/endDate are DATE-only: constructed locally
+    // so a UTC-midnight instant never renders as the previous day on devices
+    // behind UTC (see @/utils/dateOnly). creationDate and payment dates are
+    // true instants and keep the instant path via formatInstant below.
     const formatDate = (dateString) => {
         if (!dateString) return "N/A";
         try {
-            let date;
-            // Handle date-only strings (YYYY-MM-DD) without timezone conversion
-            if (typeof dateString === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
-                // Parse as local date to avoid timezone shifts
-                const [year, month, day] = dateString.split('-').map(Number);
-                date = new Date(year, month - 1, day);
-            } else {
-                // DateTime string: parse normally
-                date = new Date(dateString);
-            }
+            const local = parseDateOnly(dateString);
+            const date = local ?? new Date(dateString);
             return date.toLocaleDateString("en-US", {
                 year: "numeric",
                 month: "short",
@@ -77,6 +73,18 @@ const InvoiceDetails = ({ invoice, onClose }) => {
             });
         } catch (error) {
             console.error("Date formatting error:", error, dateString);
+            return "N/A";
+        }
+    };
+    const formatInstant = (dateString) => {
+        if (!dateString) return "N/A";
+        try {
+            return new Date(dateString).toLocaleDateString("en-US", {
+                year: "numeric",
+                month: "short",
+                day: "numeric",
+            });
+        } catch (error) {
             return "N/A";
         }
     };
@@ -119,7 +127,7 @@ const InvoiceDetails = ({ invoice, onClose }) => {
                             </span>
                         </h1>
                         <p className="text-blue-100 text-sm">
-                            Créée le {formatDate(invoice.creationDate)}
+                            Créée le {formatInstant(invoice.creationDate)}
                         </p>
                     </div>
                 </div>

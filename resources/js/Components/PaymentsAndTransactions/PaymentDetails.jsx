@@ -1,12 +1,38 @@
 import React from "react";
 import { format } from "date-fns";
+import { parseDateOnly } from "@/utils/dateOnly";
 
 const PaymentDetails = ({ transaction, onEdit, onBack }) => {
     const formatCurrency = (amount) => {
-        return `${amount.toLocaleString()} DH`;
+        // Mirror Utils.jsx: null-safe, decimal-string-safe. A TypeError here
+        // blanks the whole panel mid-render.
+        const value = Number(amount);
+        if (!Number.isFinite(value)) return "— DH";
+
+        return `${value.toLocaleString("fr-FR", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        })} DH`;
     };
+    // payment_date / next_payment_date are DATE-only: local construction,
+    // immune to device timezone (see @/utils/dateOnly). created_at is a true
+    // instant and keeps the instant path via formatInstant below.
     const formatDate = (dateString) => {
-        return format(new Date(dateString), "dd MMM yyyy");
+        if (!dateString) return "—";
+        try {
+            const local = parseDateOnly(dateString);
+            return format(local ?? new Date(dateString), "dd MMM yyyy");
+        } catch {
+            return "—";
+        }
+    };
+    const formatInstant = (dateString) => {
+        if (!dateString) return "—";
+        try {
+            return format(new Date(dateString), "dd MMM yyyy");
+        } catch {
+            return "—";
+        }
     };
     const getTypeStyles = (type) => {
         switch (type) {
@@ -48,7 +74,7 @@ const PaymentDetails = ({ transaction, onEdit, onBack }) => {
                             Transaction n°{transaction.id}
                         </h3>
                         <p className="mt-1 max-w-2xl text-sm text-gray-500">
-                            Créée le {formatDate(transaction.created_at)}
+                            Créée le {formatInstant(transaction.created_at)}
                         </p>
                     </div>
                     <span

@@ -1,4 +1,5 @@
 import { format } from "date-fns";
+import { parseDateOnly } from "@/utils/dateOnly";
 
 /**
  * Money, always as "1 234,50 DH".
@@ -21,9 +22,22 @@ export const formatCurrency = (amount) => {
     })} DH`;
 };
 
+/**
+ * DATE-only values only ("YYYY-MM-DD", optionally with a time suffix from a
+ * DATE column). Renders the calendar date identically on every device.
+ * Never pass created_at or any true instant here — those keep instant
+ * semantics (see @/utils/dateOnly).
+ */
 export const formatDate = (dateString) => {
     if (!dateString) return "—";
-    return format(new Date(dateString), "dd MMM yyyy");
+    try {
+        // DATE-only values: local construction, immune to device timezone
+        // (see @/utils/dateOnly). True datetimes keep the legacy path.
+        const local = parseDateOnly(dateString);
+        return format(local ?? new Date(dateString), "dd MMM yyyy");
+    } catch {
+        return "—";
+    }
 };
 
 export const getInitials = (name) => {

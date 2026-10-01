@@ -1,6 +1,6 @@
 import { FaCalendarAlt, FaExclamationTriangle } from "react-icons/fa";
 import { format } from "date-fns";
-import { useState } from "react";
+import { parseDateOnly } from "@/utils/dateOnly";import { useState } from "react";
 import { Edit } from "lucide-react";
 import { router } from '@inertiajs/react';
 import Table from './Table';
@@ -16,15 +16,6 @@ const AbsenceLogTable = ({ absences, studentId, studentClassId, onNotified }) =>
     // Defensive: ensure absences is always an array
     const safeAbsences = Array.isArray(absences) ? absences : [];
     const role = usePage().props.auth.user.role;
-
-    // Function to format the date
-    const formatDate = (dateString) => {
-        try {
-            return format(new Date(dateString), "dd MMM yyyy");
-        } catch (error) {
-            return dateString;
-        }
-    };
 
     // Enrich absence data with student_id and class_id
     const enrichedAbsences = safeAbsences.map((absence) => ({
@@ -130,7 +121,11 @@ const AbsenceLogTable = ({ absences, studentId, studentClassId, onNotified }) =>
 
     const formatDateTime = (dateString) => {
         try {
-            return format(new Date(dateString), "dd MMM yyyy HH:mm", { locale: require('date-fns/locale/fr') });
+            // absence.date is DATE-only: local construction so devices behind
+            // UTC never render the previous day (time always read 00:00 here,
+            // same as before on correctly-set devices).
+            const local = parseDateOnly(dateString);
+            return format(local ?? new Date(dateString), "dd MMM yyyy HH:mm", { locale: require('date-fns/locale/fr') });
         } catch (error) {
             return dateString;
         }

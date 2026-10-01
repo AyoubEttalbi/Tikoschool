@@ -1,5 +1,6 @@
 import { FaCalendarAlt, FaExclamationTriangle } from "react-icons/fa";
 import { format } from "date-fns";
+import { parseDateOnly } from "@/utils/dateOnly";
 import FormModal from "./FormModal";
 import AttendanceModal from "@/Pages/Attendance/AttendanceModal";
 import { useState } from "react";
@@ -12,10 +13,12 @@ const AbsenceLogTableForStudent = ({ absences, studentId, studentClassId }) => {
     const [selectedAbsence, setSelectedAbsence] = useState(null);
     // Defensive: ensure absences is always an array
     const safeAbsences = Array.isArray(absences) ? absences : [];
-    // Function to format the date
+    // Attendance dates are DATE-only: construct locally so devices behind
+    // UTC never render the previous day (see @/utils/dateOnly).
     const formatDate = (dateString) => {
         try {
-            return format(new Date(dateString), "dd MMM yyyy");
+            const local = parseDateOnly(dateString);
+            return format(local ?? new Date(dateString), "dd MMM yyyy");
         } catch (error) {
             return dateString;
         }
