@@ -23,7 +23,13 @@ use Inertia\Testing\AssertableInertia;
 function studentBilled(float $due, float $paid): Student
 {
     $student = Student::factory()->create();
-    $membership = Membership::factory()->create(['student_id' => $student->id]);
+    // Pinned: the factory rolls a random payment_status, and since expired
+    // counts as unpaid these tests would flake 1/3 of the time without it.
+    // These tests pin money-bucket behavior; status is incidental here.
+    $membership = Membership::factory()->create([
+        'student_id' => $student->id,
+        'payment_status' => 'pending',
+    ]);
 
     Invoice::factory()->create([
         'membership_id' => $membership->id,
@@ -84,7 +90,7 @@ it('returns a part-paid student under "Partiel" only', function () {
 
 it('treats a membership with no invoice at all as unpaid', function () {
     $student = Student::factory()->create();
-    Membership::factory()->create(['student_id' => $student->id]);
+    Membership::factory()->create(['student_id' => $student->id, 'payment_status' => 'pending']);
 
     expect(idsUnder('unpaid'))->toContain($student->id)
         ->and(idsUnder('paid'))->not->toContain($student->id)
@@ -107,7 +113,7 @@ it('lets one unpaid membership outrank a paid one, as the badge does', function 
     // Badge priority is unpaid > partial > paid: the row shows "1 non payée", so the row
     // has to come back under "Non payé" and nowhere else.
     $student = studentBilled(due: 500, paid: 500);
-    $second = Membership::factory()->create(['student_id' => $student->id]);
+    $second = Membership::factory()->create(['student_id' => $student->id, 'payment_status' => 'pending']);
     Invoice::factory()->create([
         'membership_id' => $second->id,
         'student_id' => $student->id,

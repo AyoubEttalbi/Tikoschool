@@ -616,6 +616,9 @@ const SingleStudentPage = ({
                                 Adhésions :
                                 {student.memberships && (() => {
                                     const getMembershipPaymentStatus = (membership) => {
+                                        // Expired counts as unpaid (needs renewal) — mirrors
+                                        // MembershipCard and the server counter.
+                                        if (membership.payment_status === "expired") return "not_paid";
                                         const membershipInvoices = membership.invoices || [];
                                         if (membershipInvoices.length === 0) return "not_paid";
                                         
@@ -669,6 +672,9 @@ const SingleStudentPage = ({
                         <>
                             {(() => {
                                 const getMembershipPaymentStatus = (membership) => {
+                                    // Expired counts as unpaid (needs renewal) — mirrors
+                                    // MembershipCard and the server counter.
+                                    if (membership.payment_status === "expired") return "not_paid";
                                     const membershipInvoices = membership.invoices || [];
                                     if (membershipInvoices.length === 0) return "not_paid";
                                     

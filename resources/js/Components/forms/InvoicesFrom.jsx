@@ -230,17 +230,21 @@ const InvoicesForm = ({
     // the user has not picked months manually yet.
     const defaultMonthsRef = useRef(selectedMonths);
 
-    // When a paid membership is picked on a new invoice, preselect the month
-    // right after its last billed month — that IS the "pay next month" action.
-    // Fires on membership change only, and only while the user has not picked
-    // months manually yet. If the next month falls outside the school-year
-    // picker window the default stands and the server message guides instead.
+    // When a paid membership — or an expired one with paid history
+    // (renewal) — is picked on a new invoice, preselect the month right after
+    // its last billed month. Fires on membership change only, and only while
+    // the user has not picked months manually yet. If the next month falls
+    // outside the school-year picker window the default stands and the server
+    // message guides instead.
     useEffect(() => {
         if (type !== "create" || !selectedMembershipId) return;
         const membership = StudentMemberships.find(
             (m) => m.id === parseInt(selectedMembershipId),
         );
-        if (!membership || membership.payment_status !== "paid") return;
+        if (!membership) return;
+        const renewable = membership.payment_status === "paid" ||
+            (membership.payment_status === "expired" && hasPaidHistory(membership));
+        if (!renewable) return;
         const billed = billedMonthsOf(membership);
         if (billed.length === 0) return;
         const next = nextMonthAfter(billed[billed.length - 1]);
@@ -291,6 +295,8 @@ const InvoicesForm = ({
         if (!membership || !Array.isArray(membership.invoices)) return [];
         const months = [];
         membership.invoices.forEach((inv) => {
+            // Assurance bills never occupy billing months.
+            if (inv?.type === 'assurance') return;
             const list = Array.isArray(inv?.selectedMonths) ? inv.selectedMonths : [];
             list.forEach((m) => {
                 if (typeof m === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(m)) months.push(m);
@@ -308,6 +314,25 @@ const InvoicesForm = ({
         const [y, m] = String(value).split("-").map(Number);
         const d = new Date(y, m, 1); // m is 1-based, so this lands on the next month
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    };
+
+    // Renewal candidate: expired with a fully-paid MONTHLY invoice history.
+    // Assurance bills don't qualify (mirrors the server qualifier).
+    // Never-billed expired junk has no history and stays hidden.
+    const hasPaidHistory = (membership) => {
+        if (!membership || !Array.isArray(membership.invoices) || membership.invoices.length === 0) return false;
+        const monthly = membership.invoices.filter((inv) => inv?.type !== 'assurance');
+        if (monthly.length === 0) return false;
+        return monthly.every((inv) =>
+            Number(inv?.amountPaid ?? 0) >= Number(inv?.totalAmount ?? 0),
+        );
+    };
+
+    // Dropdown order: unpaid (debts) first, paid (next month) next, renewals last.
+    const rankForSort = (membership) => {
+        if (membership.payment_status === "expired") return 2;
+        if (membership.payment_status === "paid") return 1;
+        return 0;
     };
 
 
@@ -800,24 +825,30 @@ const InvoicesForm = ({
                                                 Sélectionnez une adhésion
                                             </option>
                                             {StudentMemberships
-                                                // Billable = pending or paid: a fully-paid membership
-                                                // is exactly the one due for the next month. Never
-                                                // soft-deleted, never expired. Unpaid first so the
-                                                // actionable memberships sit on top. Mirrors the
-                                                // server rule in InvoiceController@create.
+                                                // Billable = pending, paid, or expired with
+                                                // fully-paid history (renewal): a fully-paid
+                                                // membership is exactly the one due for the next
+                                                // month, expired or not. Never soft-deleted;
+                                                // never-billed expired junk stays hidden. Unpaid
+                                                // first, renewals last. Mirrors the server rule
+                                                // in InvoiceController@create.
                                                 .filter((membership) =>
-                                                    (membership.payment_status === "pending" ||
-                                                        membership.payment_status === "paid") &&
-                                                    !membership.deleted_at,
+                                                    ((membership.payment_status === "pending" ||
+                                                        membership.payment_status === "paid" ||
+                                                        (membership.payment_status === "expired" &&
+                                                            hasPaidHistory(membership))) &&
+                                                    !membership.deleted_at),
                                                 )
                                                 .sort((a, b) =>
-                                                    (a.payment_status === "paid" ? 1 : 0) -
-                                                    (b.payment_status === "paid" ? 1 : 0),
+                                                    (rankForSort(a) - rankForSort(b)),
                                                 )
                                                 .map(
                                                     (membership) => {
                                                         const isPaid = membership.payment_status === "paid";
-                                                        const billed = isPaid ? billedMonthsOf(membership) : [];
+                                                        // Derived here, not trusted from the sort: the label
+                                                        // must never promise renewal for owing-expired rows.
+                                                        const isRenewal = membership.payment_status === "expired" && hasPaidHistory(membership);
+                                                        const billed = (isPaid || isRenewal) ? billedMonthsOf(membership) : [];
                                                         const lastBilled = billed.length > 0
                                                             ? billed[billed.length - 1]
                                                             : null;
@@ -825,7 +856,7 @@ const InvoicesForm = ({
                                                             <option
                                                                 key={membership.id}
                                                                 value={membership.id}
-                                                                className={isPaid ? "bg-green-50" : "bg-amber-50 font-medium"}
+                                                                className={isRenewal ? "bg-gray-50" : (isPaid ? "bg-green-50" : "bg-amber-50 font-medium")}
                                                             >
                                                                 {membership.offer_name}{" "}
                                                                 (Prix :{" "}
@@ -833,9 +864,11 @@ const InvoicesForm = ({
                                                                     membership.price,
                                                                 )}{" "}
                                                                 DH)
-                                                                {isPaid
-                                                                    ? ` - Payé${lastBilled ? ` jusqu'en ${formatMonthValue(lastBilled)}` : ""}`
-                                                                    : " - Impayé"}
+                                                                {isRenewal
+                                                                    ? " - À renouveler"
+                                                                    : (isPaid
+                                                                        ? ` - Payé${lastBilled ? ` jusqu'en ${formatMonthValue(lastBilled)}` : ""}`
+                                                                        : " - Impayé")}
                                                             </option>
                                                         );
                                                     },

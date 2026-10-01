@@ -36,6 +36,13 @@ export default function MembershipCard({
 
     // Helper function to get payment status for a membership
     const getPaymentStatus = (membership) => {
+        // Expired counts as unpaid: an ended period needs payment (renewal)
+        // no matter what its invoices say. Mirrors the server counter in
+        // StudentsController::calculateMembershipPaymentStatus.
+        if (membership.payment_status === "expired") {
+            return { status: "not_paid", label: "Non payé", color: "red" };
+        }
+
         // Check if there are any invoices for this membership
         const membershipInvoices = membership.invoices || [];
         

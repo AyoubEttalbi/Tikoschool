@@ -5,13 +5,13 @@ namespace App\Http\Controllers;
 use App\Models\Attendance;
 use App\Models\Classes;
 use App\Models\Invoice;
+use App\Models\InvoicePaymentLog;
 use App\Models\Level;
 use App\Models\Membership;
 use App\Models\Offer;
 use App\Models\Result;
 use App\Models\School;
 use App\Models\Student;
-use App\Models\InvoicePaymentLog;
 use App\Models\StudentMovement;
 use App\Models\Teacher;
 use App\Services\ProfileImageService;
@@ -113,11 +113,15 @@ class StudentsController extends Controller
         // every listing view, every search keystroke and every filter change. It stays in
         // SQL here for the same reason.
         //
-        // What changed: it used to read `memberships.payment_status`, and the column the
-        // admin is looking at while they pick a filter does not. The "Statut" badge comes
-        // from calculateMembershipPaymentStatus(), which ignores payment_status entirely
-        // and derives the answer from invoice money â€” so the filter and the column
-        // disagreed by construction. Two concrete symptoms:
+        // What changed (2): expired memberships count as unpaid. An ended
+        // period needs payment (renewal) no matter what its invoices say, so
+        // both the counter and the SQL predicates below treat 'expired' as
+        // unpaid — badge and filter disagree by construction otherwise.
+        //
+        // What changed (1, kept): the predicates below are the SQL translation
+        // of the badge, so every row returned now carries the badge that was
+        // asked for. A student with no memberships shows "Aucune" and belongs
+        // to none of the three.
         //
         //   * `payment_status` is an enum of pending|paid|expired. It has never held
         //     'rest', so the old "Partiel" branch could only ever match on its fallback,
@@ -126,12 +130,6 @@ class StudentsController extends Controller
         //     under "Non payé", so one row appeared under two mutually exclusive filters.
         //   * A membership marked 'paid' whose invoice was later edited downward still
         //     read as paid to the filter while the badge showed money outstanding.
-        //
-        // "Payé" and "Tous" looked right only because InvoiceController happens to set
-        // payment_status = 'paid' on the same condition, and because "Tous" filters
-        // nothing. The predicates below are the SQL translation of the badge, so every
-        // row returned now carries the badge that was asked for. A student with no
-        // memberships shows "Aucune" and belongs to none of the three.
         $membershipStatus = $request->input('membership_status');
 
         if ($membershipStatus && $membershipStatus !== 'all') {
@@ -144,8 +142,13 @@ class StudentsController extends Controller
                 .' where inv.membership_id = memberships.id and inv.deleted_at is null)';
 
             // Mirrors calculateMembershipPaymentStatus(): no invoices, or nothing paid
-            // against them, counts as unpaid â€” coalesce() makes both the same test.
-            $unpaid = fn ($q) => $q->whereRaw("$paidSum = 0");
+            // against them, counts as unpaid — coalesce() makes both the same test.
+            // Expired counts as unpaid too (an ended period needs renewal): the
+            // OR mirrors the early expired branch in the counter above.
+            $unpaid = fn ($q) => $q->where(function ($qq) use ($paidSum) {
+                $qq->whereRaw("$paidSum = 0")
+                    ->orWhere('memberships.payment_status', 'expired');
+            });
             $partial = fn ($q) => $q->whereRaw("$paidSum > 0 and $paidSum < $dueSum");
 
             match ($membershipStatus) {
@@ -281,6 +284,16 @@ class StudentsController extends Controller
             }
 
             $counts['total']++;
+
+            // Expired counts as unpaid, before any money math: an ended period
+            // needs payment (renewal) no matter what its invoices say. This
+            // mirrors the SQL 'unpaid' predicate below — badge and filter must
+            // never disagree on a row.
+            if ($membership->payment_status === 'expired') {
+                $counts['unpaid']++;
+
+                continue;
+            }
 
             // Get all invoices for this membership
             $invoices = $membership->invoices ?? collect();

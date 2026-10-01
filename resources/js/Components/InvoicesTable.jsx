@@ -1,6 +1,7 @@
 import { FaFileInvoice } from "react-icons/fa";
 import FormModal from "./FormModal";
 import { format, parseISO } from "date-fns";
+import { monthKey, parseDateOnly } from "@/utils/dateOnly";
 import { Printer, AlertCircle, Eye } from "lucide-react";
 import { useState } from "react";
 import { useEffect } from "react";
@@ -29,8 +30,11 @@ const InvoicesTable = ({
         return () => window.removeEventListener('resize', checkScreen);
     }, []);
 
-    // Helper function to get membership payment status based on invoices
+    // Helper function to get membership payment status based on invoices.
+    // Expired counts as unpaid (needs renewal) — mirrors MembershipCard
+    // and the server counter in StudentsController.
     const getMembershipPaymentStatus = (membership) => {
+        if (membership.payment_status === "expired") return "not_paid";
         const membershipInvoices = membership.invoices || [];
         if (membershipInvoices.length === 0) return "not_paid";
         
@@ -56,17 +60,20 @@ const InvoicesTable = ({
     const formatDate = (dateString, formatType) => {
         if (!dateString) return "N/A";
         try {
-            // Handle date-only strings (YYYY-MM-DD) without timezone conversion
-            // parseISO can cause timezone issues where dates shift by one day
-            let date;
-            if (typeof dateString === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
-                // Date-only string: parse as local date to avoid timezone shifts
-                const [year, month, day] = dateString.split('-').map(Number);
-                date = new Date(year, month - 1, day);
-            } else {
-                // DateTime string: use parseISO but handle timezone carefully
-                date = parseISO(dateString);
+            // Month labels are pure text: slicing keeps every device on the
+            // same month no matter its timezone (see @/utils/dateOnly).
+            if (formatType === "yyyy-MM") {
+                return monthKey(dateString) || dateString;
             }
+            // Formats carrying time (HH:mm) are true instants: they keep the
+            // instant path so the time is never flattened to 00:00.
+            if (/[Hhms]/.test(formatType)) {
+                return format(parseISO(dateString), formatType);
+            }
+            // Date-only values (plain or ISO-with-time): construct locally so
+            // a UTC-midnight instant never renders as the previous day.
+            const local = parseDateOnly(dateString);
+            const date = local ?? parseISO(dateString);
             return format(date, formatType);
         } catch (error) {
             return dateString;

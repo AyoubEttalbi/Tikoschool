@@ -265,12 +265,27 @@ class InvoiceController extends Controller
         }
 
         $studentMemberships = Membership::with(['student', 'offer', 'invoices'])
-            // Billable = pending or paid: a fully-paid membership is exactly the
-            // one due for the next month. Never soft-deleted (default scope, no
-            // withTrashed) and never expired. Carries the same shape the live
-            // create form (StudentsController@show) sends, so the dropdown rule
-            // in resources/js/Components/forms/InvoicesFrom.jsx holds here too.
-            ->whereIn('payment_status', ['pending', 'paid'])
+            // Billable = pending, paid, or expired with fully-paid history
+            // (renewal): a fully-paid membership is exactly the one due for
+            // the next month, expired or not. Never soft-deleted (default
+            // scope, no withTrashed); never-billed expired junk stays hidden.
+            // Carries the same shape the live create form
+            // (StudentsController@show) sends, so the dropdown rule in
+            // resources/js/Components/forms/InvoicesFrom.jsx holds here too.
+            ->where(function ($query) {
+                $query->whereIn('payment_status', ['pending', 'paid'])
+                    ->orWhere(function ($query) {
+                        $query->where('payment_status', 'expired')
+                            ->whereHas('invoices', fn ($qq) => $qq->where('type', 'invoice'))
+                            ->whereNotExists(function ($query) {
+                                $query->selectRaw('1')->from('invoices as i')
+                                    ->whereColumn('i.membership_id', 'memberships.id')
+                                    ->whereNull('i.deleted_at')
+                                    ->where('i.type', 'invoice')
+                                    ->whereRaw('ROUND(i.amountPaid, 2) < ROUND(i.totalAmount, 2)');
+                            });
+                    });
+            })
             ->get()
             ->map(function ($membership) {
                 $pricing = new \App\Services\InvoicePricingService;
@@ -286,6 +301,12 @@ class InvoiceController extends Controller
                         'selectedMonths' => $pricing->normaliseMonths($invoice->selected_months),
                         'billDate' => $invoice->billDate?->format('Y-m-d'),
                         'includePartialMonth' => (bool) $invoice->includePartialMonth,
+                        // Amounts feed hasPaidHistory() in the form: without them
+                        // every invoice reads 0/0 and owing-expired rows would
+                        // pass as renewable.
+                        'amountPaid' => (float) $invoice->amountPaid,
+                        'totalAmount' => (float) $invoice->totalAmount,
+                        'type' => $invoice->type,
                     ])->values(),
                 ];
             });
