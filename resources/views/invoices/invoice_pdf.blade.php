@@ -84,7 +84,7 @@
             </tr>
             <tr>
                 <td class="label">Date de facturation :</td>
-                <td class="value">{{ $invoice->billDate?->format('Y-m') }}</td>
+                <td class="value">{{ \App\Support\InvoiceCoverage::label($invoice) }}</td>
             </tr>
             @if ($isSchoolCopy)
                 <tr>

@@ -36,7 +36,10 @@ class InvoiceFactory extends Factory
             'offer_id' => $membership?->offer_id,
             'billDate' => $billDate,
             'creationDate' => $billDate,
-            'endDate' => (clone $billDate)->modify('+1 month'),
+            // Bill-month-end, matching what store()/update() derive server-side
+            // from the covered months. A mid-month endDate would cover days the
+            // label never shows and skew coverage-dependent tests.
+            'endDate' => (clone $billDate)->modify('last day of this month'),
             'months' => 1,
             'selected_months' => [$month],
             'totalAmount' => $total,

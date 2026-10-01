@@ -1,7 +1,7 @@
 import { FaFileInvoice } from "react-icons/fa";
 import FormModal from "./FormModal";
 import { format, parseISO } from "date-fns";
-import { monthKey, parseDateOnly } from "@/utils/dateOnly";
+import { coverageLabel, parseDateOnly } from "@/utils/dateOnly";
 import { Printer, AlertCircle, Eye } from "lucide-react";
 import { useState } from "react";
 import { useEffect } from "react";
@@ -60,11 +60,6 @@ const InvoicesTable = ({
     const formatDate = (dateString, formatType) => {
         if (!dateString) return "N/A";
         try {
-            // Month labels are pure text: slicing keeps every device on the
-            // same month no matter its timezone (see @/utils/dateOnly).
-            if (formatType === "yyyy-MM") {
-                return monthKey(dateString) || dateString;
-            }
             // Formats carrying time (HH:mm) are true instants: they keep the
             // instant path so the time is never flattened to 00:00.
             if (/[Hhms]/.test(formatType)) {
@@ -279,10 +274,7 @@ const InvoicesTable = ({
                                     aria-label={`Voir les détails de la facture ${invoice.id}`}
                                 >
                                     <td className="p-3 text-sm text-gray-900" onClick={() => handleInvoiceClick(invoice)}>
-                                        {formatDate(
-                                            invoice.billDate,
-                                            "yyyy-MM",
-                                        )}
+                                        {coverageLabel(invoice.selectedMonths, invoice.billDate)}
                                     </td>
                                     <td className="p-3 text-sm text-gray-900" onClick={() => handleInvoiceClick(invoice)}>
                                         {formatDate(

@@ -11,8 +11,8 @@ use App\Models\TeacherMembershipPayment;
 use App\Support\PdfBudget;
 use App\Support\SchoolScope;
 use Barryvdh\DomPDF\Facade\Pdf;
-use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -446,6 +446,17 @@ class InvoiceController extends Controller
             $validated['selected_months'] = json_encode(
                 (new \App\Services\InvoicePricingService)->normaliseMonths($selectedMonths)
             );
+            // Derive the period end server-side from the covered months: a
+            // forged or stale endDate would otherwise inflate coverage (status
+            // paid for months never billed). Matches what the form computes.
+            $coveredForEndDate = $this->effectiveBilledMonths(
+                $selectedMonths,
+                $validated['includePartialMonth'] ?? false,
+                $validated['billDate'] ?? null
+            );
+            if ($coveredForEndDate !== []) {
+                $validated['endDate'] = Carbon::parse(end($coveredForEndDate).'-01')->endOfMonth()->toDateString();
+            }
             // Set the creator
             $validated['created_by'] = auth()->email ?? auth()->id(); // Fallback to ID if email is not available
 
@@ -587,18 +598,17 @@ class InvoiceController extends Controller
                 }
             }
 
-            // Always update start_date. Update end_date based on actual paid period
+            // Always update start_date. Status AND period via the central rule
+            // (coverage, not cash moment): a late payment for a past month
+            // reads pending, a prepay reads paid, and end_date always agrees
+            // with the qualifying set — never extended from a stale form value.
+            $resolvedStatus = \App\Support\MembershipStatus::resolve($membership);
             $updateData = [
                 'start_date' => $validated['billDate'],
-                'payment_status' => ($validated['amountPaid'] >= $validated['totalAmount']) ? 'paid' : 'pending',
-                'is_active' => ($validated['amountPaid'] >= $validated['totalAmount']),
+                'payment_status' => $resolvedStatus,
+                'is_active' => $resolvedStatus === 'paid',
+                'end_date' => \App\Support\MembershipStatus::coverageEndDate($membership),
             ];
-
-            // Update end_date: use invoice end_date if it's more recent than current membership end_date
-            // This ensures the membership reflects the actual paid period
-            if (empty($membership->end_date) || (isset($validated['endDate']) && $validated['endDate'] > $membership->end_date)) {
-                $updateData['end_date'] = $validated['endDate'];
-            }
             $membership->update($updateData);
 
             DB::commit();
@@ -984,6 +994,15 @@ class InvoiceController extends Controller
             $validated['selected_months'] = json_encode(
                 (new \App\Services\InvoicePricingService)->normaliseMonths($selectedMonths)
             );
+            // Derive the period end server-side — same reasoning as store().
+            $coveredForEndDate = $this->effectiveBilledMonths(
+                $selectedMonths,
+                $validated['includePartialMonth'] ?? false,
+                $validated['billDate'] ?? null
+            );
+            if ($coveredForEndDate !== []) {
+                $validated['endDate'] = Carbon::parse(end($coveredForEndDate).'-01')->endOfMonth()->toDateString();
+            }
 
             // Ensure membership_id exists: default to the invoice's current membership when not provided
             if (empty($validated['membership_id'])) {
@@ -1039,8 +1058,11 @@ class InvoiceController extends Controller
                 $invoice->includePartialMonth,
                 $invoice->billDate
             );
+            // Hold the membership row for the recompute below: two concurrent
+            // top-ups must serialise, or each derives end_date from a set
+            // that excludes the other's uncommitted payment.
+            Membership::whereKey($membership->id)->lockForUpdate()->first();
             if ($newEffectiveMonths !== $currentEffectiveMonths) {
-                Membership::whereKey($membership->id)->lockForUpdate()->first();
                 $this->assertMonthsNotBilled($membership, $newEffectiveMonths, (int) $invoice->id);
             }
 
@@ -1168,18 +1190,16 @@ class InvoiceController extends Controller
             }
             // --- END TEACHER MEMBERSHIP PAYMENT LOGIC ---
 
-            // Always update start_date. Update end_date based on actual paid period
+            // Always update start_date. Status AND period via the central rule
+            // (see store()): narrowing months shrinks end_date to the paid
+            // remainder instead of leaving a stale future period behind.
+            $resolvedStatus = \App\Support\MembershipStatus::resolve($membership);
             $updateData = [
                 'start_date' => $validated['billDate'],
-                'payment_status' => (round((float) ($validated['amountPaid']), 2) >= round((float) ($validated['totalAmount']), 2)) ? 'paid' : 'pending',
-                'is_active' => (round((float) ($validated['amountPaid']), 2) >= round((float) ($validated['totalAmount']), 2)),
+                'payment_status' => $resolvedStatus,
+                'is_active' => $resolvedStatus === 'paid',
+                'end_date' => \App\Support\MembershipStatus::coverageEndDate($membership),
             ];
-
-            // Update end_date: use invoice end_date if it's more recent than current membership end_date
-            // This ensures the membership reflects the actual paid period
-            if (empty($membership->end_date) || (isset($validated['endDate']) && Carbon::parse($validated['endDate']) > Carbon::parse($membership->end_date))) {
-                $updateData['end_date'] = $validated['endDate'];
-            }
             $membership->update($updateData);
 
             DB::commit();
@@ -1300,17 +1320,23 @@ class InvoiceController extends Controller
 
                 $membership = $invoice->membership;
                 if ($membership) {
-                    // Find the latest active invoice for this membership (excluding the one being deleted)
-                    $latestActiveInvoice = Invoice::where('membership_id', $membership->id)
+                    // Lock the membership row: recompute-then-write below must
+                    // not interleave with a concurrent store()/update().
+                    Membership::whereKey($membership->id)->lockForUpdate()->first();
+                    // Period AND status from the surviving set (excluding the
+                    // invoice being voided below): survivors covering
+                    // today-or-beyond read paid with the period rolled back to
+                    // them; a past-only or debt-carrying remainder reads
+                    // pending; nothing surviving reads expired. The period is
+                    // never inherited from an unpaid row.
+                    $hasSurvivors = Invoice::where('membership_id', $membership->id)
                         ->where('id', '!=', $invoice->id)
-                        ->orderBy('endDate', 'desc')
-                        ->first();
-
-                    if ($latestActiveInvoice) {
-                        // Update membership based on the latest active invoice
-                        $membership->end_date = $latestActiveInvoice->endDate;
-                        $membership->payment_status = 'paid';
-                        $membership->is_active = true;
+                        ->exists();
+                    $membership->end_date = \App\Support\MembershipStatus::coverageEndDate($membership, (int) $invoice->id);
+                    if ($hasSurvivors) {
+                        $resolvedStatus = \App\Support\MembershipStatus::resolve($membership, null, (int) $invoice->id);
+                        $membership->payment_status = $resolvedStatus;
+                        $membership->is_active = $resolvedStatus === 'paid';
                     } else {
                         // No other active invoices, set to expired
                         $membership->payment_status = 'expired';

@@ -2,20 +2,26 @@
 
 namespace App\Console\Commands;
 
-use Illuminate\Console\Command;
 use App\Models\Membership;
 use Carbon\Carbon;
+use Illuminate\Console\Command;
 
 class UpdateMembershipPaymentStatus extends Command
 {
     protected $signature = 'memberships:update-payment-status';
+
     protected $description = 'Update membership payment status to expired if end_date has passed';
 
     public function handle()
     {
         $now = Carbon::now();
         $processedCount = 0;
-        
+
+        // Timing note: end_date tracks PAID coverage only (store/update/
+        // destroy recompute it from fully-paid invoices). An unpaid row keeps
+        // end_date NULL and reaches expiry via branches 2-3 below (30d/7d
+        // staleness), not at month-end — a conscious consequence: fresh debts
+        // linger as pending instead of expiring with their would-be period.
         // 1. Process memberships with end_date < now (standard case)
         $expiredMemberships = Membership::where('end_date', '<', $now)
             ->where('payment_status', '!=', 'expired')
@@ -61,9 +67,9 @@ class UpdateMembershipPaymentStatus extends Command
         if ($processedCount > 0) {
             $this->info("✅ Successfully processed {$processedCount} membership(s).");
         } else {
-            $this->info("ℹ️  No memberships needed status updates.");
+            $this->info('ℹ️  No memberships needed status updates.');
         }
-        
+
         $this->info('Membership payment statuses update completed.');
     }
 }

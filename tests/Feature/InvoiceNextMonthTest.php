@@ -65,20 +65,28 @@ function nextMonthPostInvoice($t, User $admin, Student $student, Membership $mem
 }
 
 test('a paid membership can be billed again for the next month', function () {
-    [$teacher, $student, $membership] = nextMonthMembership(300);
-    $admin = User::factory()->create(['role' => 'admin']);
+    // Frozen in September: the September invoice covers "today", so the
+    // coverage rule reads paid — the precondition this test needs.
+    \Illuminate\Support\Carbon::setTestNow('2026-09-15 10:00:00');
 
-    nextMonthPostInvoice($this, $admin, $student, $membership, '2026-09');
+    try {
+        [$teacher, $student, $membership] = nextMonthMembership(300);
+        $admin = User::factory()->create(['role' => 'admin']);
 
-    expect($membership->fresh()->payment_status)->toBe('paid');
+        nextMonthPostInvoice($this, $admin, $student, $membership, '2026-09');
 
-    nextMonthPostInvoice($this, $admin, $student, $membership, '2026-10');
+        expect($membership->fresh()->payment_status)->toBe('paid');
 
-    $invoices = Invoice::where('membership_id', $membership->id)->orderBy('id')->get();
+        nextMonthPostInvoice($this, $admin, $student, $membership, '2026-10');
 
-    expect($invoices)->toHaveCount(2)
-        ->and((float) $invoices[1]->totalAmount)->toBe(300.0)
-        ->and((float) $invoices[1]->amountPaid)->toBe(300.0);
+        $invoices = Invoice::where('membership_id', $membership->id)->orderBy('id')->get();
+
+        expect($invoices)->toHaveCount(2)
+            ->and((float) $invoices[1]->totalAmount)->toBe(300.0)
+            ->and((float) $invoices[1]->amountPaid)->toBe(300.0);
+    } finally {
+        \Illuminate\Support\Carbon::setTestNow();
+    }
 });
 
 test('creating an invoice for an already-billed month is rejected', function () {

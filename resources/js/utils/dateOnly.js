@@ -34,3 +34,34 @@ export const monthKey = (value) => {
     const m = /^(\d{4})-(0[1-9]|1[0-2])/.exec(String(value ?? ""));
     return m ? `${m[1]}-${m[2]}` : "";
 };
+
+/**
+ * Coverage label for the "Date de facturation" cell: the COVERED months, not
+ * the billing-event date. Mirrors App\Support\InvoiceCoverage::label (PHP) —
+ * keep the two in sync. Single -> "2026-10"; consecutive -> "2026-09 → 2026-11";
+ * gapped -> "2026-09, 2026-12"; empty -> billDate month; nothing -> "—".
+ */
+export const coverageLabel = (months, billDate) => {
+    let list = months;
+    // Accept stringified arrays too (some payloads send JSON strings).
+    if (typeof list === "string") {
+        try { list = JSON.parse(list); } catch { list = []; }
+    }
+    list = [...new Set(
+        (Array.isArray(list) ? list : [])
+            .filter((t) => typeof t === "string")
+            .map((t) => t.trim())
+            .filter((t) => /^\d{4}-(0[1-9]|1[0-2])$/.test(t)),
+    )].sort();
+    if (list.length === 0) return monthKey(billDate) || "—";
+    if (list.length === 1) return list[0];
+    let consecutive = true;
+    for (let i = 1; i < list.length; i++) {
+        const [py, pm] = list[i - 1].split("-").map(Number);
+        const [cy, cm] = list[i].split("-").map(Number);
+        const ey = pm === 12 ? py + 1 : py;
+        const em = pm === 12 ? 1 : pm + 1;
+        if (cy !== ey || cm !== em) { consecutive = false; break; }
+    }
+    return consecutive ? `${list[0]} → ${list[list.length - 1]}` : list.join(", ");
+};

@@ -71,6 +71,19 @@ class MembershipStatsService
                     ->where('end_date', '>=', $startOfMonth);
             });
 
+            // OR billed-but-unpaid memberships: start_date is stamped on every
+            // invoice write while end_date only tracks PAID coverage, so an
+            // unpaid row has a start but no end. Bound it by its start month.
+            $q->orWhere(function ($subQ) use ($startOfMonth, $endOfMonth) {
+                $subQ->whereNotNull('start_date')
+                    ->whereNull('end_date')
+                    ->where('start_date', '<=', $endOfMonth)
+                    ->where(function ($qq) use ($startOfMonth) {
+                        $qq->where('start_date', '>=', $startOfMonth)
+                            ->orWhere('created_at', '>=', $startOfMonth);
+                    });
+            });
+
             // OR memberships that were created during this month (for pending memberships without dates)
             $q->orWhere(function ($subQ) use ($startOfMonth, $endOfMonth) {
                 $subQ->whereNull('start_date')
