@@ -4,6 +4,7 @@ import { z } from "zod";
 import InputField from "../InputField";
 import { router } from "@inertiajs/react";
 import React, { useEffect, useRef, useState } from "react";
+import { isPaid } from "@/utils/membershipStatus";
 
 // Helper function to format date to 'YYYY-MM-DD' without timezone issues
 const formatDateToYYYYMMDD = (date) => {
@@ -242,7 +243,9 @@ const InvoicesForm = ({
             (m) => m.id === parseInt(selectedMembershipId),
         );
         if (!membership) return;
-        const renewable = membership.payment_status === "paid" ||
+        // Guarded: a stale paid row with no live money must not preselect,
+        // sort green, or label itself paid (see @/utils/membershipStatus).
+        const renewable = isPaid(membership) ||
             (membership.payment_status === "expired" && hasPaidHistory(membership));
         if (!renewable) return;
         const billed = billedMonthsOf(membership);
@@ -331,7 +334,7 @@ const InvoicesForm = ({
     // Dropdown order: unpaid (debts) first, paid (next month) next, renewals last.
     const rankForSort = (membership) => {
         if (membership.payment_status === "expired") return 2;
-        if (membership.payment_status === "paid") return 1;
+        if (isPaid(membership)) return 1;
         return 0;
     };
 
@@ -825,16 +828,16 @@ const InvoicesForm = ({
                                                 Sélectionnez une adhésion
                                             </option>
                                             {StudentMemberships
-                                                // Billable = pending, paid, or expired with
-                                                // fully-paid history (renewal): a fully-paid
-                                                // membership is exactly the one due for the next
-                                                // month, expired or not. Never soft-deleted;
-                                                // never-billed expired junk stays hidden. Unpaid
-                                                // first, renewals last. Mirrors the server rule
-                                                // in InvoiceController@create.
+                                                // Billable = pending, paid-with-money, stale-paid
+                                                // (no live money → listed as unpaid, never stranded),
+                                                // or expired with fully-paid history (renewal).
+                                                // Never soft-deleted; never-billed expired junk stays
+                                                // hidden. Unpaid first, renewals last. Mirrors the
+                                                // server rule in InvoiceController@create.
                                                 .filter((membership) =>
                                                     ((membership.payment_status === "pending" ||
-                                                        membership.payment_status === "paid" ||
+                                                        isPaid(membership) ||
+                                                        (membership.payment_status === "paid" && !isPaid(membership)) ||
                                                         (membership.payment_status === "expired" &&
                                                             hasPaidHistory(membership))) &&
                                                     !membership.deleted_at),
@@ -844,11 +847,13 @@ const InvoicesForm = ({
                                                 )
                                                 .map(
                                                     (membership) => {
-                                                        const isPaid = membership.payment_status === "paid";
-                                                        // Derived here, not trusted from the sort: the label
-                                                        // must never promise renewal for owing-expired rows.
+                                                        // Guarded shared helper (see import): stale paid
+                                                        // rows never label green. Derived here, not trusted
+                                                        // from the sort: the label must never promise
+                                                        // renewal for owing-expired rows.
+                                                        const paidRow = isPaid(membership);
                                                         const isRenewal = membership.payment_status === "expired" && hasPaidHistory(membership);
-                                                        const billed = (isPaid || isRenewal) ? billedMonthsOf(membership) : [];
+                                                        const billed = (paidRow || isRenewal) ? billedMonthsOf(membership) : [];
                                                         const lastBilled = billed.length > 0
                                                             ? billed[billed.length - 1]
                                                             : null;
@@ -856,7 +861,7 @@ const InvoicesForm = ({
                                                             <option
                                                                 key={membership.id}
                                                                 value={membership.id}
-                                                                className={isRenewal ? "bg-gray-50" : (isPaid ? "bg-green-50" : "bg-amber-50 font-medium")}
+                                                                className={isRenewal ? "bg-gray-50" : (paidRow ? "bg-green-50" : "bg-amber-50 font-medium")}
                                                             >
                                                                 {membership.offer_name}{" "}
                                                                 (Prix :{" "}
@@ -866,7 +871,7 @@ const InvoicesForm = ({
                                                                 DH)
                                                                 {isRenewal
                                                                     ? " - À renouveler"
-                                                                    : (isPaid
+                                                                    : (paidRow
                                                                         ? ` - Payé${lastBilled ? ` jusqu'en ${formatMonthValue(lastBilled)}` : ""}`
                                                                         : " - Impayé")}
                                                             </option>

@@ -23,12 +23,12 @@ use Inertia\Testing\AssertableInertia;
 function studentBilled(float $due, float $paid): Student
 {
     $student = Student::factory()->create();
-    // Pinned: the factory rolls a random payment_status, and since expired
-    // counts as unpaid these tests would flake 1/3 of the time without it.
-    // These tests pin money-bucket behavior; status is incidental here.
+    // Status mirrors what store() would have written (fully-paid → 'paid'):
+    // displays key the status first, money second. The factory rolls random
+    // statuses, which would flake these tests without the pin.
     $membership = Membership::factory()->create([
         'student_id' => $student->id,
-        'payment_status' => 'pending',
+        'payment_status' => $paid >= $due && $due > 0 ? 'paid' : 'pending',
     ]);
 
     Invoice::factory()->create([
@@ -144,4 +144,52 @@ it('applies no membership filter for "Tous"', function () {
     $all = idsUnder('all');
 
     expect($all)->toContain($paid->id)->toContain($none->id);
+});
+
+it('shows a lapsed fully-paid membership as unpaid, not paid', function () {
+    // Pending status with fully-paid money = coverage lapsed (the 1775 case):
+    // no current cover, no paid badge — even though cash was received.
+    $student = Student::factory()->create();
+    Membership::factory()->create(['student_id' => $student->id, 'payment_status' => 'pending']);
+    Invoice::factory()->create([
+        'membership_id' => Membership::where('student_id', $student->id)->first()->id,
+        'student_id' => $student->id,
+        'totalAmount' => 300,
+        'amountPaid' => 300,
+        'rest' => 0,
+    ]);
+
+    expect(idsUnder('unpaid'))->toContain($student->id)
+        ->and(idsUnder('paid'))->not->toContain($student->id)
+        ->and(idsUnder('rest'))->not->toContain($student->id);
+});
+
+it('treats an expired fully-paid membership as unpaid, never paid', function () {
+    $student = studentBilled(due: 500, paid: 500);
+    Membership::where('student_id', $student->id)->update(['payment_status' => 'expired']);
+
+    expect(idsUnder('unpaid'))->toContain($student->id)
+        ->and(idsUnder('paid'))->not->toContain($student->id)
+        ->and(idsUnder('rest'))->not->toContain($student->id);
+});
+
+it('never shows expired partial money under Partiel', function () {
+    $student = studentBilled(due: 500, paid: 200);
+    Membership::where('student_id', $student->id)->update(['payment_status' => 'expired']);
+
+    expect(idsUnder('unpaid'))->toContain($student->id)
+        ->and(idsUnder('rest'))->not->toContain($student->id)
+        ->and(idsUnder('paid'))->not->toContain($student->id);
+});
+
+it('keeps a paid status over money edited downward out-of-band', function () {
+    // Status wins intentionally: the row was fully paid when written. Edited
+    // directly (bypassing the writers, which would recompute) to pin that the
+    // badge trusts the status, not a recount.
+    $student = studentBilled(due: 500, paid: 500);
+    Invoice::where('student_id', $student->id)->update(['amountPaid' => 200, 'rest' => 300]);
+
+    expect(idsUnder('paid'))->toContain($student->id)
+        ->and(idsUnder('unpaid'))->not->toContain($student->id)
+        ->and(idsUnder('rest'))->not->toContain($student->id);
 });

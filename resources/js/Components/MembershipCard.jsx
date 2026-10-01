@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import FormModal from "./FormModal";
 import { usePage } from "@inertiajs/react";
+import { getMembershipPaymentStatus } from "@/utils/membershipStatus";
 
 export default function MembershipCard({
     Student_memberships = [],
@@ -34,33 +35,19 @@ export default function MembershipCard({
             : "Enseignant inconnu";
     };
 
-    // Helper function to get payment status for a membership
+    // Payment badge: single shared rule (see @/utils/membershipStatus).
     const getPaymentStatus = (membership) => {
-        // Expired counts as unpaid: an ended period needs payment (renewal)
-        // no matter what its invoices say. Mirrors the server counter in
-        // StudentsController::calculateMembershipPaymentStatus.
-        if (membership.payment_status === "expired") {
-            return { status: "not_paid", label: "Non payé", color: "red" };
-        }
+        const status = getMembershipPaymentStatus(membership);
 
-        // Check if there are any invoices for this membership
-        const membershipInvoices = membership.invoices || [];
-        
-        if (membershipInvoices.length === 0) {
-            return { status: "not_paid", label: "Non payé", color: "red" };
-        }
-        
-        // Calculate total amounts from all invoices for this membership
-        const totalAmount = membershipInvoices.reduce((sum, invoice) => sum + (parseFloat(invoice.totalAmount) || 0), 0);
-        const totalPaid = membershipInvoices.reduce((sum, invoice) => sum + (parseFloat(invoice.amountPaid) || 0), 0);
-        
-        if (totalPaid === 0) {
-            return { status: "not_paid", label: "Non payé", color: "red" };
-        } else if (totalPaid < totalAmount) {
-            return { status: "not_fully_paid", label: "Non entièrement payé", color: "orange" };
-        } else {
+        if (status === "paid") {
             return { status: "paid", label: "Payé", color: "green" };
         }
+
+        if (status === "not_fully_paid") {
+            return { status: "not_fully_paid", label: "Non entièrement payé", color: "orange" };
+        }
+
+        return { status: "not_paid", label: "Non payé", color: "red" };
     };
 
     // Sort memberships: active ones first, then deleted ones

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import ProfileImageLightbox from "@/Components/ProfileImageLightbox";
+import { getMembershipPaymentStatus } from "@/utils/membershipStatus";
 
 // Add WhatsApp SVG icon
 const WhatsAppIcon = () => (
@@ -615,21 +616,7 @@ const SingleStudentPage = ({
                                 <Users className="h-5 w-5 mr-3" />
                                 Adhésions :
                                 {student.memberships && (() => {
-                                    const getMembershipPaymentStatus = (membership) => {
-                                        // Expired counts as unpaid (needs renewal) — mirrors
-                                        // MembershipCard and the server counter.
-                                        if (membership.payment_status === "expired") return "not_paid";
-                                        const membershipInvoices = membership.invoices || [];
-                                        if (membershipInvoices.length === 0) return "not_paid";
-                                        
-                                        const totalAmount = membershipInvoices.reduce((sum, invoice) => sum + (parseFloat(invoice.totalAmount) || 0), 0);
-                                        const totalPaid = membershipInvoices.reduce((sum, invoice) => sum + (parseFloat(invoice.amountPaid) || 0), 0);
-                                        
-                                        if (totalPaid === 0) return "not_paid";
-                                        if (totalPaid < totalAmount) return "not_fully_paid";
-                                        return "paid";
-                                    };
-                                    
+                                    // Status badges: single shared rule (see @/utils/membershipStatus).
                                     const unpaidCount = student.memberships.filter((m) => 
                                         getMembershipPaymentStatus(m) === "not_paid" && !m.deleted_at
                                     ).length;
@@ -671,21 +658,7 @@ const SingleStudentPage = ({
                     {student.memberships ? (
                         <>
                             {(() => {
-                                const getMembershipPaymentStatus = (membership) => {
-                                    // Expired counts as unpaid (needs renewal) — mirrors
-                                    // MembershipCard and the server counter.
-                                    if (membership.payment_status === "expired") return "not_paid";
-                                    const membershipInvoices = membership.invoices || [];
-                                    if (membershipInvoices.length === 0) return "not_paid";
-                                    
-                                    const totalAmount = membershipInvoices.reduce((sum, invoice) => sum + (parseFloat(invoice.totalAmount) || 0), 0);
-                                    const totalPaid = membershipInvoices.reduce((sum, invoice) => sum + (parseFloat(invoice.amountPaid) || 0), 0);
-                                    
-                                    if (totalPaid === 0) return "not_paid";
-                                    if (totalPaid < totalAmount) return "not_fully_paid";
-                                    return "paid";
-                                };
-                                
+                                // Status badges: single shared rule (see @/utils/membershipStatus).
                                 const unpaidCount = student.memberships.filter((m) => 
                                     getMembershipPaymentStatus(m) === "not_paid" && !m.deleted_at
                                 ).length;

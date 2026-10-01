@@ -2,6 +2,7 @@ import { FaFileInvoice } from "react-icons/fa";
 import FormModal from "./FormModal";
 import { format, parseISO } from "date-fns";
 import { coverageLabel, parseDateOnly } from "@/utils/dateOnly";
+import { getMembershipPaymentStatus } from "@/utils/membershipStatus";
 import { Printer, AlertCircle, Eye } from "lucide-react";
 import { useState } from "react";
 import { useEffect } from "react";
@@ -30,21 +31,7 @@ const InvoicesTable = ({
         return () => window.removeEventListener('resize', checkScreen);
     }, []);
 
-    // Helper function to get membership payment status based on invoices.
-    // Expired counts as unpaid (needs renewal) — mirrors MembershipCard
-    // and the server counter in StudentsController.
-    const getMembershipPaymentStatus = (membership) => {
-        if (membership.payment_status === "expired") return "not_paid";
-        const membershipInvoices = membership.invoices || [];
-        if (membershipInvoices.length === 0) return "not_paid";
-        
-        const totalAmount = membershipInvoices.reduce((sum, invoice) => sum + (parseFloat(invoice.totalAmount) || 0), 0);
-        const totalPaid = membershipInvoices.reduce((sum, invoice) => sum + (parseFloat(invoice.amountPaid) || 0), 0);
-        
-        if (totalPaid === 0) return "not_paid";
-        if (totalPaid < totalAmount) return "not_fully_paid";
-        return "paid";
-    };
+    // Membership payment status: single shared rule (see @/utils/membershipStatus).
     
     // Count unpaid and not fully paid memberships (excluding deleted ones)
     const unpaidMembershipsCount = Student_memberships.filter(
@@ -252,7 +239,7 @@ const InvoicesTable = ({
                             );
                             const isPaid =
                                 membership &&
-                                membership.payment_status === "paid";
+                                getMembershipPaymentStatus(membership) === "paid";
                             const isDeleted = membership?.deleted_at;
 
                             return (

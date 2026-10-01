@@ -8,6 +8,7 @@ import {
     Legend,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/Components/ui/card";
+import { isPaid } from "@/utils/membershipStatus";
 
 const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042"];
 
@@ -108,7 +109,9 @@ const Performance = ({ student }) => {
         }
         const totalMemberships = validMemberships.length;
         const paidMemberships = validMemberships.filter(
-            (m) => m.payment_status === "paid",
+            // Guarded: a stale paid row with no live money must not inflate
+            // the score (see @/utils/membershipStatus).
+            (m) => isPaid(m),
         ).length;
         const paymentRate = (paidMemberships / totalMemberships) * 100;
         return (paymentRate / 100) * 10;

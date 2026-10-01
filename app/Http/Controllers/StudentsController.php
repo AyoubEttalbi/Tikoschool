@@ -141,15 +141,30 @@ class StudentsController extends Controller
             $dueSum = '(select coalesce(sum(inv.totalAmount), 0) from invoices inv'
                 .' where inv.membership_id = memberships.id and inv.deleted_at is null)';
 
-            // Mirrors calculateMembershipPaymentStatus(): no invoices, or nothing paid
-            // against them, counts as unpaid — coalesce() makes both the same test.
-            // Expired counts as unpaid too (an ended period needs renewal): the
-            // OR mirrors the early expired branch in the counter above.
-            $unpaid = fn ($q) => $q->where(function ($qq) use ($paidSum) {
-                $qq->whereRaw("$paidSum = 0")
-                    ->orWhere('memberships.payment_status', 'expired');
-            });
-            $partial = fn ($q) => $q->whereRaw("$paidSum > 0 and $paidSum < $dueSum");
+            // Mirrors calculateMembershipPaymentStatus(): 'paid' status is the
+            // single source of truth (written only by the coverage rule), so
+            // the paid bucket keys the column while unpaid/partial fall back
+            // to money. Expired always lands unpaid, never partial — an ended
+            // period needs renewal, not a top-up.
+            $unpaid = function ($q) use ($paidSum, $dueSum) {
+                return $q->where(function ($qq) use ($paidSum, $dueSum) {
+                    $qq->where('memberships.payment_status', 'expired')
+                        ->orWhere(function ($qqq) use ($paidSum, $dueSum) {
+                            $qqq->where('memberships.payment_status', '!=', 'paid')
+                                ->whereRaw("not ($paidSum > 0 and $paidSum < $dueSum)");
+                        })
+                        // Stale paid (everything voided outside the writers):
+                        // no live money behind the status.
+                        ->orWhere(function ($qqq) use ($paidSum) {
+                            $qqq->where('memberships.payment_status', 'paid')
+                                ->whereRaw("$paidSum = 0");
+                        });
+                });
+            };
+            $partial = function ($q) use ($paidSum, $dueSum) {
+                return $q->where('memberships.payment_status', 'pending')
+                    ->whereRaw("$paidSum > 0 and $paidSum < $dueSum");
+            };
 
             match ($membershipStatus) {
                 // Badge priority is unpaid > partial > paid, so the two narrower filters
@@ -285,10 +300,25 @@ class StudentsController extends Controller
 
             $counts['total']++;
 
-            // Expired counts as unpaid, before any money math: an ended period
-            // needs payment (renewal) no matter what its invoices say. This
-            // mirrors the SQL 'unpaid' predicate below — badge and filter must
-            // never disagree on a row.
+            // Status first: 'paid' is written only by the coverage rule, so it
+            // is the single source of truth — with one guard: a paid row with
+            // no live money (everything voided outside the writers) reads
+            // unpaid, never paid. Expired always reads unpaid; pending
+            // otherwise falls back to money (lapsed fully-paid rows read
+            // unpaid — no current cover, no paid badge).
+            if ($membership->payment_status === 'paid') {
+                // Get all invoices for this membership
+                $invoices = $membership->invoices ?? collect();
+
+                if ($invoices->sum('amountPaid') > 0) {
+                    $counts['paid']++;
+                } else {
+                    $counts['unpaid']++;
+                }
+
+                continue;
+            }
+
             if ($membership->payment_status === 'expired') {
                 $counts['unpaid']++;
 
@@ -308,12 +338,10 @@ class StudentsController extends Controller
             $totalAmount = $invoices->sum('totalAmount');
             $amountPaid = $invoices->sum('amountPaid');
 
-            if ($amountPaid == 0) {
+            if ($amountPaid == 0 || $amountPaid >= $totalAmount) {
                 $counts['unpaid']++;
             } elseif ($amountPaid < $totalAmount) {
                 $counts['partial']++;
-            } else {
-                $counts['paid']++;
             }
         }
 
