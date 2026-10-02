@@ -1809,7 +1809,7 @@ class TeacherMembershipPaymentService
             $wallet = round((float) $teacher->wallet, 2);
 
             if ($wallet <= 0) {
-                $outcome['blocked'][] = $entry + ['reason' => 'wallet_empty'];
+                $outcome['blocked'][] = $entry + ['reason' => $wallet < 0 ? 'advance_outstanding' : 'wallet_empty'];
 
                 continue;
             }
@@ -2302,7 +2302,7 @@ class TeacherMembershipPaymentService
                 .' jours : les enseignants gardent ce qui leur a été versé.';
         }
 
-        if ($hasReason(['wallet_empty', 'wallet_insufficient'])) {
+        if ($hasReason(['wallet_empty', 'wallet_insufficient', 'advance_outstanding'])) {
             $messages[] = 'Un solde n\'a pas permis de tout reprendre.';
         }
 
@@ -2495,13 +2495,16 @@ class TeacherMembershipPaymentService
             if ($walletBefore <= 0) {
                 // The teacher has already been paid out in cash. debit() would clamp to zero
                 // and silently record nothing; say so instead, because somebody now has to
-                // recover this by hand.
-                $outcome['blocked'][] = $entry + ['reason' => 'wallet_empty'];
+                // recover this by hand. A strictly negative wallet is a confirmed
+                // no-change advance (arrondi caisse) not yet absorbed — distinct from an
+                // empty one, so the dialog does not misreport it.
+                $outcome['blocked'][] = $entry + ['reason' => $walletBefore < 0 ? 'advance_outstanding' : 'wallet_empty'];
                 Log::warning('Reversal blocked: teacher wallet is already at zero', [
                     'record_id' => $record->id,
                     'teacher_id' => $teacher->id,
                     'invoice_id' => $invoice->id,
                     'requested_reversal' => $paidToTeacher,
+                    'wallet_before' => $walletBefore,
                 ]);
 
                 $this->stopFutureMonths($record, $invoice, $clearQueue);

@@ -114,7 +114,7 @@ class TransactionRules
      *
      * @throws ValidationException
      */
-    public static function assertPayable(User $user, float $amount, Carbon $date, ?int $excludeTransactionId = null): void
+    public static function assertPayable(User $user, float $amount, Carbon $date, ?int $excludeTransactionId = null, bool $overdraftConfirmed = false): void
     {
         $type = self::typeFor($user);
 
@@ -139,6 +139,12 @@ class TransactionRules
         $available = self::availableFor($user, $date, $excludeTransactionId);
         $month = self::monthLabel($date);
 
+        // The overdraft flag is a confirmed no-change payout (arrondi caisse) and
+        // only ever applies to a teacher's positive wallet: it waives the
+        // amount-vs-balance check, never the empty-wallet one. An advance never
+        // stacks on an advance — the next payout waits for new earnings.
+        $overdraft = $overdraftConfirmed && $user->role === 'teacher' && $available > 0;
+
         if ($available <= 0) {
             throw ValidationException::withMessages([
                 'amount' => $user->role === 'teacher'
@@ -147,7 +153,7 @@ class TransactionRules
             ]);
         }
 
-        if (round($amount, 2) > $available) {
+        if (round($amount, 2) > $available && ! $overdraft) {
             throw ValidationException::withMessages([
                 'amount' => $user->role === 'teacher'
                     ? 'Montant supérieur au solde du portefeuille : '.self::money($available).' disponible, '.self::money($amount).' demandé.'
@@ -164,9 +170,24 @@ class TransactionRules
      * it for salaries — so every edited teacher payout stored the full wallet balance as
      * its remainder instead of what was actually left.
      */
-    public static function restAfter(User $user, float $amount, Carbon $date, ?int $excludeTransactionId = null): float
+    public static function restAfter(User $user, float $amount, Carbon $date, ?int $excludeTransactionId = null, bool $overdraftConfirmed = false): float
     {
-        return round(max(0, self::availableFor($user, $date, $excludeTransactionId) - $amount), 2);
+        $available = self::availableFor($user, $date, $excludeTransactionId);
+        $rest = round($available - $amount, 2);
+
+        // A confirmed overdraft leaves a genuine negative remainder (the advance) —
+        // but the eligibility is re-derived here, not trusted from the flag alone:
+        // positive teacher wallet with the amount past it, exactly as assertPayable().
+        // Everything else keeps the zero floor: a remainder is what is left, never a debt.
+        if ($overdraftConfirmed
+            && $user->role === 'teacher'
+            && $available > 0
+            && round($amount, 2) > $available
+        ) {
+            return $rest;
+        }
+
+        return round(max(0, $rest), 2);
     }
 
     /** Everything the form needs to explain one member of staff, without a second request. */

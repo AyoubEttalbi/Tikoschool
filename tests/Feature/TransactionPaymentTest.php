@@ -88,13 +88,16 @@ test('the type follows the role, whatever the form posts', function () {
         ->and((float) $teacher->fresh()->wallet)->toBe(700.0);
 });
 
-test('a payment larger than the wallet is refused on the amount field', function () {
+test('a payment larger than the wallet is refused without the overdraft confirmation', function () {
+    // Arrondi caisse (Oct 2026): the refusal for a positive-wallet overage
+    // points at the confirmation checkbox, not the amount — ticking it is how
+    // an intended advance proceeds. Unticked, nothing moves.
     [$user, $teacher] = txTeacher(500);
 
     $this->actingAs(txAdmin())
         ->from('/transactions/create')
         ->post('/transactions', payload(['user_id' => $user->id, 'amount' => 900]))
-        ->assertSessionHasErrors('amount');
+        ->assertSessionHasErrors('overdraft_confirmed');
 
     expect((float) $teacher->fresh()->wallet)->toBe(500.0)
         ->and(Transaction::count())->toBe(0);
@@ -109,10 +112,9 @@ test('the refusal reaches the screen as a field error, not a silent redirect', f
         ->from('/transactions/create')
         ->post('/transactions', payload(['user_id' => $user->id, 'amount' => 900]));
 
-    $errors = session('errors')->get('amount');
+    $errors = session('errors')->get('overdraft_confirmed');
 
-    expect($errors[0])->toContain('portefeuille')
-        ->and($errors[0])->toContain('500,00 DH', '900,00 DH');
+    expect($errors[0])->toContain('avance');
 });
 
 test('a teacher with an empty wallet is refused', function () {

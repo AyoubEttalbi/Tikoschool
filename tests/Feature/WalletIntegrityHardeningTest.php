@@ -88,6 +88,9 @@ test('an over-payout is refused rather than silently clamped to a smaller amount
     // That is correct for the ledger and WRONG as a payout path: without an explicit
     // balance check first, paying out more than the balance would succeed at a smaller
     // amount than the transaction record claims.
+    // Carve-out (Oct 2026, arrondi caisse): a double-confirmed no-change payout may
+    // exceed a positive wallet — see OverdraftPayoutTest. Without confirmations the
+    // refusal below still holds, and nothing moves.
     $email = fake()->unique()->safeEmail();
     $teacher = Teacher::factory()->create(['email' => $email, 'wallet' => 0]);
     $teacherUser = User::factory()->create(['role' => 'teacher', 'email' => $email]);

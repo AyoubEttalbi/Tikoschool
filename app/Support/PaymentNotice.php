@@ -136,7 +136,7 @@ class PaymentNotice
                 .' jours : les enseignants gardent ce qui leur a été versé.';
         }
 
-        if (array_filter($blocked, fn ($r) => in_array($r['reason'] ?? '', ['wallet_empty', 'wallet_insufficient'], true)) !== []) {
+        if (array_filter($blocked, fn ($r) => in_array($r['reason'] ?? '', ['wallet_empty', 'wallet_insufficient', 'advance_outstanding'], true)) !== []) {
             $messages[] = 'Un solde n\'a pas permis de tout reprendre.';
         }
 
@@ -440,6 +440,7 @@ class PaymentNotice
             'deadline_passed' => 'Conservé par l\'enseignant (délai dépassé)',
             'wallet_empty' => 'Non repris : portefeuille déjà vide',
             'wallet_insufficient' => 'Non repris : solde insuffisant',
+            'advance_outstanding' => 'Non repris : avance non encore absorbée',
             'already_reversed' => 'Déjà repris (aucun mouvement)',
             default => 'Non repris',
         };

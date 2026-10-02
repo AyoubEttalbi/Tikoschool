@@ -307,6 +307,10 @@ const PaymentForm = ({
         next_payment_date: transaction?.next_payment_date
             ? String(transaction.next_payment_date).slice(0, 10)
             : "",
+        // Arrondi caisse (create only): the no-change overdraft single
+        // confirmation. Posted only when a teacher payout exceeds the wallet;
+        // the server re-verifies it, and ignores it everywhere else.
+        overdraft_confirmed: false,
     });
 
     const [showRecurring, setShowRecurring] = useState(
@@ -319,6 +323,22 @@ const PaymentForm = ({
     );
 
     const amount = Number(data.amount) || 0;
+
+    /* Arrondi caisse, derived — never typed as a total. The advance is what the
+       payout exceeds the wallet by, to the centime. Shown only for a teacher
+       payout that actually exceeds a positive balance, on create. One tick
+       authorizes it (client decision, Oct 2026 — no retyped amount). */
+    const isTeacherPayout =
+        data.mode === "staff" && selected?.role === "teacher";
+    const overdraftAdvance =
+        !isEdit &&
+        isTeacherPayout &&
+        (selected?.available ?? 0) > 0 &&
+        amount > (selected?.available ?? 0)
+            ? Math.round((amount - selected.available) * 100) / 100
+            : 0;
+    const overdraftReady =
+        overdraftAdvance > 0 && data.overdraft_confirmed === true;
 
     /* The balances arrive computed against the form's date, because an assistant's cap is
        "salary minus what they were paid IN THAT MONTH". Moving the date to another month
@@ -370,9 +390,21 @@ const PaymentForm = ({
         } else if (
             data.mode === "staff" &&
             selected?.available > 0 &&
-            amount > selected.available
+            amount > selected.available &&
+            // A teacher overdraft with both confirmations is the arrondi
+            // caisse path, not an error. Every other excess stays refused —
+            // and edits never overdraft (the server is strict there too).
+            !overdraftReady
         ) {
-            found.amount = `Maximum ${money(selected.available)}.`;
+            found.amount =
+                overdraftAdvance > 0
+                    ? "Montant supérieur au solde : confirmez l’avance ci-dessous ou réduisez le montant."
+                    : `Maximum ${money(selected.available)}.`;
+        }
+
+        if (overdraftAdvance > 0 && !overdraftReady) {
+            found.overdraft_confirmed =
+                "Cochez pour confirmer cette avance sur les prochains gains.";
         }
 
         if (!data.payment_date) found.payment_date = "Choisissez une date.";
@@ -395,7 +427,7 @@ const PaymentForm = ({
     const blocked = Object.keys(clientErrors).length > 0;
 
     const remaining = selected
-        ? Math.max(0, selected.available - amount)
+        ? Math.round((selected.available - amount) * 100) / 100
         : null;
 
     /* Remembers the last description this form generated, so it can tell "the admin has
@@ -460,6 +492,16 @@ const PaymentForm = ({
         category: fields.mode === "expense" ? fields.category : null,
         frequency: fields.is_recurring ? fields.frequency : null,
         next_payment_date: fields.is_recurring ? fields.next_payment_date : null,
+        // The overdraft tick only travels for a teacher payout that
+        // actually exceeds the wallet; anywhere else it is stale state that
+        // must not reach the server (edits are strict by design).
+        overdraft_confirmed:
+            fields.mode === "staff" &&
+            selected?.role === "teacher" &&
+            (selected?.available ?? 0) > 0 &&
+            (Number(fields.amount) || 0) > (selected?.available ?? 0)
+                ? fields.overdraft_confirmed
+                : false,
     }));
 
     const handleSubmit = (event) => {
@@ -658,11 +700,20 @@ const PaymentForm = ({
                                 <div className="flex items-baseline justify-between">
                                     <span className="text-sm text-slate-500">
                                         {selected.role === "teacher"
-                                            ? "Restera dans le portefeuille"
+                                            ? "Solde après paiement"
                                             : "Restera dû ce mois-ci"}
                                     </span>
-                                    <span className="text-base font-semibold tabular-nums text-slate-900">
+                                    <span
+                                        className={`text-base font-semibold tabular-nums ${
+                                            (remaining ?? 0) < 0
+                                                ? "text-red-600"
+                                                : "text-slate-900"
+                                        }`}
+                                    >
                                         {money(remaining)}
+                                        {(remaining ?? 0) < 0
+                                            ? " (avance)"
+                                            : ""}
                                     </span>
                                 </div>
 
@@ -691,6 +742,48 @@ const PaymentForm = ({
                                 >
                                     Tout payer ({money(selected.available)})
                                 </button>
+                            </div>
+                        )}
+
+                        {/* Arrondi caisse: no change on hand. Paying past a positive
+                            teacher wallet records the excess as an advance the next
+                            earnings absorb. Never shown on edit — edits stay strict. */}
+                        {overdraftAdvance > 0 && (
+                            <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+                                <p className="text-sm font-medium text-amber-900">
+                                    Pas de monnaie : ce paiement dépasse le solde
+                                    de {money(overdraftAdvance)}.
+                                </p>
+                                <p className="mt-1 text-xs text-amber-800">
+                                    Le portefeuille passera à{" "}
+                                    {money(-overdraftAdvance)} (avance),
+                                    récupérée sur les prochains gains. Une
+                                    avance n’attend jamais l’autre : tant que
+                                    le solde n’est pas redevenu positif, aucun
+                                    nouveau paiement n’est possible.
+                                </p>
+                                <label className="mt-2 flex cursor-pointer items-start gap-2">
+                                    <input
+                                        type="checkbox"
+                                        checked={data.overdraft_confirmed === true}
+                                        onChange={(e) =>
+                                            setData(
+                                                "overdraft_confirmed",
+                                                e.target.checked,
+                                            )
+                                        }
+                                        className="mt-0.5 h-4 w-4 rounded border-amber-400 text-amber-600 focus:ring-amber-500"
+                                    />
+                                    <span className="text-sm font-medium text-amber-900">
+                                        Je confirme cette avance de{" "}
+                                        {money(overdraftAdvance)}
+                                    </span>
+                                </label>
+                                {errors.overdraft_confirmed && (
+                                    <p className="mt-1.5 text-sm text-red-600">
+                                        {errors.overdraft_confirmed}
+                                    </p>
+                                )}
                             </div>
                         )}
                     </div>
@@ -865,11 +958,24 @@ const PaymentForm = ({
                                 <strong className="text-slate-900">
                                     {money(amount)}
                                 </strong>{" "}
-                                à {selected?.name}. Il restera{" "}
-                                <strong className="text-slate-900">
-                                    {money(remaining)}
-                                </strong>
-                                .
+                                à {selected?.name}.{" "}
+                                {(remaining ?? 0) < 0 ? (
+                                    <>
+                                        Avance de{" "}
+                                        <strong className="text-red-600">
+                                            {money(-(remaining ?? 0))}
+                                        </strong>{" "}
+                                        sur les prochains gains.
+                                    </>
+                                ) : (
+                                    <>
+                                        Il restera{" "}
+                                        <strong className="text-slate-900">
+                                            {money(remaining)}
+                                        </strong>
+                                        .
+                                    </>
+                                )}
                             </>
                         )}
                     </p>

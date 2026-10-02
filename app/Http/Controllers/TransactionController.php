@@ -975,7 +975,7 @@ class TransactionController extends Controller
             ]);
 
             $validated = $this->validateTransactionData($request);
-            $validated = $this->applyPaymentRules($validated);
+            $validated = $this->applyPaymentRules($validated, null, true);
 
             // The transaction row and the wallet movement are one unit of work.
             //
@@ -985,12 +985,18 @@ class TransactionController extends Controller
             // back both or neither.
             $transaction = null;
 
-            DB::transaction(function () use ($validated, &$transaction) {
+            // Control field, never a column: consumed by the wallet debit below.
+            // Both keys are stripped — not just the flag — so safety never hinges
+            // on Transaction::$fillable forgetting a field.
+            $overdraftConfirmed = ! empty($validated['overdraft_confirmed']);
+            unset($validated['overdraft_confirmed'], $validated['overdraft_amount']);
+
+            DB::transaction(function () use ($validated, $overdraftConfirmed, &$transaction) {
                 $transaction = new Transaction($validated);
                 $transaction->save();
 
                 if (in_array($transaction->type, Transaction::BALANCE_TYPES, true)) {
-                    $this->updateEmployeeBalance($transaction);
+                    $this->updateEmployeeBalance($transaction, $overdraftConfirmed);
                 }
             });
 
@@ -1039,7 +1045,7 @@ class TransactionController extends Controller
      *
      * @throws ValidationException
      */
-    private function applyPaymentRules(array $validated, ?Transaction $existing = null): array
+    private function applyPaymentRules(array $validated, ?Transaction $existing = null, bool $allowOverdraft = false): array
     {
         $validated['is_recurring'] = ! empty($validated['is_recurring']) ? 1 : 0;
 
@@ -1095,14 +1101,86 @@ class TransactionController extends Controller
             return $validated;
         }
 
-        TransactionRules::assertPayable($user, (float) $validated['amount'], $paymentDate, $existing?->id);
+        // Arrondi caisse: a no-change payout may exceed a positive teacher wallet
+        // when the admin ticks the confirmation. Single tick by client decision
+        // (Oct 2026) — the retyped-amount second factor was removed, so the
+        // no-stacking rule (positive wallet required, enforced here and under
+        // the row lock in TeacherWalletService) is what bounds the exposure to
+        // one advance at a time.
+        //
+        // Gated on the ROLE, never on the posted type: the form posts
+        // type="salary" as a hint for every staff payment and the real type is
+        // derived from the role below. Checking the hint here silently skipped
+        // every real browser post (Oct 2026 bug — the suite posted
+        // type="payment" directly and proved a path the browser never takes).
+        $overdraftConfirmed = false;
+
+        if ($allowOverdraft && $user->role === 'teacher') {
+            if (! empty($validated['is_recurring'])) {
+                throw ValidationException::withMessages([
+                    'overdraft_confirmed' => 'Une avance ne peut pas être récurrente : le premier passage viderait le portefeuille et tous les suivants seraient refusés.',
+                ]);
+            }
+
+            $wallet = $user->teacher ? round((float) $user->teacher->wallet, 2) : 0.0;
+            $amount = round((float) $validated['amount'], 2);
+            $advance = round($amount - $wallet, 2);
+
+            if ($advance > 0 && $wallet > 0) {
+                // FILTER_VALIDATE_BOOLEAN, not !empty(): a crafted "false" string
+                // is truthy to empty() but false to the filter.
+                $ticked = filter_var($validated['overdraft_confirmed'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+                if (! $ticked) {
+                    throw ValidationException::withMessages([
+                        'overdraft_confirmed' => 'Montant supérieur au solde : cochez la confirmation d’avance pour payer ce montant.',
+                    ]);
+                }
+
+                $overdraftConfirmed = true;
+            }
+        }
+
+        // An edit that changes neither payee, type nor amount moves no money:
+        // revert-plus-apply nets to zero, so there is nothing to fund-check and
+        // nothing to recompute. Without this, touching the description of an
+        // old overdraft payout would fail the funds check on money that already
+        // moved. The row keeps its recorded remainder.
+        //
+        // Compared against the DERIVED type, not the posted hint: the form posts
+        // type="salary" for every staff payment (see the transform), so comparing
+        // the hint would never match a stored "payment" and this skip would be
+        // dead for every real browser edit.
+        $effectiveType = TransactionRules::typeFor($user) ?? ($validated['type'] ?? null);
+
+        if ($existing
+            && $effectiveType === $existing->type
+            && (int) ($validated['user_id'] ?? 0) === (int) $existing->user_id
+            && abs((float) $validated['amount'] - (float) $existing->amount) <= 0.001
+        ) {
+            // Still normalize the type: the posted hint ("salary" for every staff
+            // payment) must never overwrite the stored real type, and update()
+            // below decides whether money moves by comparing this field.
+            $validated['type'] = $existing->type;
+            unset($validated['overdraft_confirmed'], $validated['overdraft_amount']);
+
+            return $validated;
+        }
+
+        TransactionRules::assertPayable($user, (float) $validated['amount'], $paymentDate, $existing?->id, $overdraftConfirmed);
 
         // The type follows the role — it is never taken from the request. The form used to
         // post a type chosen in a dropdown and then correct it in JavaScript on submit, so
         // a stale value could reach the server and record a teacher's payout as a salary,
         // which bypasses the wallet entirely.
         $validated['type'] = TransactionRules::typeFor($user);
-        $validated['rest'] = TransactionRules::restAfter($user, (float) $validated['amount'], $paymentDate, $existing?->id);
+        $validated['rest'] = TransactionRules::restAfter($user, (float) $validated['amount'], $paymentDate, $existing?->id, $overdraftConfirmed);
+
+        // The confirmation survives as a bool for the wallet debit below; the retyped
+        // amount does not — it served its purpose in the check above. Both are control
+        // fields, never columns: they are stripped before any model write.
+        $validated['overdraft_confirmed'] = $overdraftConfirmed;
+        unset($validated['overdraft_amount']);
 
         return $validated;
     }
@@ -1186,6 +1264,8 @@ class TransactionController extends Controller
             // the new one are three writes that must not be able to land partially.
             // Without this, a failure between the revert and the apply left a teacher
             // permanently debited.
+            unset($validated['overdraft_confirmed'], $validated['overdraft_amount']);
+
             DB::transaction(function () use ($transaction, $validated, $oldType, $oldAmount, $oldUserId, $balanceChanged) {
                 $transaction->update($validated);
 
@@ -1723,6 +1803,13 @@ class TransactionController extends Controller
             'description' => 'nullable|string|max:500',
             'payment_date' => 'required|date',
             'is_recurring' => 'nullable|boolean',
+            // Arrondi caisse: the no-change overdraft double confirmation.
+            // Validated here so a crafted post cannot smuggle it in unexamined;
+            // consumed and stripped in applyPaymentRules(), never stored.
+            // (Single tick only — the client removed the retyped-amount second
+            // factor. The no-stacking rule below is what bounds the exposure to
+            // one advance at a time.)
+            'overdraft_confirmed' => 'nullable|boolean',
             // required_if takes a list of matching values: the checkbox arrives as "1"
             // from a form post and as true from an Inertia JSON request.
             'frequency' => 'nullable|required_if:is_recurring,1,true|in:'.$frequencies,
@@ -1766,13 +1853,7 @@ class TransactionController extends Controller
         return $validated;
     }
 
-    /**
-     * Update employee balance based on transaction type.
-     *
-     * @param  \App\Models\Transaction  $transaction
-     * @return void
-     */
-    private function updateEmployeeBalance($transaction)
+    private function updateEmployeeBalance($transaction, bool $overdraftConfirmed = false)
     {
         try {
             if (empty($transaction->user_id)) {
@@ -1827,12 +1908,24 @@ class TransactionController extends Controller
 
                 // Checked before the debit because TeacherWalletService::debit() clamps at
                 // zero rather than failing — without this an over-payout would silently
-                // succeed at a smaller amount than the transaction records.
-                if ((float) $teacher->wallet < (float) $transaction->amount) {
+                // succeed at a smaller amount than the transaction records. A confirmed
+                // no-change payout (arrondi caisse) is the one caller allowed past the
+                // balance; the confirmations were verified in applyPaymentRules().
+                $walletBefore = round((float) $teacher->wallet, 2);
+                $overdraft = $overdraftConfirmed && $walletBefore > 0 && round((float) $transaction->amount, 2) > $walletBefore;
+
+                if (! $overdraft && $walletBefore < round((float) $transaction->amount, 2)) {
                     throw new \Exception("Insufficient funds in teacher wallet. Available: {$teacher->wallet}, Required: {$transaction->amount}");
                 }
 
-                $walletService->debit(
+                $advance = $overdraft ? round((float) $transaction->amount - $walletBefore, 2) : 0.0;
+
+                // The return matters: debit() refuses (false) when the balance
+                // moved underneath us — a concurrent payout winning the race, a
+                // wallet emptied since the checks. Saving the row anyway would
+                // record money that never moved, so a refusal aborts the whole
+                // unit of work instead.
+                $moved = $walletService->debit(
                     $teacher,
                     (float) $transaction->amount,
                     \App\Models\TeacherWalletEntry::REASON_PAYOUT,
@@ -1840,7 +1933,14 @@ class TransactionController extends Controller
                     null,
                     null,
                     'payout to teacher (transaction #'.$transaction->id.')'
+                        .($overdraft ? ' — arrondi caisse, avance de '.number_format($advance, 2, ',', ' ').' DH' : ''),
+                    null,
+                    $overdraft
                 );
+
+                if (! $moved) {
+                    throw new \Exception("Le débit du portefeuille a été refusé (solde insuffisant ou modifié entre-temps). Aucun montant n'a été déplacé.");
+                }
             }
 
             // Handle other transaction types (salary, etc.) if needed

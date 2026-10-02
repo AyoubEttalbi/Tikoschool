@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\Teacher;
 use App\Models\TeacherMembershipPayment;
+use App\Models\TeacherWalletEntry;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -86,7 +87,24 @@ class AuditTeacherPayouts extends Command
             ->get();
 
         // ---- 6. Negative or suspicious wallets ----------------------------------
+        // A negative wallet is either a confirmed no-change advance (arrondi
+        // caisse: a payout-reason row carrying the advance note) or an
+        // unexplained anomaly. Only the latter blocks payouts abnormally — an
+        // advance absorbs itself out of the next earnings. Split them so the
+        // report never invites "fixing" an advance back to zero (which would
+        // silently forgive it).
         $negativeWallets = Teacher::where('wallet', '<', 0)->get(['id', 'first_name', 'last_name', 'wallet']);
+
+        $advanceTeacherIds = TeacherWalletEntry::query()
+            ->select('teacher_id')
+            ->where('reason', TeacherWalletEntry::REASON_PAYOUT)
+            ->where('note', 'like', '%arrondi caisse%')
+            ->distinct()
+            ->pluck('teacher_id')
+            ->all();
+
+        $advances = $negativeWallets->where(fn ($t) => in_array($t->id, $advanceTeacherIds, true))->values();
+        $unexplainedNegatives = $negativeWallets->reject(fn ($t) => in_array($t->id, $advanceTeacherIds, true))->values();
 
         // ---- 7. Ledger-vs-record shortfalls (Sept 2026 class) -------------------
         // A record says the teacher was paid X for a live invoice; the ledger must
@@ -106,14 +124,24 @@ class AuditTeacherPayouts extends Command
             ['Orphaned records (invoice gone)',      $orphaned],
             ['Duplicate (invoice,teacher,subject)',  $duplicates->count()],
             ['Teachers with a negative wallet',      $negativeWallets->count()],
+            ['  -> of which confirmed advances',     $advances->count()],
+            ['  -> of which unexplained',            $unexplainedNegatives->count()],
             ['Ledger-vs-record shortfall rows',      $shortfalls->count()],
             ['  -> shortfall still owed',            number_format($shortfallTotal, 2)],
         ]);
 
-        if ($negativeWallets->isNotEmpty()) {
+        if ($advances->isNotEmpty()) {
             $this->newLine();
-            $this->warn('Negative wallets block ALL payouts for these teachers:');
-            $this->table(['ID', 'Name', 'Wallet'], $negativeWallets->map(fn ($t) => [
+            $this->info('Confirmed no-change advances outstanding (absorbed by the next earnings — do NOT adjust back to zero):');
+            $this->table(['ID', 'Name', 'Wallet'], $advances->map(fn ($t) => [
+                $t->id, trim("{$t->first_name} {$t->last_name}"), $t->wallet,
+            ])->all());
+        }
+
+        if ($unexplainedNegatives->isNotEmpty()) {
+            $this->newLine();
+            $this->warn('Negative wallets with no confirmed advance — these block ALL payouts:');
+            $this->table(['ID', 'Name', 'Wallet'], $unexplainedNegatives->map(fn ($t) => [
                 $t->id, trim("{$t->first_name} {$t->last_name}"), $t->wallet,
             ])->all());
         }

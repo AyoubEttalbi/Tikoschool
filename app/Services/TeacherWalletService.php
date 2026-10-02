@@ -41,6 +41,11 @@ class TeacherWalletService
     /**
      * Debit a teacher. Clamped so the wallet can never go negative — a negative balance
      * permanently blocks payouts elsewhere in the app.
+     *
+     * The single exception is a confirmed no-change payout (arrondi caisse): with
+     * $allowOverdraft the payout reason may drive the wallet below zero, recording
+     * the advance the next earnings absorb. Every other reason keeps the clamp,
+     * and so does a payout without the flag.
      */
     public function debit(
         Teacher $teacher,
@@ -50,9 +55,10 @@ class TeacherWalletService
         ?string $month = null,
         ?int $invoiceId = null,
         ?string $note = null,
-        ?string $teacherSubject = null
+        ?string $teacherSubject = null,
+        bool $allowOverdraft = false
     ): bool {
-        return $this->move($teacher, -abs($amount), $reason, $paymentRecordId, $month, $invoiceId, $note, $teacherSubject);
+        return $this->move($teacher, -abs($amount), $reason, $paymentRecordId, $month, $invoiceId, $note, $teacherSubject, $allowOverdraft);
     }
 
     private function move(
@@ -63,7 +69,8 @@ class TeacherWalletService
         ?string $month,
         ?int $invoiceId,
         ?string $note,
-        ?string $teacherSubject = null
+        ?string $teacherSubject = null,
+        bool $allowOverdraft = false
     ): bool {
         $signedAmount = round($signedAmount, 2);
 
@@ -79,7 +86,7 @@ class TeacherWalletService
         // subject. See 2026_08_07_120000_add_teacher_subject_to_wallet_ledger_idempotency.
         $teacherSubject = \App\Support\OfferPercentages::normalise((string) ($teacherSubject ?? ''));
 
-        return DB::transaction(function () use ($teacher, $signedAmount, $reason, $paymentRecordId, $month, $invoiceId, $note, $teacherSubject) {
+        return DB::transaction(function () use ($teacher, $signedAmount, $reason, $paymentRecordId, $month, $invoiceId, $note, $teacherSubject, $allowOverdraft) {
             // Lock the row so two concurrent payments cannot both read the same balance.
             $locked = Teacher::whereKey($teacher->id)->lockForUpdate()->first();
             if (! $locked) {
@@ -89,9 +96,42 @@ class TeacherWalletService
             $before = round((float) $locked->wallet, 2);
             $applied = $signedAmount;
 
-            // Never drive the balance below zero.
-            if ($applied < 0 && $before + $applied < 0) {
-                $applied = -$before;
+            // Never drive the balance below zero — except a confirmed no-change
+            // payout (arrondi caisse), which may record the advance the next
+            // earnings absorb. The flag is only honoured for the payout reason;
+            // any other reason keeps the clamp no matter what is passed.
+            $overdraft = $allowOverdraft && $reason === TeacherWalletEntry::REASON_PAYOUT;
+
+            if ($applied < 0 && ! $overdraft) {
+                if ($before <= 0) {
+                    // Nothing to take — and crucially, NOT max($applied,
+                    // -$before): on a negative wallet that clamp sign-flips
+                    // into a credit, minting money from an empty account.
+                    Log::warning('Wallet debit refused: non-positive balance', [
+                        'teacher_id' => $locked->id,
+                        'wallet' => $before,
+                        'requested' => $signedAmount,
+                        'reason' => $reason,
+                    ]);
+
+                    return false;
+                }
+
+                $applied = max($applied, -$before);
+            }
+
+            // Re-validated under the row lock: the caller's wallet read happened
+            // outside any lock, so two confirmed payouts racing each other would
+            // both pass the positive-wallet check and stack advances. The second
+            // debit to arrive finds a non-positive balance and stops here.
+            if ($overdraft && $before <= 0) {
+                Log::warning('Wallet overdraft refused: balance no longer positive', [
+                    'teacher_id' => $locked->id,
+                    'wallet' => $before,
+                    'requested' => $signedAmount,
+                ]);
+
+                return false;
             }
 
             if ($applied === 0.0) {
