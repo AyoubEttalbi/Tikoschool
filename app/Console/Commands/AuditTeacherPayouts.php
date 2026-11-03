@@ -103,8 +103,30 @@ class AuditTeacherPayouts extends Command
             ->pluck('teacher_id')
             ->all();
 
+        // A recovery debt: a correction drove the wallet below zero — an
+        // over-credit taken back after the money was already paid out in cash
+        // (Nov 2026 rule). Also absorbed by the next earnings; not an anomaly.
+        $debtTeacherIds = TeacherWalletEntry::query()
+            ->whereIn('teacher_id', $negativeWallets->pluck('id'))
+            ->where('balance_after', '<', 0)
+            ->where('amount', '<', 0)
+            ->whereIn('reason', [
+                TeacherWalletEntry::REASON_ADJUSTMENT,
+                TeacherWalletEntry::REASON_RECONCILE,
+                TeacherWalletEntry::REASON_REVERSAL,
+            ])
+            ->distinct()
+            ->pluck('teacher_id')
+            ->all();
+
         $advances = $negativeWallets->where(fn ($t) => in_array($t->id, $advanceTeacherIds, true))->values();
-        $unexplainedNegatives = $negativeWallets->reject(fn ($t) => in_array($t->id, $advanceTeacherIds, true))->values();
+        $recoveryDebts = $negativeWallets
+            ->reject(fn ($t) => in_array($t->id, $advanceTeacherIds, true))
+            ->filter(fn ($t) => in_array($t->id, $debtTeacherIds, true))
+            ->values();
+        $unexplainedNegatives = $negativeWallets
+            ->reject(fn ($t) => in_array($t->id, $advanceTeacherIds, true) || in_array($t->id, $debtTeacherIds, true))
+            ->values();
 
         // ---- 7. Ledger-vs-record shortfalls (Sept 2026 class) -------------------
         // A record says the teacher was paid X for a live invoice; the ledger must
@@ -125,6 +147,7 @@ class AuditTeacherPayouts extends Command
             ['Duplicate (invoice,teacher,subject)',  $duplicates->count()],
             ['Teachers with a negative wallet',      $negativeWallets->count()],
             ['  -> of which confirmed advances',     $advances->count()],
+            ['  -> of which recovery debts',         $recoveryDebts->count()],
             ['  -> of which unexplained',            $unexplainedNegatives->count()],
             ['Ledger-vs-record shortfall rows',      $shortfalls->count()],
             ['  -> shortfall still owed',            number_format($shortfallTotal, 2)],
@@ -138,9 +161,17 @@ class AuditTeacherPayouts extends Command
             ])->all());
         }
 
+        if ($recoveryDebts->isNotEmpty()) {
+            $this->newLine();
+            $this->line('Recovery debts (over-credit taken back after a cash payout; next commissions absorb it):');
+            $this->table(['ID', 'Name', 'Wallet'], $recoveryDebts->map(fn ($t) => [
+                $t->id, trim("{$t->first_name} {$t->last_name}"), $t->wallet,
+            ])->all());
+        }
+
         if ($unexplainedNegatives->isNotEmpty()) {
             $this->newLine();
-            $this->warn('Negative wallets with no confirmed advance — these block ALL payouts:');
+            $this->warn('Unexplained negative wallets (no confirmed advance) — these block ALL payouts:');
             $this->table(['ID', 'Name', 'Wallet'], $unexplainedNegatives->map(fn ($t) => [
                 $t->id, trim("{$t->first_name} {$t->last_name}"), $t->wallet,
             ])->all());

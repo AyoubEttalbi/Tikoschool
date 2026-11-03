@@ -162,9 +162,13 @@ test('settled old-level teacher swap re-points without moving wallets', function
         'payload' => $payload,
     ])->assertRedirect();
 
+    // Nov 2026 rule: the invoice still covers the current month, so past the window
+    // the month moves from the removed teacher to the replacement — the school pays
+    // the subject once (prod 7502 paid it twice). Finished invoices past the window
+    // stay settled history; see LedgerTruthTeacherSwapTest.
     expect($membership->fresh()->teachers[0]['teacherId'])->toBe((int) $replacement->id, 'Teachers re-pointed.')
-        ->and((float) $teacher->fresh()->wallet)->toBe(100.0, 'Settled money stays with the teacher who earned it.')
-        ->and((float) $replacement->fresh()->wallet)->toBe(0.0, 'No fresh credit for settled months.');
+        ->and((float) $teacher->fresh()->wallet)->toBe(0.0, 'The removed teacher gives the running month back.')
+        ->and((float) $replacement->fresh()->wallet)->toBe(100.0, 'The replacement is paid the running month once.');
 });
 
 test('fresh old-level offer switch reprocesses at the new percentages', function () {

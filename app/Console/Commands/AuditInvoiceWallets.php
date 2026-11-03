@@ -75,7 +75,7 @@ class AuditInvoiceWallets extends Command
         $ledgerStart = TeacherWalletEntry::min('created_at');
 
         $records = TeacherMembershipPayment::query()
-            ->with(['invoice' => fn ($q) => $q->withTrashed()->select('id', 'created_at'), 'teacher:id'])
+            ->with(['invoice' => fn ($q) => $q->withTrashed()->select('id', 'created_at', 'deleted_at'), 'teacher:id'])
             ->when($this->option('teacher'), fn ($q, $id) => $q->where('teacher_id', $id))
             ->orderBy('id')
             ->get()
@@ -88,6 +88,38 @@ class AuditInvoiceWallets extends Command
             $slices = $slicesByInvoice->get($groupKey, collect());
             $poolNet = round((float) $slices->sum('net'), 2);
             $poolTotal = round((float) $group->sum('total_paid_to_teacher'), 2);
+            $invoice = $group->first()->invoice;
+
+            // Over the commission: the ledger holds more than the student's payment
+            // earns the teacher. Edits now set the record's paid figure FROM the
+            // ledger, so the record-vs-ledger check below can no longer see an
+            // over-credit on its own — this one does (Nov 2026: a top-up after the
+            // monthly job paid the month twice and the clamp hid it). Valid on any
+            // invoice: pre-ledger money is never inside the ledger, so it cannot
+            // push the ledger over the commission.
+            $owed = round((float) $group->where('is_active', true)->sum('total_teacher_amount'), 2);
+
+            if ($invoice && ! $invoice->deleted_at && $group->where('is_active', true)->isNotEmpty()
+                && $poolNet > $owed + $tolerance) {
+                $flags[] = [
+                    $group->first()->teacher_id,
+                    $group->first()->invoice_id,
+                    number_format($poolTotal, 2),
+                    number_format($poolNet, 2),
+                    'over commission by '.number_format(round($poolNet - $owed, 2), 2),
+                ];
+
+                continue;
+            }
+
+            // Invoices born before the ledger hold money it never saw (one opening
+            // lump per teacher): a record claiming more than the ledger is history
+            // there, not signal, and drowned the real flags every night (Nov 2026:
+            // ~2,200 DH of pre-ledger noise on CRC, ~1,800 on Tiko).
+            if ($ledgerStart && $invoice && $invoice->created_at && $invoice->created_at < $ledgerStart
+                && $poolTotal >= $poolNet - $tolerance) {
+                continue;
+            }
 
             if ($slices->isEmpty()) {
                 // Nothing was ever at stake — clean, not missing.

@@ -357,12 +357,25 @@ class MembershipController extends Controller
                     // through to the plain save below, no dialog.
                     DB::beginTransaction();
                 } else {
+                    // Removed teachers give their money back on every invoice — past
+                    // the window too, as a debt if already paid out — because the
+                    // replacement is paid for the same months (Nov 2026 rule).
+                    $recoverKeys = \App\Services\TeacherMembershipPaymentService::removedTeacherKeys(
+                        is_array($membership->teachers) ? $membership->teachers : [],
+                        $validated['teachers']
+                    );
+
                     foreach ($membership->invoices()->get() as $invoice) {
                         // $clearQueue = false: the queue describes the schedule, not the
                         // money. Wiping it here strands kept teachers' future months
                         // with no error anywhere; reprocess rebuilds from the preserved
                         // queue instead. Destroy (invoice gone) still clears.
-                        $outcome = $paymentService->reverseInvoicePayments($invoice, null, false);
+                        $outcome = $paymentService->reverseInvoicePayments(
+                            $invoice,
+                            null,
+                            false,
+                            \App\Services\TeacherMembershipPaymentService::recoverKeysFor($invoice, $recoverKeys)
+                        );
 
                         $reversal['applied'] = array_merge($reversal['applied'], $outcome['applied']);
                         $reversal['blocked'] = array_merge($reversal['blocked'], $outcome['blocked']);

@@ -668,7 +668,7 @@ class TeacherMembershipPaymentService
         // If current month is not included, all selected months are unpaid
         $unpaidMonths = array_values($futureMonths); // Always use future months as unpaid if current is handled.
 
-        TeacherMembershipPayment::create([
+        $record = TeacherMembershipPayment::create([
             'student_id' => $membership->student_id,
             'teacher_id' => $teacher->id,
             'membership_id' => $membership->id,
@@ -684,6 +684,21 @@ class TeacherMembershipPaymentService
             'total_paid_to_teacher' => round($immediateWalletAmount, 2), // Initial payment (immediate amount)
             'is_active' => true,
         ]);
+
+        // Months that already came round (a past-month invoice, or a replacement
+        // teacher added by a membership edit) are due now, not only the current
+        // month. The immediate above already covers the current month, so this
+        // settles to zero on an ordinary creation (prod Tiko 796: a replacement
+        // on an October invoice edited in November was never paid).
+        if ($this->settlesAgainstLedger($invoice, $record)) {
+            $this->settleRecordToDue(
+                $record,
+                $invoice,
+                $teacherPercentage,
+                \App\Models\TeacherWalletEntry::REASON_RECONCILE,
+                'settled to due on creation (record '.$record->id.')'
+            );
+        }
 
         Log::info('Created teacher membership payment record', [
             'teacher_id' => $teacher->id,
@@ -782,8 +797,17 @@ class TeacherMembershipPaymentService
             $newImmediateWalletAmount = $oldImmediateWalletAmount;
         }
 
+        // Invoices born after the ledger settle to ledger truth once the record is
+        // rewritten (see the end of this method). The immediate diff below is the
+        // LEGACY path only: it diffs "immediate" figures and is blind to months the
+        // monthly job already paid — prod Nov 2026, Tiko 646: job paid October 60,
+        // then a top-up diffed 0 -> 70 and paid October again.
+        $settlesAgainstLedger = $this->settlesAgainstLedger($currentInvoice, $record);
+
         // 3. Calculate the difference in immediate wallet amount
-        $walletDifference = round(($newImmediateWalletAmount - $oldImmediateWalletAmount), 2);
+        $walletDifference = $settlesAgainstLedger
+            ? 0.0
+            : round(($newImmediateWalletAmount - $oldImmediateWalletAmount), 2);
 
         // Cap adjustment debits at what the wallet still holds for this record,
         // mirroring the reversal guard: a stale recompute must never take back
@@ -949,6 +973,16 @@ class TeacherMembershipPaymentService
             'total_paid_to_teacher' => $newTotalPaidToTeacher, // Recalculated, cumulative and clamped
             'is_active' => true, // Ensure record stays active for potential updates
         ]);
+
+        if ($settlesAgainstLedger) {
+            $this->settleRecordToDue(
+                $record,
+                $currentInvoice,
+                $teacherPercentage,
+                TeacherWalletEntry::REASON_ADJUSTMENT,
+                'settled to due on invoice update (record '.$record->id.')'
+            );
+        }
 
         Log::info('Updated teacher membership payment record', [
             'record_id' => $record->id,
@@ -1368,6 +1402,36 @@ class TeacherMembershipPaymentService
 
                     $totalTeacherAmount = round((float) ($record->total_teacher_amount ?? 0), 2);
 
+                    // Post-ledger invoices settle against what the ledger holds, never
+                    // against total_paid_to_teacher: that figure was clamped by edits
+                    // and hid real over-credits from this very step (prod 7647: lowered
+                    // 400 -> 200 moved nothing, raised back paid +22.22 a second time).
+                    if ($this->settlesAgainstLedger($invoice, $record)) {
+                        $applied = $this->settleRecordToDue(
+                            $record,
+                            $invoice,
+                            $this->recordPercentage($record),
+                            \App\Models\TeacherWalletEntry::REASON_RECONCILE,
+                            'reconcile to due (record '.$record->id.')'
+                        );
+
+                        $record->refresh();
+                        $record->update($this->rescheduleRemainingMonths(
+                            round((float) $record->total_paid_to_teacher, 2),
+                            $totalTeacherAmount,
+                            $record->months_rest_not_paid_yet ?? [],
+                        ));
+
+                        if ($applied !== 0.0) {
+                            $result['adjusted_records']++;
+                            $result['total_delta'] = round($result['total_delta'] + $applied, 2);
+                        }
+
+                        DB::commit();
+
+                        continue;
+                    }
+
                     // Pay the teacher for the months that have COME ROUND, not the whole
                     // commission at once.
                     //
@@ -1412,7 +1476,10 @@ class TeacherMembershipPaymentService
                                 $record->id,
                                 null,
                                 $invoice->id,
-                                'reconcile to '.number_format($desiredPaidToDate, 2)
+                                'reconcile to '.number_format($desiredPaidToDate, 2),
+                                // Was missing: '' subject rows were invisible to the
+                                // subject-sliced reversal cap (prod 7065).
+                                $record->teacher_subject
                             );
 
                             $newPaidToTeacher = round($currentPaidToTeacher + $delta, 2);
@@ -1755,7 +1822,8 @@ class TeacherMembershipPaymentService
      *     skipped: array<int, array<string, mixed>>, messages: array<int, string>
      * }
      */
-    public function previewInvoiceReversal(Invoice $invoice): array
+    /** @param  array<int, string>  $recoverKeys  see reverseInvoicePayments() */
+    public function previewInvoiceReversal(Invoice $invoice, array $recoverKeys = []): array
     {
         [$daysSincePayment, $withinDeadline] = self::reversalDeadlineState($invoice);
 
@@ -1768,7 +1836,13 @@ class TeacherMembershipPaymentService
                 continue;
             }
 
+            $recover = in_array(self::teacherKey($record->teacher_id, $record->teacher_subject), $recoverKeys, true);
             $paid = round((float) ($record->total_paid_to_teacher ?? 0), 2);
+
+            // Same claim as the real reversal: post-ledger, the ledger is the claim.
+            if ($this->settlesAgainstLedger($invoice, $record)) {
+                $paid = max($paid, $this->ledgerHeldForRecord($record));
+            }
 
             // Same ledger-truth cap as the real reversal, or the dialog promises
             // money that is already gone. Fully reversed rows are dropped so a
@@ -1776,7 +1850,7 @@ class TeacherMembershipPaymentService
             // additionally records the refusal as `skipped` and heals the stale
             // totals; preview only hides — amounts agree either way.)
             $held = $paid > 0
-                ? $this->ledgerHeldForInvoice($teacher->id, $invoice->id, $record->teacher_subject ?? null)
+                ? $this->ledgerHeldForInvoice($teacher->id, $invoice->id, $record->teacher_subject ?? null, (int) $record->id)
                 : 0.0;
 
             if ($held !== null) {
@@ -1799,6 +1873,15 @@ class TeacherMembershipPaymentService
                 'amount' => $paid,
                 'cancelled_months' => array_values($record->months_rest_not_paid_yet ?? []),
             ];
+
+            // A removed teacher always gives the money back — as a debt when the
+            // wallet no longer holds it. Nothing is blocked for them.
+            if ($recover) {
+                $outcome['total_reversed'] += $paid;
+                $outcome['applied'][] = $entry + ['reason' => 'reversed'];
+
+                continue;
+            }
 
             if (! $withinDeadline) {
                 $outcome['blocked'][] = $entry + ['reason' => 'deadline_passed'];
@@ -2002,7 +2085,15 @@ class TeacherMembershipPaymentService
         ];
     }
 
-    public function reverseInvoicePayments(Invoice $invoice, ?array $oldData = null, bool $clearQueue = true): array
+    /**
+     * @param  array<int, string>  $recoverKeys  "teacherId|normalised subject" of teachers being
+     *                                           REMOVED by a membership edit. Their money for this
+     *                                           invoice is always recovered — past the window too,
+     *                                           and as a debt when it was already paid out — because
+     *                                           a replacement is paid for the same months (Nov 2026
+     *                                           rule; prod 7502 paid the PC month twice).
+     */
+    public function reverseInvoicePayments(Invoice $invoice, ?array $oldData = null, bool $clearQueue = true, array $recoverKeys = []): array
     {
         [$daysSincePayment, $withinDeadline] = self::reversalDeadlineState($invoice);
 
@@ -2037,7 +2128,14 @@ class TeacherMembershipPaymentService
         }
 
         foreach ($this->reversibleRecords($invoice) as $record) {
-            $this->reverseTeacherPayment($record, $invoice, $withinDeadline, $outcome, $clearQueue);
+            $this->reverseTeacherPayment(
+                $record,
+                $invoice,
+                $withinDeadline,
+                $outcome,
+                $clearQueue,
+                in_array(self::teacherKey($record->teacher_id, $record->teacher_subject), $recoverKeys, true)
+            );
         }
 
         $outcome['total_reversed'] = round($outcome['total_reversed'], 2);
@@ -2089,7 +2187,12 @@ class TeacherMembershipPaymentService
         $invoices = $membership->invoices()->get();
 
         foreach ($invoices as $invoice) {
-            if (in_array($invoice->id, $blockedInvoiceIds, true)) {
+            // Post-ledger invoices always reprocess: settlement diffs against what the
+            // ledger holds, so a blocked reversal (nothing taken) settles to zero for
+            // kept teachers while the replacement is still paid. Only legacy-era
+            // invoices keep the skip — their legacy diff is what the skip protects.
+            if (in_array($invoice->id, $blockedInvoiceIds, true)
+                && ! (self::isRunning($invoice) && $this->invoiceSettlesAgainstLedger($invoice))) {
                 $result['skipped']++;
 
                 continue;
@@ -2196,9 +2299,10 @@ class TeacherMembershipPaymentService
         // step would take back (or be blocked from taking).
         $reversal = $this->emptyReversalOutcome(null, true);
         $invoices = $membership->invoices()->get();
+        $recoverKeys = self::removedTeacherKeys($oldTeachers, $newTeachers);
 
         foreach ($invoices as $invoice) {
-            $outcome = $this->previewInvoiceReversal($invoice);
+            $outcome = $this->previewInvoiceReversal($invoice, self::recoverKeysFor($invoice, $recoverKeys));
             $reversal['applied'] = array_merge($reversal['applied'], $outcome['applied']);
             $reversal['blocked'] = array_merge($reversal['blocked'], $outcome['blocked']);
             $reversal['total_reversed'] += $outcome['total_reversed'];
@@ -2344,26 +2448,30 @@ class TeacherMembershipPaymentService
      * rows carry totals but no entries, and their legitimate reversal must
      * still fire (see the legacy-path test).
      */
-    private function ledgerHeldForInvoice(int $teacherId, int $invoiceId, ?string $subject = null): ?float
+    private function ledgerHeldForInvoice(int $teacherId, int $invoiceId, ?string $subject = null, ?int $recordId = null): ?float
     {
-        // Payout reasons are cash handed over, orthogonal to what the invoice
-        // still holds. Kept dynamic: not every project defines every reason.
-        $cashOut = [TeacherWalletEntry::REASON_PAYOUT];
-
-        if (defined(TeacherWalletEntry::class.'::REASON_PAYOUT_LAST_YEAR')) {
-            $cashOut[] = TeacherWalletEntry::REASON_PAYOUT_LAST_YEAR;
-        }
-
         $base = TeacherWalletEntry::where('teacher_id', $teacherId)
             ->where('invoice_id', $invoiceId)
-            ->whereNotIn('reason', $cashOut);
+            ->whereNotIn('reason', self::cashOutReasons());
 
         if ($subject !== null && $subject !== '') {
             // Slice on the normalised spelling: writers store normalised (see
             // TeacherWalletService::move), so an exact match is a true match.
             // Pre-normalisation rows with raw spelling miss and fall back to
             // the whole-invoice sum below — same as before this guard existed.
-            $slice = (clone $base)->where('teacher_subject', \App\Support\OfferPercentages::normalise($subject));
+            //
+            // Rows stamped with this record's id belong to it whatever their
+            // subject: reconcile credits were written with '' (prod 7065), and
+            // a slice that skipped them let a delete reverse only half the
+            // invoice — the rest stayed on a deleted bill.
+            $normalised = \App\Support\OfferPercentages::normalise($subject);
+            $slice = (clone $base)->where(function ($q) use ($normalised, $recordId) {
+                $q->where('teacher_subject', $normalised);
+
+                if ($recordId !== null) {
+                    $q->orWhere('payment_record_id', $recordId);
+                }
+            });
 
             if ((clone $slice)->exists()) {
                 return round((float) (clone $slice)->sum('amount'), 2);
@@ -2377,12 +2485,440 @@ class TeacherMembershipPaymentService
         return round((float) (clone $base)->sum('amount'), 2);
     }
 
+    /**
+     * Cash handed over to the teacher (payouts from the Transactions page). Never
+     * money an invoice "holds": a payout empties the wallet, not the commission.
+     *
+     * @return array<int, string>
+     */
+    private static function cashOutReasons(): array
+    {
+        $cashOut = [TeacherWalletEntry::REASON_PAYOUT];
+
+        if (defined(TeacherWalletEntry::class.'::REASON_PAYOUT_LAST_YEAR')) {
+            $cashOut[] = TeacherWalletEntry::REASON_PAYOUT_LAST_YEAR;
+        }
+
+        return $cashOut;
+    }
+
+    /**
+     * One-off repair (payouts:settle-to-ledger): what settling this record to
+     * ledger truth would move, and optionally move it.
+     *
+     * Applies the same rules the live paths now follow:
+     *  - active, assigned record on a live invoice: recompute the commission from
+     *    what the student paid at the current rate (what any re-save does), then
+     *    settle the ledger to what is due today — over-credits come back as
+     *    `manual.adjustment` (a debt when already paid out), shortfalls are paid;
+     *  - a removed teacher whose subject is now held by an active replacement
+     *    record on a running invoice: the month was paid twice, recovered (7502);
+     *  - a deleted invoice whose delete DID reverse (a reversal row exists) but
+     *    left money behind: recovered (7065). Past-window deletes keep their
+     *    money by policy and are left alone, as are pre-ledger invoices.
+     *
+     * @return array{record_id:int, teacher_id:int, invoice_id:int, subject:string, case:string, owed:float, held:float, due:float, delta:float}|null
+     */
+    public function ledgerRepair(TeacherMembershipPayment $record, bool $apply = false): ?array
+    {
+        $invoice = Invoice::withTrashed()->find($record->invoice_id);
+
+        if (! $invoice || ! $this->settlesAgainstLedger($invoice, $record)) {
+            return null;
+        }
+
+        $held = $this->ledgerHeldForRecord($record);
+        $key = self::teacherKey($record->teacher_id, $record->teacher_subject);
+        $pct = $this->recordPercentage($record);
+        $note = 'correction: Nov 2026 wallet audit (record '.$record->id.')';
+
+        if ($invoice->deleted_at) {
+            $reversed = TeacherWalletEntry::where('invoice_id', $invoice->id)
+                ->where('reason', TeacherWalletEntry::REASON_REVERSAL)
+                ->exists();
+
+            if (! $reversed || $held <= 0.01) {
+                return null;
+            }
+
+            return $this->applyLedgerRepair($record, $invoice, 'deleted invoice leftover', $held, 0.0, $note, $apply);
+        }
+
+        $membership = Membership::withTrashed()->find($record->membership_id);
+        $assigned = $membership && collect(is_array($membership->teachers) ? $membership->teachers : [])
+            ->contains(fn ($t) => is_array($t) && self::teacherKey($t['teacherId'] ?? null, $t['subject'] ?? '') === $key);
+
+        if (! $assigned) {
+            $subject = OfferPercentages::normalise((string) ($record->teacher_subject ?? ''));
+            $replaced = TeacherMembershipPayment::where('invoice_id', $invoice->id)
+                ->where('teacher_id', '!=', $record->teacher_id)
+                ->where('is_active', true)
+                ->get()
+                ->contains(fn ($r) => OfferPercentages::normalise((string) ($r->teacher_subject ?? '')) === $subject
+                    && $this->ledgerHeldForRecord($r) > 0.01);
+
+            if (! $replaced || ! self::isRunning($invoice) || $held <= 0.01) {
+                return null;
+            }
+
+            return $this->applyLedgerRepair($record, $invoice, 'removed teacher, subject paid twice', $held, 0.0, $note, $apply);
+        }
+
+        if (! $record->is_active) {
+            return null;
+        }
+
+        // The commission stays what the record says — a repair is not a re-rating.
+        // Except where an admin deliberately back-paid a rate raise (Sep 2026,
+        // "rate-raise back-pay"): that money is kept, so the record moves to the
+        // current rate the back-pay was computed at, instead of the back-pay being
+        // clawed back as an over-credit.
+        $owed = round((float) ($record->total_teacher_amount ?? 0), 2);
+
+        $ratedRaise = TeacherWalletEntry::where('teacher_id', $record->teacher_id)
+            ->where('invoice_id', $invoice->id)
+            ->where('reason', TeacherWalletEntry::REASON_ADJUSTMENT)
+            ->where('note', 'like', 'rate-raise back-pay%')
+            ->exists();
+
+        if ($ratedRaise) {
+            $owed = round(round((float) ($invoice->amountPaid ?? 0), 2) * $pct / 100, 2);
+        }
+
+        $probe = $record->replicate();
+        $probe->total_teacher_amount = $owed;
+        $due = $this->dueToDate($probe, $invoice, $pct);
+
+        if (abs($due - $held) < 0.01 && abs($owed - (float) $record->total_teacher_amount) < 0.01
+            && abs($held - (float) $record->total_paid_to_teacher) < 0.01) {
+            return null;
+        }
+
+        return $this->applyLedgerRepair($record, $invoice, $due < $held ? 'over-credit' : ($due > $held ? 'shortfall' : 'record only'), $held, $due, $note, $apply, $owed);
+    }
+
+    /** @return array{record_id:int, teacher_id:int, invoice_id:int, subject:string, case:string, owed:float, held:float, due:float, delta:float} */
+    private function applyLedgerRepair(
+        TeacherMembershipPayment $record,
+        Invoice $invoice,
+        string $case,
+        float $held,
+        float $due,
+        string $note,
+        bool $apply,
+        ?float $owed = null
+    ): array {
+        $delta = round($due - $held, 2);
+
+        $row = [
+            'record_id' => (int) $record->id,
+            'teacher_id' => (int) $record->teacher_id,
+            'invoice_id' => (int) $invoice->id,
+            'subject' => (string) $record->teacher_subject,
+            'case' => $case,
+            'owed' => round($owed ?? (float) $record->total_teacher_amount, 2),
+            'held' => $held,
+            'due' => $due,
+            'delta' => $delta,
+        ];
+
+        if (! $apply) {
+            return $row;
+        }
+
+        DB::transaction(function () use ($record, $invoice, $held, $delta, $note, $owed) {
+            $applied = 0.0;
+
+            if (abs($delta) >= 0.01 && ($teacher = Teacher::find($record->teacher_id))) {
+                $moved = $delta > 0
+                    ? $this->wallet()->credit($teacher, $delta, TeacherWalletEntry::REASON_ADJUSTMENT, $record->id, null, $invoice->id, $note, $record->teacher_subject)
+                    : $this->wallet()->debit($teacher, abs($delta), TeacherWalletEntry::REASON_ADJUSTMENT, $record->id, null, $invoice->id, $note, $record->teacher_subject, true);
+
+                $applied = $moved ? $delta : 0.0;
+            }
+
+            $paid = round(max(0.0, $held + $applied), 2);
+            $currentMonth = now()->format('Y-m');
+            $update = ['total_paid_to_teacher' => $paid];
+
+            if ($owed !== null) {
+                $queue = array_values(array_filter((array) ($record->months_rest_not_paid_yet ?? []), fn ($m) => $m > $currentMonth));
+                $update = array_merge(
+                    ['total_teacher_amount' => $owed, 'months_rest_not_paid_yet' => $queue],
+                    $this->rescheduleRemainingMonths($paid, $owed, $queue)
+                );
+            }
+
+            $record->update($update);
+        });
+
+        return $row;
+    }
+
+    /** Whether every payout record of an invoice settles against the ledger. */
+    private function invoiceSettlesAgainstLedger(Invoice $invoice): bool
+    {
+        $records = TeacherMembershipPayment::where('invoice_id', $invoice->id)->get();
+
+        if ($records->isEmpty()) {
+            return $this->settlesAgainstLedger($invoice);
+        }
+
+        return $records->every(fn ($record) => $this->settlesAgainstLedger($invoice, $record));
+    }
+
+    /**
+     * Whether an invoice still covers the current month or a later one.
+     *
+     * A teacher swap moves money only on a running invoice (or inside the
+     * reversal window): there the replacement teaches the months being paid.
+     * A finished invoice past the window is settled history — the teacher who
+     * taught those months keeps them and nobody new is paid for them.
+     */
+    public static function isRunning(Invoice $invoice): bool
+    {
+        $months = $invoice->selected_months ?? [];
+
+        if (is_string($months)) {
+            $months = json_decode($months, true) ?? [];
+        }
+
+        $months = array_filter((array) $months);
+
+        if ($months === [] && $invoice->billDate) {
+            $months = [Carbon::parse($invoice->billDate)->format('Y-m')];
+        }
+
+        return $months !== [] && max($months) >= now()->format('Y-m');
+    }
+
+    /**
+     * The removed-teacher keys that apply to one invoice: inside the reversal
+     * window, or on a running invoice. Empty otherwise (settled history).
+     *
+     * @param  array<int, string>  $recoverKeys
+     * @return array<int, string>
+     */
+    public static function recoverKeysFor(Invoice $invoice, array $recoverKeys): array
+    {
+        [, $withinDeadline] = self::reversalDeadlineState($invoice);
+
+        return ($withinDeadline || self::isRunning($invoice)) ? $recoverKeys : [];
+    }
+
+    /** "teacherId|normalised subject" — how a membership's teacher rows are compared. */
+    public static function teacherKey(int|string|null $teacherId, ?string $subject): string
+    {
+        return ((string) (int) $teacherId).'|'.OfferPercentages::normalise((string) ($subject ?? ''));
+    }
+
+    /**
+     * Keys of the teacher rows a membership edit removes.
+     *
+     * @param  array<int, mixed>  $oldTeachers
+     * @param  array<int, mixed>  $newTeachers
+     * @return array<int, string>
+     */
+    public static function removedTeacherKeys(array $oldTeachers, array $newTeachers): array
+    {
+        $key = fn ($t) => is_array($t) ? self::teacherKey($t['teacherId'] ?? null, $t['subject'] ?? '') : '';
+        $newKeys = array_map($key, $newTeachers);
+
+        return array_values(array_filter(
+            array_map($key, $oldTeachers),
+            fn ($k) => $k !== '' && ! in_array($k, $newKeys, true)
+        ));
+    }
+
+    /** The record's share, resolved the way the payout paths resolve it. */
+    private function recordPercentage(TeacherMembershipPayment $record): float
+    {
+        $membership = Membership::withTrashed()->find($record->membership_id);
+        $offer = $membership?->offer;
+
+        if ($membership && $offer) {
+            return $this->resolveTeacherPercentage($offer, $membership, $record->teacher_subject);
+        }
+
+        return (float) ($record->teacher_percentage ?? 0);
+    }
+
+    /** What the ledger holds for one payout record (0 when it holds nothing). */
+    private function ledgerHeldForRecord(TeacherMembershipPayment $record): float
+    {
+        return $this->ledgerHeldForInvoice(
+            (int) $record->teacher_id,
+            (int) $record->invoice_id,
+            $record->teacher_subject,
+            (int) $record->id
+        ) ?? 0.0;
+    }
+
+    private ?string $ledgerStartCache = null;
+
+    private bool $ledgerStartResolved = false;
+
+    /**
+     * Whether a record's teacher money is settled against the ledger.
+     *
+     * Invoices born before the ledger existed can hold money the ledger never saw
+     * (it arrived as one opening-balance lump per teacher), so "due minus held"
+     * would pay them twice. Such a record keeps the legacy immediate-diff path —
+     * but only while it really claims money outside the ledger: a pre-ledger
+     * invoice that paid nothing yet, or whose money the ledger fully holds, is
+     * settled to ledger truth like any other. Pass the record BEFORE it is
+     * rewritten, so its claim is the one the money was paid under.
+     */
+    private function settlesAgainstLedger(?Invoice $invoice, ?TeacherMembershipPayment $record = null): bool
+    {
+        if (! $invoice) {
+            return false;
+        }
+
+        if (! $this->ledgerStartResolved) {
+            $min = TeacherWalletEntry::min('created_at');
+            $this->ledgerStartCache = $min ? (string) $min : null;
+            $this->ledgerStartResolved = $min !== null;
+        }
+
+        if ($this->ledgerStartCache === null || ! $invoice->created_at) {
+            return true;
+        }
+
+        if ($invoice->created_at->gte(Carbon::parse($this->ledgerStartCache))) {
+            return true;
+        }
+
+        if (! $record) {
+            return false;
+        }
+
+        $claimed = round((float) ($record->total_paid_to_teacher ?? 0), 2);
+
+        return $claimed <= $this->ledgerHeldForRecord($record) + 0.01;
+    }
+
+    /**
+     * What the teacher should hold TODAY for this record: the share of every month
+     * that has come round (selected months no longer queued for the monthly job).
+     *
+     * Same release rule the money paths already follow — the current month at
+     * billing, each later month on its 1st — written once, so an edit can settle
+     * against it instead of re-deriving an "immediate" figure (the Nov 2026 bug:
+     * the monthly job paid October, the edit diffed immediates 0 -> 70 and paid
+     * October again).
+     */
+    private function dueToDate(TeacherMembershipPayment $record, Invoice $invoice, float $teacherPercentage): float
+    {
+        $total = round((float) ($record->total_teacher_amount ?? 0), 2);
+
+        if ($total <= 0) {
+            return 0.0;
+        }
+
+        $selected = array_values(array_unique(array_filter((array) ($record->selected_months ?? []))));
+        sort($selected);
+        $count = count($selected);
+
+        if ($count === 0) {
+            return $total;
+        }
+
+        // Due = every billed month that has come round, by the calendar. Not by the
+        // queue: an edit landing before the monthly job ran must still release the
+        // current month (the queue would say "not yet" and the job, finding a zero
+        // monthly amount after the edit, would clear it unpaid).
+        $currentMonth = now()->format('Y-m');
+        $dueMonths = array_values(array_filter($selected, fn ($m) => $m <= $currentMonth));
+
+        $includesPartial = (bool) ($invoice->includePartialMonth ?? false);
+        $partialAmount = round((float) ($invoice->partialMonthAmount ?? 0), 2);
+
+        // Legacy creation path: a partial-month flag with no amount released the
+        // whole commission at once (createNewRecord / processTeacherPayment).
+        if ($includesPartial && $partialAmount <= 0) {
+            return $total;
+        }
+
+        if ($includesPartial && $count > 1) {
+            // The partial month is the first one billed; the rest of the
+            // commission spreads evenly over the full months.
+            $partialShare = min($total, round($partialAmount * $teacherPercentage / 100, 2));
+            $partialDue = in_array($selected[0], $dueMonths, true) ? $partialShare : 0.0;
+            $fullDue = count(array_diff($dueMonths, [$selected[0]]));
+
+            return round($partialDue + ($total - $partialShare) * $fullDue / ($count - 1), 2);
+        }
+
+        return round($total * count($dueMonths) / $count, 2);
+    }
+
+    /**
+     * Move the wallet so the ledger holds exactly what is due for this record,
+     * then make the record's paid figure say so.
+     *
+     * Credits and debits both settle here. A debit may drive the wallet negative:
+     * the money was already paid out in cash, so it is recorded as a debt the
+     * teacher's next commissions absorb, never silently dropped (Tiko 1456).
+     */
+    private function settleRecordToDue(
+        TeacherMembershipPayment $record,
+        Invoice $invoice,
+        float $teacherPercentage,
+        string $reason,
+        string $note
+    ): float {
+        $due = $this->dueToDate($record, $invoice, $teacherPercentage);
+        $held = $this->ledgerHeldForRecord($record);
+        $delta = round($due - $held, 2);
+        $applied = 0.0;
+
+        if (abs($delta) >= 0.01) {
+            $teacher = Teacher::find($record->teacher_id);
+
+            if ($teacher) {
+                $moved = $delta > 0
+                    ? $this->wallet()->credit($teacher, $delta, $reason, $record->id, null, $invoice->id, $note, $record->teacher_subject)
+                    : $this->wallet()->debit($teacher, abs($delta), $reason, $record->id, null, $invoice->id, $note, $record->teacher_subject, true);
+
+                $applied = $moved ? $delta : 0.0;
+
+                Log::info('Settled teacher payout record to ledger truth', [
+                    'record_id' => $record->id,
+                    'teacher_id' => $record->teacher_id,
+                    'invoice_id' => $invoice->id,
+                    'due' => $due,
+                    'held_before' => $held,
+                    'delta' => $delta,
+                    'applied' => $applied,
+                    'reason' => $reason,
+                ]);
+            }
+        }
+
+        // Months settled here are paid: drop them from the monthly job's queue so it
+        // can never pay them a second time.
+        $currentMonth = now()->format('Y-m');
+        $queue = array_values(array_filter(
+            (array) ($record->months_rest_not_paid_yet ?? []),
+            fn ($m) => $m > $currentMonth
+        ));
+
+        $record->update([
+            'total_paid_to_teacher' => round(max(0.0, $held + $applied), 2),
+            'months_rest_not_paid_yet' => $queue,
+        ]);
+
+        return $applied;
+    }
+
     private function reverseTeacherPayment(
         TeacherMembershipPayment $record,
         Invoice $invoice,
         bool $withinDeadline,
         array &$outcome,
-        bool $clearQueue = true
+        bool $clearQueue = true,
+        bool $recoverAsDebt = false
     ): void {
         try {
             $teacher = Teacher::find($record->teacher_id);
@@ -2413,13 +2949,21 @@ class TeacherMembershipPaymentService
 
             $paidToTeacher = round((float) ($record->total_paid_to_teacher ?? 0), 2);
 
+            // Post-ledger invoices: the ledger IS the claim. Edits used to clamp the
+            // record's figure below what the wallet really received, and the delete
+            // then reversed only that — prod 7065 left 22.22 x 5 teachers on a
+            // deleted invoice.
+            if ($this->settlesAgainstLedger($invoice, $record)) {
+                $paidToTeacher = max($paidToTeacher, $this->ledgerHeldForRecord($record));
+            }
+
             // Ledger-truth cap: never take back more than the wallet still holds
             // for this record. Without it a stale record total reverses money
             // that is already gone (see ledgerHeldForInvoice()).
             $alreadyReversed = false;
             $requestedTotal = $paidToTeacher;
             $held = $paidToTeacher > 0
-                ? $this->ledgerHeldForInvoice($teacher->id, $invoice->id, $record->teacher_subject ?? null)
+                ? $this->ledgerHeldForInvoice($teacher->id, $invoice->id, $record->teacher_subject ?? null, (int) $record->id)
                 : 0.0;
 
             if ($held !== null && $held < $paidToTeacher) {
@@ -2474,7 +3018,7 @@ class TeacherMembershipPaymentService
                 return;
             }
 
-            if (! $withinDeadline) {
+            if (! $withinDeadline && ! $recoverAsDebt) {
                 if ($paidToTeacher > 0) {
                     $outcome['blocked'][] = $entry + ['reason' => 'deadline_passed'];
                 }
@@ -2492,7 +3036,7 @@ class TeacherMembershipPaymentService
 
             $walletBefore = round((float) $teacher->wallet, 2);
 
-            if ($walletBefore <= 0) {
+            if ($walletBefore <= 0 && ! $recoverAsDebt) {
                 // The teacher has already been paid out in cash. debit() would clamp to zero
                 // and silently record nothing; say so instead, because somebody now has to
                 // recover this by hand. A strictly negative wallet is a confirmed
@@ -2519,8 +3063,9 @@ class TeacherMembershipPaymentService
                 $record->id,
                 null,
                 $invoice->id,
-                'invoice deleted',
-                $record->teacher_subject
+                $recoverAsDebt ? 'teacher removed from membership' : 'invoice deleted',
+                $record->teacher_subject,
+                $recoverAsDebt
             );
 
             // Read the applied amount back rather than assuming it. debit() clamps at zero

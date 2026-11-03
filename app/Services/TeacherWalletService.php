@@ -44,8 +44,9 @@ class TeacherWalletService
      *
      * The single exception is a confirmed no-change payout (arrondi caisse): with
      * $allowOverdraft the payout reason may drive the wallet below zero, recording
-     * the advance the next earnings absorb. Every other reason keeps the clamp,
-     * and so does a payout without the flag.
+     * the advance the next earnings absorb. Correction reasons (adjustment,
+     * reconcile, reversal) honour the same flag to record a recovery debt. Every
+     * other reason keeps the clamp, and so does a payout without the flag.
      */
     public function debit(
         Teacher $teacher,
@@ -102,7 +103,17 @@ class TeacherWalletService
             // any other reason keeps the clamp no matter what is passed.
             $overdraft = $allowOverdraft && $reason === TeacherWalletEntry::REASON_PAYOUT;
 
-            if ($applied < 0 && ! $overdraft) {
+            // A recorded debt: an over-credit recovered after the money was already
+            // paid out in cash (Nov 2026 rule — a refused debit silently lost it,
+            // prod invoice 1456). Correction reasons only; the next commissions
+            // absorb it.
+            $debt = $allowOverdraft && in_array($reason, [
+                TeacherWalletEntry::REASON_ADJUSTMENT,
+                TeacherWalletEntry::REASON_RECONCILE,
+                TeacherWalletEntry::REASON_REVERSAL,
+            ], true);
+
+            if ($applied < 0 && ! $overdraft && ! $debt) {
                 if ($before <= 0) {
                     // Nothing to take — and crucially, NOT max($applied,
                     // -$before): on a negative wallet that clamp sign-flips
