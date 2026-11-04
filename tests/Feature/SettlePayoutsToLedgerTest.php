@@ -196,3 +196,22 @@ test('a deleted membership keeps the commission but gives back a double credit',
 
     expect($s->wallet('Math'))->toBe(60.0, 'The earned 60 stays, the extra 10 comes back.');
 });
+
+test('a delete past the window keeps its money even after an earlier swap reversal', function () {
+    // Tiko 642: swap reversal + re-credit on Oct 3, invoice deleted Oct 14 past the window.
+    Carbon::setTestNow('2026-10-03 21:56:00');
+    $s = PaymentScenario::make(['Math' => 30]);
+    $s->bill(months: ['2026-10'], total: 280, paid: 280, billDate: '2026-10-01');
+    $record = $s->record('Math');
+    $wallet = new TeacherWalletService;
+    $wallet->debit($s->teachers['Math'], 84, TeacherWalletEntry::REASON_REVERSAL, $record->id, null, $s->invoice->id, 'invoice deleted', 'Math');
+    $wallet->credit($s->teachers['Math'], 84, TeacherWalletEntry::REASON_ADJUSTMENT, $record->id, null, $s->invoice->id, 'reprocess', 'Math');
+
+    Carbon::setTestNow('2026-10-14 19:45:00');
+    $record->update(['is_active' => false]);
+    $s->invoice->delete();
+
+    $this->artisan('payouts:settle-to-ledger --confirm')->assertSuccessful();
+
+    expect($s->wallet('Math'))->toBe(84.0, 'Settled by policy: the teacher keeps it.');
+});

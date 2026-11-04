@@ -278,3 +278,32 @@ test('review M1: two subjects of one teacher never borrow each other\'s money', 
 
     expect($s->wallet('Math'))->toBe(150.0, 'Each subject settles to its own half.');
 });
+
+test('G: moving an invoice to another month keeps the whole commission', function () {
+    // Tiko 737: billed for October, a minute later corrected to September.
+    Carbon::setTestNow('2026-10-01 22:44:00');
+    $s = PaymentScenario::make(['Math' => 30]);
+    $s->bill(months: ['2026-10'], total: 350, paid: 350, billDate: '2026-10-01');
+    expect($s->wallet('Math'))->toBe(105.0);
+
+    Carbon::setTestNow('2026-10-01 22:45:00');
+    $s->editInvoice(newTotal: 350, newPaid: 350, months: ['2026-09']);
+
+    expect($s->wallet('Math'))->toBe(105.0, 'One month billed, one full commission — never half.')
+        ->and($s->record('Math')->selected_months)->toBe(['2026-09']);
+});
+
+test('G: moving a future month drops it from the monthly queue', function () {
+    Carbon::setTestNow('2026-10-20 10:00:00');
+    $s = PaymentScenario::make(['Math' => 30]);
+    $s->bill(months: ['2026-12'], total: 300, paid: 300, billDate: '2026-12-01');
+    $s->editInvoice(newTotal: 300, newPaid: 300, months: ['2027-01']);
+
+    expect($s->record('Math')->months_rest_not_paid_yet)->toBe(['2027-01']);
+
+    $s->advanceToMonth('2026-12');
+    expect($s->wallet('Math'))->toBe(0.0, 'December is no longer billed.');
+
+    $s->advanceToMonth('2027-01');
+    expect($s->wallet('Math'))->toBe(90.0);
+});

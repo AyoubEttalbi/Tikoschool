@@ -744,8 +744,16 @@ class TeacherMembershipPaymentService
             }
         }
 
-        // Merge new selected months with existing ones
-        $allSelectedMonths = array_unique(array_merge($record->selected_months ?? [], $selectedMonths));
+        // Decided on the record BEFORE it is rewritten (see settlesAgainstLedger()).
+        $settlesAgainstLedger = $this->settlesAgainstLedger($record->invoice, $record);
+
+        // Post-ledger: the record covers exactly the invoice's months. Merging kept a
+        // month the clerk had moved away from (Oct -> Sep), split the commission over
+        // two months and debited half (prod Tiko 678, 737, 853, 1479). The legacy
+        // path keeps its merge.
+        $allSelectedMonths = $settlesAgainstLedger
+            ? array_values(array_unique($selectedMonths))
+            : array_unique(array_merge($record->selected_months ?? [], $selectedMonths));
         sort($allSelectedMonths); // Ensure months are sorted
 
         $offer = $record->membership->offer;
@@ -801,8 +809,8 @@ class TeacherMembershipPaymentService
         // rewritten (see the end of this method). The immediate diff below is the
         // LEGACY path only: it diffs "immediate" figures and is blind to months the
         // monthly job already paid — prod Nov 2026, Tiko 646: job paid October 60,
-        // then a top-up diffed 0 -> 70 and paid October again.
-        $settlesAgainstLedger = $this->settlesAgainstLedger($currentInvoice, $record);
+        // then a top-up diffed 0 -> 70 and paid October again. ($settlesAgainstLedger
+        // was decided at the top of this method, before anything was rewritten.)
 
         // 3. Calculate the difference in immediate wallet amount
         $walletDifference = $settlesAgainstLedger
@@ -907,6 +915,11 @@ class TeacherMembershipPaymentService
 
         // Preserve existing unpaid months and append new future months
         $unpaidMonths = array_values(array_unique(array_merge($existingUnpaid, $newUnpaid)));
+
+        // A month removed from the invoice leaves the monthly job's queue too.
+        if ($settlesAgainstLedger) {
+            $unpaidMonths = array_values(array_intersect($unpaidMonths, $allSelectedMonths));
+        }
 
         // IMPROVED BACK-PAY LOGIC: Handle past monthly withdrawals correctly
         // Process any outstanding payments for past months that need immediate payment
@@ -2544,8 +2557,16 @@ class TeacherMembershipPaymentService
         $note = 'correction: Nov 2026 wallet audit (record '.$record->id.')';
 
         if ($invoice->deleted_at) {
+            // The DELETE itself must have reversed (inside the window) and left money
+            // behind (7065). A reversal row from an earlier membership edit does not
+            // count: a delete past the window keeps the money by policy (Tiko 642,
+            // swapped Oct 3, deleted Oct 14).
             $reversed = TeacherWalletEntry::where('invoice_id', $invoice->id)
                 ->where('reason', TeacherWalletEntry::REASON_REVERSAL)
+                ->whereBetween('created_at', [
+                    Carbon::parse($invoice->deleted_at)->subMinutes(2),
+                    Carbon::parse($invoice->deleted_at)->addMinutes(2),
+                ])
                 ->exists();
 
             if (! $reversed || $held <= 0.01) {
