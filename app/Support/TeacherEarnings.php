@@ -167,7 +167,8 @@ class TeacherEarnings
                     $base,
                     $dueMonths ? max(array_keys($dueMonths)) : $currentMonth,
                     $gap,
-                    $gap > 0 ? 'Reçu en plus du calendrier' : 'Reste dû sur cette facture'
+                    // The month row already says « Reste dû »; this line is the missing money.
+                    $gap > 0 ? 'Reçu en plus du calendrier' : 'Pas encore crédité au portefeuille'
                 ));
             }
         }
