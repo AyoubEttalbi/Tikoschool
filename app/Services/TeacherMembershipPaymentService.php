@@ -2569,7 +2569,15 @@ class TeacherMembershipPaymentService
                 ])
                 ->exists();
 
-            if (! $reversed || $held <= 0.01) {
+            // The money is gone but the record still claims it (prod 7006): heal the
+            // record only, so the nightly audit stops flagging a phantom.
+            if ($held <= 0.01) {
+                return (float) $record->total_paid_to_teacher > max(0.0, $held) + 0.01
+                    ? $this->applyLedgerRepair($record, $invoice, 'record only', $held, $held, $note, $apply)
+                    : null;
+            }
+
+            if (! $reversed) {
                 return null;
             }
 
@@ -2622,7 +2630,11 @@ class TeacherMembershipPaymentService
         // double credit on top of it (7096, 7187) — and is never paid a shortfall.
         if ($frozen) {
             if ($held <= $ceilingDue + 0.01) {
-                return null;
+                // Kept back-pay above the record's figure: the record follows the
+                // money (no movement) so the audit stops flagging it.
+                return $held > $recordDue + 0.01
+                    ? $this->applyLedgerRepair($record, $invoice, 'record only', $held, $held, $note, $apply, $rateOwed)
+                    : null;
             }
 
             return $this->applyLedgerRepair($record, $invoice, 'over-credit (membership deleted)', $held, $ceilingDue, $note, $apply);
