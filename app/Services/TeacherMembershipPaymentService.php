@@ -751,7 +751,11 @@ class TeacherMembershipPaymentService
         // month the clerk had moved away from (Oct -> Sep), split the commission over
         // two months and debited half (prod Tiko 678, 737, 853, 1479). The legacy
         // path keeps its merge.
-        $allSelectedMonths = $settlesAgainstLedger
+        // Partial-month invoices keep the merge: the form never lists the billing
+        // (partial) month — only creation appended it — so replacing would drop it
+        // and re-anchor the partial share on a full month (Nov 2026 review).
+        $isPartialInvoice = (bool) ($record->invoice->includePartialMonth ?? false);
+        $allSelectedMonths = $settlesAgainstLedger && ! $isPartialInvoice
             ? array_values(array_unique($selectedMonths))
             : array_unique(array_merge($record->selected_months ?? [], $selectedMonths));
         sort($allSelectedMonths); // Ensure months are sorted
@@ -976,6 +980,19 @@ class TeacherMembershipPaymentService
             $newTotalPaidToTeacher = $newTotalAmount;
         }
 
+        // A save that changed no money leaves every money field as it was: rewriting
+        // the commission or the monthly amount here would re-rate the queued months
+        // the monthly job pays later (Nov 2026 review). Only the flag and the paid
+        // figure (from the ledger) are touched.
+        if ($settlesAgainstLedger && ! ($validated['settle'] ?? true)) {
+            $record->update([
+                'is_active' => true,
+                'total_paid_to_teacher' => round(max(0.0, $this->ledgerHeldForRecord($record)), 2),
+            ]);
+
+            return;
+        }
+
         $record->update([
             'selected_months' => $allSelectedMonths,
             'months_rest_not_paid_yet' => $unpaidMonths,
@@ -993,17 +1010,13 @@ class TeacherMembershipPaymentService
             // credit or a debit (the Sept-5 hiba re-save class). The record's paid
             // figure still follows the ledger. Callers that DO move money — amount
             // or months edited, membership teacher/offer changes — settle (default).
-            if ($validated['settle'] ?? true) {
-                $this->settleRecordToDue(
-                    $record,
-                    $currentInvoice,
-                    $teacherPercentage,
-                    TeacherWalletEntry::REASON_ADJUSTMENT,
-                    'settled to due on invoice update (record '.$record->id.')'
-                );
-            } else {
-                $record->update(['total_paid_to_teacher' => round(max(0.0, $this->ledgerHeldForRecord($record)), 2)]);
-            }
+            $this->settleRecordToDue(
+                $record,
+                $currentInvoice,
+                $teacherPercentage,
+                TeacherWalletEntry::REASON_ADJUSTMENT,
+                'settled to due on invoice update (record '.$record->id.')'
+            );
         }
 
         Log::info('Updated teacher membership payment record', [
@@ -2646,13 +2659,20 @@ class TeacherMembershipPaymentService
             return $this->applyLedgerRepair($record, $invoice, 'over-credit', $held, $ceilingDue, $note, $apply, max($recordOwed, $rateOwed));
         }
 
+        // Shortfalls are paid into ACTIVE records only: an inactive one may carry a
+        // full commission after a reversal that really took the money (Nov 2026
+        // review) — paying it back is a human call, not a repair.
         if ($held < $recordDue - 0.01) {
-            return $this->applyLedgerRepair($record, $invoice, 'shortfall', $held, $recordDue, $note, $apply, $recordOwed);
+            return $record->is_active
+                ? $this->applyLedgerRepair($record, $invoice, 'shortfall', $held, $recordDue, $note, $apply, $recordOwed)
+                : null;
         }
 
         // Money is right; make the record say so when it lags the ledger (the
-        // back-paid rate) so the nightly audit stops flagging it.
-        $owed = $held > $recordDue + 0.01 ? $rateOwed : $recordOwed;
+        // back-paid rate) so the nightly audit stops flagging it — only once every
+        // month is due, so no queued month is re-rated by the new figure.
+        $queued = array_filter((array) ($record->months_rest_not_paid_yet ?? []), fn ($m) => $m > now()->format('Y-m'));
+        $owed = ($held > $recordDue + 0.01 && $queued === []) ? $rateOwed : $recordOwed;
 
         if (abs($owed - $recordOwed) < 0.01 && abs($held - (float) $record->total_paid_to_teacher) < 0.01) {
             return null;

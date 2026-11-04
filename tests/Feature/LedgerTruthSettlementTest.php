@@ -307,3 +307,46 @@ test('G: moving a future month drops it from the monthly queue', function () {
     $s->advanceToMonth('2027-01');
     expect($s->wallet('Math'))->toBe(90.0);
 });
+
+test('review 2 HIGH-A: editing a partial-month invoice keeps its billing month', function () {
+    Carbon::setTestNow('2026-09-05 10:00:00');
+    $s = PaymentScenario::make(['Math' => 20]);
+    // Rest of September (100) + October and November.
+    $s->bill(
+        months: ['2026-10', '2026-11'], total: 300, paid: 300, billDate: '2026-09-05',
+        includePartialMonth: true, partialMonthAmount: 100
+    );
+    expect($s->wallet('Math'))->toBe(20.0, '20% of the 100 partial.');
+
+    $s->advanceToMonth('2026-10');
+    expect($s->wallet('Math'))->toBe(40.0);
+
+    Carbon::setTestNow('2026-10-10 10:00:00');
+    $s->editInvoice(newTotal: 360, newPaid: 360, months: ['2026-10', '2026-11'], includePartialMonth: true, partialMonthAmount: 100);
+
+    // Commission 72: September partial 20 + October (72 - 20) / 2 = 46 due today.
+    expect($s->wallet('Math'))->toBe(46.0)
+        ->and($s->record('Math')->selected_months)->toContain('2026-09');
+
+    $s->advanceToMonth('2026-11');
+    expect($s->wallet('Math'))->toBe(72.0);
+});
+
+test('review 2 HIGH-C: a no-money save never re-rates queued months', function () {
+    Carbon::setTestNow('2026-10-05 10:00:00');
+    $s = PaymentScenario::make(['Math' => 20]);
+    $s->bill(months: ['2026-10', '2026-11', '2026-12'], total: 300, paid: 300, billDate: '2026-10-01');
+    expect($s->wallet('Math'))->toBe(20.0);
+
+    $s->offer->update(['percentage' => ['Math' => 25]]);
+
+    (new App\Services\TeacherMembershipPaymentService)->processInvoicePayment($s->invoice->fresh(), [
+        'totalAmount' => 300, 'amountPaid' => 300, 'rest' => 0,
+        'includePartialMonth' => false, 'partialMonthAmount' => 0, 'settle' => false,
+    ]);
+
+    $s->advanceToMonth('2026-11');
+    $s->advanceToMonth('2026-12');
+
+    expect($s->wallet('Math'))->toBe(60.0, 'Still 20% of 300: the plain save did not re-rate.');
+});

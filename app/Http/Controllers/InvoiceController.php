@@ -960,6 +960,10 @@ class InvoiceController extends Controller
 
             $invoice = Invoice::findOrFail($id);
             $previousAmountPaid = $invoice->amountPaid;
+            // Read through the model casts, never toArray(): its dates are UTC
+            // timestamps and would compare a day off.
+            $previousBillDate = $invoice->billDate ? \Illuminate\Support\Carbon::parse($invoice->billDate)->toDateString() : null;
+            $previousPartialFlag = (bool) $invoice->includePartialMonth;
 
             // Capture old data before update
             $oldData = $invoice->toArray(); // Keep this for activity log if needed
@@ -1147,9 +1151,13 @@ class InvoiceController extends Controller
             // Only a save that changed money settles teacher wallets: the amount
             // paid, the billed months or the partial month. A plain re-save moves
             // nothing (prod CRC 7502: a no-change save paid October a second time).
+            // The partial INPUTS (flag, billing date), never the partial amount: that is
+            // recomputed from the offer price on every save, so a price change would
+            // make a plain re-save move money (Nov 2026 review).
             $validated['settle'] = round((float) $validated['amountPaid'], 2) != round((float) $previousAmountPaid, 2)
                 || $newEffectiveMonths !== $currentEffectiveMonths
-                || round((float) ($validated['partialMonthAmount'] ?? 0), 2) != round((float) ($oldData['partialMonthAmount'] ?? 0), 2);
+                || (bool) ($validated['includePartialMonth'] ?? false) !== $previousPartialFlag
+                || \Illuminate\Support\Carbon::parse($validated['billDate'])->toDateString() !== $previousBillDate;
 
             $paymentResult = $paymentService->processInvoicePayment($invoice, $validated);
 

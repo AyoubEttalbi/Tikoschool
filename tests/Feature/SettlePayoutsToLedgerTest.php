@@ -215,3 +215,16 @@ test('a delete past the window keeps its money even after an earlier swap revers
 
     expect($s->wallet('Math'))->toBe(84.0, 'Settled by policy: the teacher keeps it.');
 });
+
+test('review 2 M1: the repair never pays a shortfall into an inactive record', function () {
+    Carbon::setTestNow('2026-10-02 10:00:00');
+    $s = PaymentScenario::make(['Math' => 20]);
+    $s->bill(months: ['2026-10'], total: 300, paid: 300, billDate: '2026-10-01');
+    $record = $s->record('Math');
+    (new TeacherWalletService)->debit($s->teachers['Math'], 60, TeacherWalletEntry::REASON_REVERSAL, $record->id, null, $s->invoice->id, 'invoice deleted', 'Math');
+    $record->update(['is_active' => false]);
+
+    $this->artisan('payouts:settle-to-ledger --confirm')->assertSuccessful();
+
+    expect($s->wallet('Math'))->toBe(0.0, 'A human decides whether that reversal is paid back.');
+});
