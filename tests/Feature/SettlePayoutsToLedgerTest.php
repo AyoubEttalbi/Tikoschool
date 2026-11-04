@@ -228,3 +228,47 @@ test('review 2 M1: the repair never pays a shortfall into an inactive record', f
 
     expect($s->wallet('Math'))->toBe(0.0, 'A human decides whether that reversal is paid back.');
 });
+
+test('a removed teacher whose money was already reversed only has the record healed', function () {
+    // CRC 7047 shape: PC teacher swapped inside the window, the reversal took the
+    // money back, but the inactive record still claims it — flagged every night.
+    Carbon::setTestNow('2026-09-03 17:00:00');
+    $s = PaymentScenario::make(['Math' => 20, 'PC' => 20]);
+    $s->bill(months: ['2026-09'], total: 300, paid: 300, billDate: '2026-09-01');
+    $record = $s->record('PC');
+    (new TeacherWalletService)->debit($s->teachers['PC'], 60, TeacherWalletEntry::REASON_REVERSAL, $record->id, null, $s->invoice->id, 'invoice deleted', 'PC');
+    $record->update(['is_active' => false]);
+
+    $replacement = App\Models\Teacher::factory()->create(['wallet' => 0]);
+    $s->membership->update(['teachers' => [
+        ['teacherId' => $s->teachers['Math']->id, 'subject' => 'Math'],
+        ['teacherId' => $replacement->id, 'subject' => 'PC'],
+    ]]);
+    (new App\Services\TeacherMembershipPaymentService)->processInvoicePayment($s->invoice->fresh(), [
+        'totalAmount' => 300, 'amountPaid' => 300, 'rest' => 0, 'includePartialMonth' => false, 'partialMonthAmount' => 0,
+    ]);
+    expect($s->wallet('PC'))->toBe(0.0)
+        ->and((float) $record->fresh()->total_paid_to_teacher)->toBe(60.0, 'Fixture: the record still claims the money.');
+
+    // The matched slice is a detail row, never an "orphan credit" (PC vs pc).
+    $this->artisan('wallet:audit-invoices')
+        ->expectsOutputToContain('detail (')
+        ->doesntExpectOutputToContain('orphan credit')
+        ->assertFailed();
+
+    Carbon::setTestNow('2026-11-04 10:00:00');
+    $before = TeacherWalletEntry::count();
+    $this->artisan('payouts:settle-to-ledger')->expectsOutputToContain('record only')->assertSuccessful();
+    expect((float) $record->fresh()->total_paid_to_teacher)->toBe(60.0, 'Dry run must not write.');
+
+    $this->artisan('payouts:settle-to-ledger --confirm')->assertSuccessful();
+
+    expect(TeacherWalletEntry::count())->toBe($before, 'No money moves.')
+        ->and((float) $record->fresh()->total_paid_to_teacher)->toBe(0.0)
+        ->and($s->wallet('PC'))->toBe(0.0)
+        ->and(round((float) $replacement->fresh()->wallet, 2))->toBe(60.0)
+        ->and($s->wallet('Math'))->toBe(60.0);
+
+    $this->artisan('wallet:audit-invoices')->assertSuccessful();
+    $this->artisan('payouts:settle-to-ledger')->expectsOutputToContain('already matches')->assertSuccessful();
+});

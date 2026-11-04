@@ -217,6 +217,18 @@ docker compose up -d
 The frontend build now needs `VITE_REVERB_*` present **at build time** — they are baked into
 the bundle. `.env.example` documents every required key (it was missing 22 of them).
 
+**`build` alone deploys nothing.** The code is baked into the image (only `storage` is
+mounted), so the running container keeps serving the old code until `up -d` recreates it.
+Nov 2026: the ledger-truth fix was pulled and built at 00:45 but the Oct 2 container kept
+running for 8 hours. After every deploy, the container must hold the host's code:
+
+```bash
+docker inspect -f '{{.Created}}' tikoschool-php-1        # must be minutes old
+md5sum app/Services/TeacherMembershipPaymentService.php
+docker exec tikoschool-php-1 md5sum /app/app/Services/TeacherMembershipPaymentService.php   # same hash
+docker exec tikoschool-php-1 sh -c 'cd /app && php artisan config:cache && php artisan route:cache && php artisan queue:restart'
+```
+
 ---
 
 ## 9. Any time you point the app at a different database — repeat 0.1 and 4-6b

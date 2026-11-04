@@ -2614,11 +2614,20 @@ class TeacherMembershipPaymentService
                 ->contains(fn ($r) => OfferPercentages::normalise((string) ($r->teacher_subject ?? '')) === $subject
                     && $this->ledgerHeldForRecord($r) > 0.01);
 
+            // The swap's reversal already took the money back but the record still
+            // claims it (CRC 7047, 7053, 7064, 7069, 7070, 7082, 7093: removed Sep 4,
+            // flagged every night since). Heal the record only — nothing moves.
+            if ($held <= 0.01) {
+                return (float) $record->total_paid_to_teacher > max(0.0, $held) + 0.01
+                    ? $this->applyLedgerRepair($record, $invoice, 'record only', $held, $held, $note, $apply)
+                    : null;
+            }
+
             // The replacement already holds this subject's money for the invoice, so
             // the school paid it twice; the removed teacher gives it back. Not gated
             // on the invoice still running: the swap happened while it ran (7502:
             // swapped Oct 6 on an October invoice, repaired in November).
-            if (! $replaced || $held <= 0.01) {
+            if (! $replaced) {
                 return null;
             }
 

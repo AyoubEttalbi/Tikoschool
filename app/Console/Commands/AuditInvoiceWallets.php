@@ -157,7 +157,10 @@ class AuditInvoiceWallets extends Command
             ];
 
             foreach ($slices as $slice) {
-                $record = $group->firstWhere('teacher_subject', $slice->teacher_subject);
+                // Ledger rows store the normalised subject ('pc'), records the raw
+                // spelling ('PC'): an exact match labelled a matched slice "orphan".
+                $sliceSubject = \App\Support\OfferPercentages::normalise((string) ($slice->teacher_subject ?? ''));
+                $record = $group->first(fn ($r) => \App\Support\OfferPercentages::normalise((string) ($r->teacher_subject ?? '')) === $sliceSubject);
 
                 $flags[] = [
                     $group->first()->teacher_id,
