@@ -18,6 +18,9 @@ const SingleTeacherPage = ({
     transactions,
     filterOptions = {},
     filters = {},
+    earningsSummary = null,
+    earningsOther = [],
+    earningsAnomalies = [],
 }) => {
     const { auth, flash } = usePage().props;
     const role = auth.user.role;
@@ -219,6 +222,9 @@ const SingleTeacherPage = ({
                             filterOptions={filterOptions}
                             filters={filters}
                             invoiceStats={invoiceStats}
+                            earningsSummary={earningsSummary}
+                            earningsOther={earningsOther}
+                            earningsAnomalies={earningsAnomalies}
                         />
                     </Suspense>
                 </div>

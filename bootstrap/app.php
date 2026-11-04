@@ -116,6 +116,15 @@ return Application::configure(basePath: dirname(__DIR__))
             ->appendOutputTo(storage_path('logs/schedule.log'))
             ->onFailure(fn () => $reportScheduledFailure('wallet:audit-invoices'));
 
+        // The wallet ledger is the single truth of teacher money: I1-I4 and I6
+        // (Gains Mensuels reconciles with the wallet). Read-only; same channels.
+        $schedule->command('ledger:invariants')
+            ->dailyAt('04:50')
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->appendOutputTo(storage_path('logs/schedule.log'))
+            ->onFailure(fn () => $reportScheduledFailure('ledger:invariants'));
+
         /*
          * Two-way profile-image integrity (DB -> filesystem, filesystem -> DB), daily
          * before the wallet check. Report-only by design: --strict only flips the exit

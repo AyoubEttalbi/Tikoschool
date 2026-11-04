@@ -80,6 +80,8 @@ Two consequences of that key worth knowing before you add a call site:
 
 `debit()` clamps at zero: a negative balance permanently blocks payouts elsewhere, so an over-reversal must never be allowed to create one.
 
+« Gains Mensuels » (profile) and « Mes gains » (payroll) are one statement, [TeacherEarnings](app/Support/TeacherEarnings.php), built from payout records + the ledger with the same month split the wallet settles to ([PayoutSchedule](app/Support/PayoutSchedule.php)). It reconciles by construction: Gagné à ce jour − Versé = Solde = wallet. Never re-derive earnings from today's offer or membership teachers — that drifted ~5,000 DH (Nov 2026).
+
 The payout pipeline lives in [TeacherMembershipPaymentService](app/Services/TeacherMembershipPaymentService.php) (1400 lines — the densest file in the repo) and `teachers:process-monthly-payments`. `payouts:audit` is read-only and scheduled daily; `payments:check-consistency --fix` is deliberately **disabled** because it repairs toward the current payout formula.
 
 ### Domain chain
@@ -123,6 +125,8 @@ Don't rediscover these, and don't assume they're safe because they're old.
 php artisan payouts:audit                 # read-only: over/underpaid teachers, orphans, duplicates
 php artisan payouts:audit --csv=path.csv  # per-teacher breakdown
 php artisan wallet:check                  # ledger vs cached wallet; non-zero exit on drift
+php artisan ledger:invariants             # read-only: I1-I4 + I6 (Gains Mensuels = wallet); nightly 04:50
+php artisan payouts:settle-to-ledger      # dry run of the ledger repair; --confirm writes (backup first)
 php artisan wallet:check --seed           # ONE TIME after the ledger migration, per DATABASE
 php artisan teachers:cleanup-duplicates   # required before the unique-key migration can apply
 ```

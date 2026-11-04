@@ -12,6 +12,9 @@ export default function TeacherProfile({
     filterOptions = {},
     filters = {},
     invoiceStats = {},
+    earningsSummary = null,
+    earningsOther = [],
+    earningsAnomalies = [],
 }) {
     return (
         <div className="space-y-6">
@@ -26,6 +29,9 @@ export default function TeacherProfile({
                     filters={filters.invoice_filters || {}}
                     teacherId={teacher.id}
                     invoiceStats={invoiceStats}
+                    earningsSummary={earningsSummary}
+                    earningsOther={earningsOther}
+                    earningsAnomalies={earningsAnomalies}
                 />
             </Suspense>
             {/* Section des paiements */}

@@ -2623,6 +2623,17 @@ class TeacherMembershipPaymentService
                     : null;
             }
 
+            // The swap's own reversal took the money back, then the old reconcile
+            // re-credited it to the removed teacher (CRC 7096: Primaire swapped for
+            // communication fr on Sep 8, reversed -65 then reconciled +65 — 155 paid
+            // on a 150 invoice). Taking it back was already decided; recover what
+            // came back after that reversal.
+            $reCredited = $this->reCreditedAfterReversal($record);
+
+            if (! $replaced && $reCredited > 0.01) {
+                return $this->applyLedgerRepair($record, $invoice, 'removed teacher, re-credited after its reversal', $held, round(max(0.0, $held - $reCredited), 2), $note, $apply);
+            }
+
             // The replacement already holds this subject's money for the invoice, so
             // the school paid it twice; the removed teacher gives it back. Not gated
             // on the invoice still running: the swap happened while it ran (7502:
@@ -2688,6 +2699,33 @@ class TeacherMembershipPaymentService
         }
 
         return $this->applyLedgerRepair($record, $invoice, 'record only', $held, $held, $note, $apply, $owed);
+    }
+
+    /**
+     * Credits a record received after the latest reversal of its own money, capped
+     * at what it holds now. Only the old reconcile wrote such rows for a teacher the
+     * reversal had just removed.
+     */
+    private function reCreditedAfterReversal(TeacherMembershipPayment $record): float
+    {
+        $lastReversal = TeacherWalletEntry::where('payment_record_id', $record->id)
+            ->where('reason', TeacherWalletEntry::REASON_REVERSAL)
+            ->max('id');
+
+        if (! $lastReversal) {
+            return 0.0;
+        }
+
+        $after = (float) TeacherWalletEntry::where('teacher_id', $record->teacher_id)
+            ->where('invoice_id', $record->invoice_id)
+            ->where('id', '>', $lastReversal)
+            ->where('amount', '>', 0)
+            ->whereNotIn('reason', self::cashOutReasons())
+            ->where(fn ($q) => $q->where('payment_record_id', $record->id)
+                ->orWhere('teacher_subject', OfferPercentages::normalise((string) ($record->teacher_subject ?? ''))))
+            ->sum('amount');
+
+        return round(min($after, $this->ledgerHeldForRecord($record)), 2);
     }
 
     /** @return array{record_id:int, teacher_id:int, invoice_id:int, subject:string, case:string, owed:float, held:float, due:float, delta:float} */
@@ -2824,7 +2862,7 @@ class TeacherMembershipPaymentService
     }
 
     /** The record's share, resolved the way the payout paths resolve it. */
-    private function recordPercentage(TeacherMembershipPayment $record): float
+    public function recordPercentage(TeacherMembershipPayment $record): float
     {
         $membership = Membership::withTrashed()->find($record->membership_id);
         $offer = $membership?->offer;
@@ -2933,53 +2971,13 @@ class TeacherMembershipPaymentService
      */
     private function dueToDate(TeacherMembershipPayment $record, Invoice $invoice, float $teacherPercentage): float
     {
-        $total = round((float) ($record->total_teacher_amount ?? 0), 2);
-
-        if ($total <= 0) {
-            return 0.0;
-        }
-
-        $selected = array_values(array_unique(array_filter((array) ($record->selected_months ?? []))));
-        sort($selected);
-        $count = count($selected);
-
-        if ($count === 0) {
-            return $total;
-        }
-
-        // Due = every billed month that has come round, by the calendar. Not by the
-        // queue: an edit landing before the monthly job ran must still release the
-        // current month (the queue would say "not yet" and the job, finding a zero
-        // monthly amount after the edit, would clear it unpaid).
-        $currentMonth = now()->format('Y-m');
-        $dueMonths = array_values(array_filter($selected, fn ($m) => $m <= $currentMonth));
-
-        $includesPartial = (bool) ($invoice->includePartialMonth ?? false);
-        $partialAmount = round((float) ($invoice->partialMonthAmount ?? 0), 2);
-
-        // The partial month is the billing month (the month that was current when
-        // the invoice was paid — creation appends it, TeacherEarnings keys on it),
-        // falling back to the first billed month.
-        $billMonth = $invoice->billDate ? Carbon::parse($invoice->billDate)->format('Y-m') : null;
-        $partialMonth = ($billMonth && in_array($billMonth, $selected, true)) ? $billMonth : $selected[0];
-
-        // Legacy creation path: a partial-month flag with no amount released the
-        // whole commission at once — but only once that month has come round,
-        // never ahead of a future-only plan (Nov 2026 review).
-        if ($includesPartial && $partialAmount <= 0) {
-            return $partialMonth <= $currentMonth ? $total : 0.0;
-        }
-
-        if ($includesPartial && $count > 1) {
-            // The rest of the commission spreads evenly over the full months.
-            $partialShare = min($total, round($partialAmount * $teacherPercentage / 100, 2));
-            $partialDue = in_array($partialMonth, $dueMonths, true) ? $partialShare : 0.0;
-            $fullDue = count(array_diff($dueMonths, [$partialMonth]));
-
-            return round($partialDue + ($total - $partialShare) * $fullDue / ($count - 1), 2);
-        }
-
-        return round($total * count($dueMonths) / $count, 2);
+        return \App\Support\PayoutSchedule::dueAt(
+            (float) ($record->total_teacher_amount ?? 0),
+            (array) ($record->selected_months ?? []),
+            $invoice,
+            $teacherPercentage,
+            now()->format('Y-m')
+        );
     }
 
     /**

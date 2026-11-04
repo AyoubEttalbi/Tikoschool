@@ -95,7 +95,10 @@ class MyPaymentsController extends Controller
             // filter logic, summary stats and pagination. Deliberately a
             // separate section from payouts: gains = what the invoices earned;
             // payouts = what administration actually handed over.
-            $allRows = TeacherEarnings::monthlyRows($teacher)
+            $statement = TeacherEarnings::statement($teacher);
+            $includeHistory = request()->boolean('include_history');
+            $allRows = $statement['rows']
+                ->when(! $includeHistory, fn ($rows) => $rows->where('status', '!=', TeacherEarnings::HISTORY))
                 ->sortByDesc('created_at')
                 ->values();
 
@@ -117,6 +120,7 @@ class MyPaymentsController extends Controller
                 'school_filter' => (string) request()->query('school_filter', 'all'),
                 'date_filter' => (string) request()->query('date_filter', 'all'),
                 'payment_status_filter' => (string) request()->query('payment_status_filter', 'all'),
+                'include_history' => $includeHistory,
             ];
 
             $rows = $this->filterGainsRows($allRows, $gainsFilters);
@@ -178,6 +182,8 @@ class MyPaymentsController extends Controller
             'gainsOptions' => $gainsOptions ?? [],
             'gainsStats' => $gainsStats ?? [],
             'gainsMonths' => $monthlyTotals ?? [],
+            'earningsSummary' => $statement['summary'] ?? null,
+            'earningsOther' => $statement['other'] ?? [],
         ]);
     }
 

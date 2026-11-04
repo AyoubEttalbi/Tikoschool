@@ -1,4 +1,12 @@
 import { useRef, useState } from "react";
+import {
+    EarningsStatusBadge,
+    EarningsSummaryStrip,
+    EarningsExtras,
+    HistoryToggle,
+    amountClass,
+    signedDh,
+} from "@/Components/EarningsStatement";
 import { Head, router } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import AssistantPaymentsCard from "@/Components/AssistantPaymentsCard";
@@ -306,7 +314,7 @@ function GainsFilters({ filters, options, onFilter }) {
                 <option value="paid">Payé</option>
                 <option value="pending">En attente</option>
             </select>
-            {(filters?.search || Object.values(filters ?? {}).some((v) => v !== "all")) && (
+            {(filters?.search || Object.entries(filters ?? {}).some(([k, v]) => k !== "include_history" && v !== "all")) && (
                 <button
                     type="button"
                     onClick={() => {
@@ -326,9 +334,10 @@ function GainsFilters({ filters, options, onFilter }) {
     );
 }
 
-/* « Mes gains » : une ligne par mois de facture, même mécanique que la table
-   « Gains Mensuels » de la fiche enseignant (part = % offre × montant payé). */
-function GainsSection({ gains, gainsFilters, gainsOptions, gainsStats, gainsMonths }) {
+/* « Mes gains » : une ligne par mois de facture, même relevé que la table
+   « Gains Mensuels » de la fiche enseignant (App\Support\TeacherEarnings) :
+   commission figée à la facturation, montants tirés du registre du portefeuille. */
+function GainsSection({ gains, gainsFilters, gainsOptions, gainsStats, gainsMonths, earningsSummary, earningsOther }) {
     const rows = gains?.data ?? [];
 
     // One entry point for every filter/page change: server-side filtering and
@@ -347,8 +356,15 @@ function GainsSection({ gains, gainsFilters, gainsOptions, gainsStats, gainsMont
                 Mes gains — par facture et par mois
             </h2>
 
+            <EarningsSummaryStrip summary={earningsSummary} />
             <GainsStats stats={gainsStats} />
             <MonthTotals months={gainsMonths} />
+            <div className="flex justify-end">
+                <HistoryToggle
+                    checked={!!gainsFilters?.include_history}
+                    onChange={(value) => applyQuery({ include_history: value ? 1 : 0, gains_page: 1 })}
+                />
+            </div>
 
             <GainsFilters
                 filters={gainsFilters}
@@ -385,19 +401,11 @@ function GainsSection({ gains, gainsFilters, gainsOptions, gainsStats, gainsMont
                                         <td className="px-3 py-2.5 text-right tabular-nums hidden lg:table-cell">
                                             {dh(row.amountPaid)} / {dh(row.totalAmount)}
                                         </td>
-                                        <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-sky-800">
-                                            {dh(row.teacher_amount)}
+                                        <td className={`px-3 py-2.5 text-right font-semibold tabular-nums ${amountClass(row)}`}>
+                                            {signedDh(row.teacher_amount)}
                                         </td>
                                         <td className="px-3 py-2.5 text-center">
-                                            <span
-                                                className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                                                    row.is_month_paid
-                                                        ? "bg-green-50 text-green-700"
-                                                        : "bg-amber-50 text-amber-700"
-                                                }`}
-                                            >
-                                                {row.is_month_paid ? "Payé" : "En attente"}
-                                            </span>
+                                            <EarningsStatusBadge row={row} />
                                         </td>
                                     </tr>
                                 ))}
@@ -407,6 +415,8 @@ function GainsSection({ gains, gainsFilters, gainsOptions, gainsStats, gainsMont
                     <PageNav page={gains} onPage={(value) => applyQuery({ gains_page: value })} />
                 </div>
             )}
+
+            <EarningsExtras other={earningsOther ?? []} />
         </section>
     );
 }
@@ -421,6 +431,8 @@ export default function MyPaymentsPage({
     gainsOptions = {},
     gainsStats = {},
     gainsMonths = [],
+    earningsSummary = null,
+    earningsOther = [],
 }) {
     const isTeacher = wallet?.roleView === "teacher";
 
@@ -461,6 +473,8 @@ export default function MyPaymentsPage({
                             gainsOptions={gainsOptions}
                             gainsStats={gainsStats}
                             gainsMonths={gainsMonths}
+                            earningsSummary={earningsSummary}
+                            earningsOther={earningsOther}
                         />
 
                         <section className="flex flex-col gap-3">

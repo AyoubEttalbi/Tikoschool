@@ -122,6 +122,38 @@ it('403s an admin off my-payments instead of redirecting', function () {
 /* « Mes gains » — the per-invoice/per-month share table */
 /* ------------------------------------------------------------------ */
 
+/**
+ * A paid invoice for this teacher, through the real payment path (the service
+ * writes the payout record and the ledger) — the gains statement is built from
+ * those, never re-derived from the membership and offer.
+ */
+function cockpitGain(School $school, Teacher $teacher, \App\Models\Offer $offer, Classes $class, Level $level, array $months, float $paid): array
+{
+    $student = Student::factory()->create(['schoolId' => $school->id, 'classId' => $class->id, 'levelId' => $level->id]);
+    $membership = \App\Models\Membership::forceCreate([
+        'student_id' => $student->id,
+        'offer_id' => $offer->id,
+        'teachers' => [['teacherId' => (string) $teacher->id, 'subject' => 'Math']],
+    ]);
+    $invoice = Invoice::factory()->create([
+        'membership_id' => $membership->id,
+        'student_id' => $student->id,
+        'offer_id' => $offer->id,
+        'selected_months' => $months,
+        'months' => count($months),
+        'billDate' => $months[0].'-01',
+        'totalAmount' => $paid,
+        'amountPaid' => $paid,
+        'rest' => 0,
+        'includePartialMonth' => false,
+    ]);
+    (new \App\Services\TeacherMembershipPaymentService)->processInvoicePayment($invoice, [
+        'totalAmount' => $paid, 'amountPaid' => $paid, 'rest' => 0, 'includePartialMonth' => false, 'partialMonthAmount' => 0,
+    ]);
+
+    return [$student, $membership, $invoice];
+}
+
 it('lists the teacher gains per invoice month with the offer share math', function () {
     // Freeze inside the invoice month: « Ce mois-ci » must count it.
     Carbon::setTestNow('2026-08-26 12:00:00');
@@ -129,31 +161,12 @@ it('lists the teacher gains per invoice month with the offer share math', functi
     [$user, $teacher] = cockpitStaffTeacher($this->school);
 
     // Offer allocates 50% to "Math"; the membership names this teacher on
-    // subject "Math"; invoice paid 400 DH over one month -> part = 200 DH.
+    // subject "Math"; invoice paid 400 DH over one month -> part = 200 DH,
+    // credited to the wallet when paid (the month has come round).
     $level = Level::factory()->create();
-    $offer = \App\Models\Offer::factory()->create([
-        'levelId' => $level->id,
-        'percentage' => ['Math' => 50],
-    ]);
+    $offer = \App\Models\Offer::factory()->create(['levelId' => $level->id, 'percentage' => ['Math' => 50]]);
     $class = Classes::factory()->create(['school_id' => $this->school->id, 'level_id' => $level->id]);
-    $student = Student::factory()->create([
-        'schoolId' => $this->school->id,
-        'classId' => $class->id,
-        'levelId' => $level->id,
-    ]);
-    \App\Models\Membership::forceCreate([
-        'student_id' => $student->id,
-        'offer_id' => $offer->id,
-        'teachers' => [['teacherId' => (string) $teacher->id, 'subject' => 'Math']],
-    ]);
-    Invoice::factory()->create([
-        'student_id' => $student->id,
-        'offer_id' => $offer->id,
-        'selected_months' => ['2026-08'],
-        'totalAmount' => 400,
-        'amountPaid' => 400,
-        'rest' => 0,
-    ]);
+    [$student] = cockpitGain($this->school, $teacher, $offer, $class, $level, ['2026-08'], 400);
 
     $this->actingAs($user)->get('/my-payments')
         ->assertOk()
@@ -161,72 +174,26 @@ it('lists the teacher gains per invoice month with the offer share math', functi
             ->has('gains.data', 1)
             ->where('gains.data.0.student_name', fn ($value) => str_contains((string) $value, $student->refresh()->firstName))
             ->where('gains.data.0.teacher_amount', fn ($value) => (float) $value === 200.0)
-            ->where('gains.data.0.is_month_paid', false)
+            ->where('gains.data.0.is_month_paid', true)
             ->where('gains.current_page', 1)
+            ->where('earningsSummary.balance', fn ($value) => (float) $value === 200.0)
             // Regression: Collection::where(...,'like',...) is not a thing —
             // it silently matched nothing and pinned this card to zero.
             ->where('gainsStats.current_month_gains', fn ($value) => (float) $value === 200.0));
 });
 
 it('filters the gains table and computes the summary cards on the filtered set', function () {
+    Carbon::setTestNow('2026-08-26 12:00:00');
     [$user, $teacher] = cockpitStaffTeacher($this->school);
 
     $level = Level::factory()->create();
-    $offer = \App\Models\Offer::factory()->create([
-        'levelId' => $level->id,
-        'percentage' => ['Math' => 50],
-    ]);
+    $offer = \App\Models\Offer::factory()->create(['levelId' => $level->id, 'percentage' => ['Math' => 50]]);
     $class = Classes::factory()->create(['school_id' => $this->school->id, 'level_id' => $level->id]);
 
-    // Paid commission: 400 DH paid × 50% = 200.
-    $paidStudent = Student::factory()->create(['schoolId' => $this->school->id, 'classId' => $class->id, 'levelId' => $level->id]);
-    $membership = \App\Models\Membership::forceCreate([
-        'student_id' => $paidStudent->id,
-        'offer_id' => $offer->id,
-        'teachers' => [['teacherId' => (string) $teacher->id, 'subject' => 'Math']],
-    ]);
-    Invoice::factory()->create([
-        'membership_id' => $membership->id,
-        'student_id' => $paidStudent->id,
-        'offer_id' => $offer->id,
-        'selected_months' => ['2026-08'],
-        'totalAmount' => 400,
-        'amountPaid' => 400,
-        'rest' => 0,
-    ]);
-    // The Payé badge reads the PAYOUT tracker, not the invoice: mark this
-    // teacher-month as handed over.
-    TeacherMembershipPayment::forceCreate([
-        'student_id' => $paidStudent->id,
-        'teacher_id' => $teacher->id,
-        // Must be THE membership id: the paid-month lookup joins on it.
-        'membership_id' => $membership->id,
-        'invoice_id' => Invoice::where('student_id', $paidStudent->id)->first()->id,
-        'selected_months' => ['2026-08'],
-        'months_rest_not_paid_yet' => [],
-        'monthly_teacher_amount' => 200,
-        'total_teacher_amount' => 200,
-        'payment_percentage' => 50,
-        'teacher_percentage' => 50,
-        'teacher_subject' => '',
-    ]);
-
-    // Pending commission: 100 DH paid × 50% = 50.
-    $pendingStudent = Student::factory()->create(['schoolId' => $this->school->id, 'classId' => $class->id, 'levelId' => $level->id]);
-    $pendingMembership = \App\Models\Membership::forceCreate([
-        'student_id' => $pendingStudent->id,
-        'offer_id' => $offer->id,
-        'teachers' => [['teacherId' => (string) $teacher->id, 'subject' => 'Math']],
-    ]);
-    Invoice::factory()->create([
-        'membership_id' => $pendingMembership->id,
-        'student_id' => $pendingStudent->id,
-        'offer_id' => $offer->id,
-        'selected_months' => ['2026-07'],
-        'totalAmount' => 100,
-        'amountPaid' => 100,
-        'rest' => 0,
-    ]);
+    // Paid commission: August has come round, 400 DH paid × 50% = 200.
+    cockpitGain($this->school, $teacher, $offer, $class, $level, ['2026-08'], 400);
+    // Not yet paid: September is still to come, 100 DH paid × 50% = 50.
+    [$pendingStudent] = cockpitGain($this->school, $teacher, $offer, $class, $level, ['2026-09'], 100);
 
     // Status filter FIRST this time.
     $this->actingAs($user)
@@ -237,12 +204,12 @@ it('filters the gains table and computes the summary cards on the filtered set',
             ->where('gains.data.0.is_month_paid', false));
 
     // Search second.
-    $json2 = $this->actingAs($user)
+    $this->actingAs($user)
         ->get('/my-payments?search='.urlencode($pendingStudent->firstName))
         ->assertOk()
-        ->inertiaPage();
-    dump('SECOND SEARCH:', $json2['props']['gainsFilters']['search'] ?? 'MISSING');
-    dump('SECOND ROWS:', collect($json2['props']['gains']['data'])->pluck('student_name')->all());
+        ->assertInertia(fn ($page) => $page
+            ->has('gains.data', 1)
+            ->where('gains.data.0.teacher_amount', fn ($value) => (float) $value === 50.0));
 
     // Status filter alone keeps both rows visible in options but only pending rows listed.
     $this->actingAs($user)
@@ -309,56 +276,15 @@ it('counts pending months and deleted memberships for real on the profile table'
     $level = Level::factory()->create();
     $offer = \App\Models\Offer::factory()->create(['levelId' => $level->id, 'percentage' => ['Math' => 50]]);
     $class = Classes::factory()->create(['school_id' => $this->school->id, 'level_id' => $level->id]);
-    $activeStudent = Student::factory()->create(['schoolId' => $this->school->id, 'classId' => $class->id, 'levelId' => $level->id]);
-    $goneStudent = Student::factory()->create(['schoolId' => $this->school->id, 'classId' => $class->id, 'levelId' => $level->id]);
 
-    // Active membership + unpaid month (no payout-tracker row -> En attente).
-    $activeMembership = \App\Models\Membership::forceCreate([
-        'student_id' => $activeStudent->id,
-        'offer_id' => $offer->id,
-        'teachers' => [['teacherId' => (string) $teacher->id, 'subject' => 'Math']],
-    ]);
-    Invoice::factory()->create([
-        'membership_id' => $activeMembership->id,
-        'student_id' => $activeStudent->id,
-        'offer_id' => $offer->id,
-        'selected_months' => ['2026-08'],
-        'totalAmount' => 200,
-        'amountPaid' => 200,
-        'rest' => 0,
-    ]);
+    // Active membership, a month still to come -> one pending month.
+    cockpitGain($this->school, $teacher, $offer, $class, $level, ['2026-09'], 200);
 
     // Withdrawn membership with its own PAID month -> counts in deleted only.
-    $trashedMembership = \App\Models\Membership::forceCreate([
-        'student_id' => $goneStudent->id,
-        'offer_id' => $offer->id,
-        'teachers' => [['teacherId' => (string) $teacher->id, 'subject' => 'Math']],
-    ]);
-    $goneInvoice = Invoice::factory()->create([
-        'membership_id' => $trashedMembership->id,
-        'student_id' => $goneStudent->id,
-        'offer_id' => $offer->id,
-        'selected_months' => ['2026-08'],
-        'totalAmount' => 100,
-        'amountPaid' => 100,
-        'rest' => 0,
-    ]);
+    [, $trashedMembership] = cockpitGain($this->school, $teacher, $offer, $class, $level, ['2026-08'], 100);
     $trashedMembership->delete();
-    TeacherMembershipPayment::forceCreate([
-        'student_id' => $goneStudent->id,
-        'teacher_id' => $teacher->id,
-        'membership_id' => $trashedMembership->id,
-        'invoice_id' => $goneInvoice->id,
-        'selected_months' => ['2026-08'],
-        'months_rest_not_paid_yet' => [],
-        'monthly_teacher_amount' => 50,
-        'total_teacher_amount' => 50,
-        'payment_percentage' => 50,
-        'teacher_percentage' => 50,
-        'teacher_subject' => '',
-    ]);
 
-    $this->actingAs($user)->get('/teachers/'.$teacher->id)
+    $this->actingAs($user)->get('/teachers/'.$teacher->id.'?date_filter=')
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             // Was a hardcoded `return 0` placeholder for years.

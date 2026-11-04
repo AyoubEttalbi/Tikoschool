@@ -12,6 +12,14 @@ import {
     Filter,
 } from "lucide-react";
 import { Link, router } from "@inertiajs/react";
+import {
+    EarningsStatusBadge,
+    EarningsSummaryStrip,
+    EarningsExtras,
+    HistoryToggle,
+    amountClass,
+    signedDh,
+} from "@/Components/EarningsStatement";
 
 const TeacherInvoicesTable = ({ 
     invoices = [], 
@@ -19,7 +27,10 @@ const TeacherInvoicesTable = ({
     filterOptions = {},
     filters = {},
     teacherId = null,
-    invoiceStats = {}
+    invoiceStats = {},
+    earningsSummary = null,
+    earningsOther = [],
+    earningsAnomalies = [],
 }) => {
     const safeInvoices = Array.isArray(invoices) ? invoices : [];
 
@@ -50,6 +61,7 @@ const TeacherInvoicesTable = ({
     const [dateFilter, setDateFilter] = useState(initialFilters.dateFilter);
     const [membershipStatusFilter, setMembershipStatusFilter] = useState(initialFilters.membershipStatusFilter);
     const [paymentStatusFilter, setPaymentStatusFilter] = useState(initialFilters.paymentStatusFilter);
+    const [includeHistory, setIncludeHistory] = useState(!!filters.include_history);
     const [filtersVisible, setFiltersVisible] = useState(false);
     const [selectedInvoices, setSelectedInvoices] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -102,6 +114,7 @@ const TeacherInvoicesTable = ({
             date_filter: newFilters.dateFilter !== undefined ? newFilters.dateFilter : dateFilter,
             membership_status_filter: newFilters.membershipStatusFilter !== undefined ? newFilters.membershipStatusFilter : membershipStatusFilter,
             payment_status_filter: newFilters.paymentStatusFilter !== undefined ? newFilters.paymentStatusFilter : paymentStatusFilter,
+            include_history: (newFilters.includeHistory !== undefined ? newFilters.includeHistory : includeHistory) ? 1 : 0,
             page: 1, // Reset to first page when filters change
         };
 
@@ -113,7 +126,7 @@ const TeacherInvoicesTable = ({
                 // Only the invoice table depends on these. Without `only`, changing a filter
                 // re-serialises the teacher, every announcement, every transaction and all
                 // the dropdown sources, and re-renders the whole profile.
-                only: ['invoices', 'invoiceStats', 'filterOptions', 'filters'],
+                only: ['invoices', 'invoiceStats', 'filterOptions', 'filters', 'earningsSummary', 'earningsOther', 'earningsAnomalies'],
                 onFinish: () => setIsLoading(false),
             });
         }
@@ -139,7 +152,7 @@ const TeacherInvoicesTable = ({
         }, 300); // Debounce search
 
         return () => clearTimeout(timeoutId);
-    }, [search, classFilter, offerFilter, schoolFilter, dateFilter, membershipStatusFilter, paymentStatusFilter]);
+    }, [search, classFilter, offerFilter, schoolFilter, dateFilter, membershipStatusFilter, paymentStatusFilter, includeHistory]);
 
     // Use backend pagination - no frontend pagination needed
     const paginatedInvoices = filteredInvoices;
@@ -292,11 +305,10 @@ const TeacherInvoicesTable = ({
         const billDate = (item.invoiceBillDate || item.billDate)
             ? new Date(item.invoiceBillDate || item.billDate).toLocaleDateString('fr-FR')
             : "N/A";
-        const teacherAmount = Number(item.teacher_amount || 0).toFixed(2);
 
         return (
             <tr
-                key={item.invoice_id + '_' + item.month_display}
+                key={item.id}
                 className={`border-b border-gray-200 text-sm hover:bg-gray-100 ${selectedInvoices.includes(item.invoice_id) ? "bg-blue-50" : "even:bg-gray-50"}`}
             >
                 <td className="p-4">
@@ -333,26 +345,11 @@ const TeacherInvoicesTable = ({
                     {item.offer_name || "—"}
                 </td>
                 <td className="p-4">
-                    {item.membership_deleted ? (
-                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                            <span className="w-2 h-2 bg-red-400 rounded-full mr-1"></span>
-                            Adhésion supprimée
-                        </span>
-                    ) : item.is_month_paid ? (
-                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                            <span className="w-2 h-2 bg-green-400 rounded-full mr-1"></span>
-                            Actif
-                        </span>
-                    ) : (
-                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                            <span className="w-2 h-2 bg-yellow-400 rounded-full mr-1"></span>
-                            En attente
-                        </span>
-                    )}
+                    <EarningsStatusBadge row={item} />
                 </td>
                 <td className="p-4">{billDate}</td>
-                <td className="p-4 font-semibold text-green-500">
-                    + {teacherAmount} DH
+                <td className={`p-4 font-semibold tabular-nums ${amountClass(item)}`}>
+                    {signedDh(item.teacher_amount)}
                 </td>
                 <td className="p-4 text-center">
                     <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
@@ -611,6 +608,13 @@ const TeacherInvoicesTable = ({
                 )}
             </div>
 
+            <div className="flex justify-end mb-3">
+                <HistoryToggle checked={includeHistory} onChange={setIncludeHistory} />
+            </div>
+
+            {/* Gagné à ce jour − Versé = Solde (le portefeuille) */}
+            <EarningsSummaryStrip summary={earningsSummary} />
+
             {/* Cartes de résumé */}
             {safeInvoices.length > 0 && (
                 <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
@@ -734,6 +738,8 @@ const TeacherInvoicesTable = ({
                     <TeacherInvoicesPagination links={invoiceslinks} />
                 </div>
             )}
+
+            <EarningsExtras other={earningsOther} anomalies={earningsAnomalies} />
         </div>
     );
 };

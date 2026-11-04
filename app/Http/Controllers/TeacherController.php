@@ -349,6 +349,9 @@ class TeacherController extends Controller
                 'date_filter' => $request->get('date_filter', now()->format('Y-m')),
                 'membership_status_filter' => $request->get('membership_status_filter', 'all'),
                 'payment_status_filter' => $request->get('payment_status_filter', 'all'),
+                // Months paid before the wallet ledger existed (their money sits in the
+                // opening balance) are a separate « Historique » view, off by default.
+                'include_history' => $request->boolean('include_history'),
                 'page' => $request->get('page', 1),
             ];
 
@@ -457,7 +460,11 @@ class TeacherController extends Controller
             // The per-month earnings rows are built by the shared pipeline — the
             // SAME math feeds « Mes gains » on the payroll page. Filters, stats
             // and pagination stay local below.
-            $invoices = \App\Support\TeacherEarnings::monthlyRows($teacher);
+            $statement = \App\Support\TeacherEarnings::statement($teacher);
+            $allRows = $statement['rows'];
+            $invoices = $filters['include_history']
+                ? $allRows
+                : $allRows->where('status', '!=', \App\Support\TeacherEarnings::HISTORY)->values();
 
             // Apply filters to invoices
             $invoices = $invoices->filter(function ($invoice) use ($filters) {
@@ -598,69 +605,12 @@ class TeacherController extends Controller
             $classes = Classes::all();
             $subjects = Subject::all();
 
-            // Get unique filter options from all invoices (not just filtered ones).
-            // Independent membership load: the dropdown universe must not shrink
-            // when a filter is active.
-            $memberships = Membership::withTrashed()
-                ->whereJsonContains('teachers', [['teacherId' => (string) $teacher->id]])
-                ->with(['invoices' => function ($query) {
-                    $query->whereNull('deleted_at');
-                }, 'student', 'student.class', 'offer'])
-                ->get();
-
-            $allInvoices = $memberships->flatMap(function ($membership) use ($teacher) {
-                if (! $membership->student) {
-                    return [];
-                }
-
-                return $membership->invoices->flatMap(function ($invoice) use ($membership, $teacher) {
-                    $teacherData = collect($membership->teachers)->first(function ($item) use ($teacher) {
-                        return isset($item['teacherId']) && $item['teacherId'] == (string) $teacher->id;
-                    });
-
-                    if (! $teacherData) {
-                        return [];
-                    }
-
-                    // Use subject from teacher data or fallback to teacher's first subject
-                    $subject = $teacherData['subject'] ?? ($teacher->subjects->first()->name ?? 'Unknown');
-
-                    $selectedMonths = $invoice->selected_months ?? [];
-                    if (is_string($selectedMonths)) {
-                        $selectedMonths = json_decode($selectedMonths, true) ?? [];
-                    }
-                    if (empty($selectedMonths)) {
-                        $selectedMonths = [$invoice->billDate ? $invoice->billDate->format('Y-m') : null];
-                    }
-
-                    $schoolName = 'Unknown';
-                    if ($membership->student->school) {
-                        $schoolName = $membership->student->school->name;
-                    } else {
-                        $school = School::find($membership->student->schoolId);
-                        if ($school) {
-                            $schoolName = $school->name;
-                        }
-                    }
-
-                    $className = $membership->student->class ? $membership->student->class->name : 'Unknown';
-                    $offerName = $invoice->offer ? $invoice->offer->offer_name : null;
-
-                    return collect($selectedMonths)->map(function ($month) use ($className, $schoolName, $offerName) {
-                        return [
-                            'student_class' => $className,
-                            'student_school' => $schoolName,
-                            'offer_name' => $offerName,
-                        ];
-                    });
-                });
-            });
-
-            // Extract unique values for filter dropdowns
+            // Dropdown options from ALL statement rows (not just filtered ones): the
+            // dropdown universe must not shrink when a filter is active.
             $filterOptions = [
-                'classes' => $allInvoices->pluck('student_class')->unique()->filter()->values()->toArray(),
-                'offers' => $allInvoices->pluck('offer_name')->unique()->filter()->values()->toArray(),
-                'schools' => $allInvoices->pluck('student_school')->unique()->filter()->values()->toArray(),
+                'classes' => $allRows->pluck('student_class')->unique()->filter()->values()->toArray(),
+                'offers' => $allRows->pluck('offer_name')->unique()->filter()->values()->toArray(),
+                'schools' => $allRows->pluck('student_school')->unique()->filter()->values()->toArray(),
             ];
 
             // Get recurring transactions for this teacher
@@ -739,6 +689,10 @@ class TeacherController extends Controller
                 'teacher' => $teacherUser ? array_merge($teacher->toArray(), ['user_id' => $teacherUser->id, 'totalStudents' => $totalStudents]) : array_merge($teacher->toArray(), ['totalStudents' => $totalStudents]),
                 'invoices' => $paginatedInvoices,
                 'invoiceStats' => $stats, // Add calculated stats
+                // Gagné à ce jour − Versé = Solde, plus what the rows cannot show.
+                'earningsSummary' => $statement['summary'],
+                'earningsOther' => $statement['other'],
+                'earningsAnomalies' => $statement['anomalies'],
                 'schools' => $schools,
                 'subjects' => $subjects,
                 'classes' => $classes,
