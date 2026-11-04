@@ -975,13 +975,22 @@ class TeacherMembershipPaymentService
         ]);
 
         if ($settlesAgainstLedger) {
-            $this->settleRecordToDue(
-                $record,
-                $currentInvoice,
-                $teacherPercentage,
-                TeacherWalletEntry::REASON_ADJUSTMENT,
-                'settled to due on invoice update (record '.$record->id.')'
-            );
+            // A save that changed no money (same amount paid, same months) moves
+            // nothing: a plain re-save must never re-rate an old invoice into a
+            // credit or a debit (the Sept-5 hiba re-save class). The record's paid
+            // figure still follows the ledger. Callers that DO move money — amount
+            // or months edited, membership teacher/offer changes — settle (default).
+            if ($validated['settle'] ?? true) {
+                $this->settleRecordToDue(
+                    $record,
+                    $currentInvoice,
+                    $teacherPercentage,
+                    TeacherWalletEntry::REASON_ADJUSTMENT,
+                    'settled to due on invoice update (record '.$record->id.')'
+                );
+            } else {
+                $record->update(['total_paid_to_teacher' => round(max(0.0, $this->ledgerHeldForRecord($record)), 2)]);
+            }
         }
 
         Log::info('Updated teacher membership payment record', [
@@ -2507,12 +2516,14 @@ class TeacherMembershipPaymentService
      * ledger truth would move, and optionally move it.
      *
      * Applies the same rules the live paths now follow:
-     *  - active, assigned record on a live invoice: recompute the commission from
-     *    what the student paid at the current rate (what any re-save does), then
-     *    settle the ledger to what is due today — over-credits come back as
-     *    `manual.adjustment` (a debt when already paid out), shortfalls are paid;
-     *  - a removed teacher whose subject is now held by an active replacement
-     *    record on a running invoice: the month was paid twice, recovered (7502);
+     *  - assigned record on a live membership: keep the record's commission (no
+     *    re-rating, except deliberate rate-raise back-pay) and settle the ledger to
+     *    what is due today — over-credits come back as `manual.adjustment` (a debt
+     *    when already paid out), shortfalls are paid;
+     *  - deleted membership (settled, frozen): only the excess over the commission
+     *    comes back, nothing is paid (7096, 7187);
+     *  - a removed teacher whose subject is held by a replacement record that has
+     *    money: the subject was paid twice, recovered (7502);
      *  - a deleted invoice whose delete DID reverse (a reversal row exists) but
      *    left money behind: recovered (7065). Past-window deletes keep their
      *    money by policy and are left alone, as are pre-ledger invoices.
@@ -2548,53 +2559,73 @@ class TeacherMembershipPaymentService
         $assigned = $membership && collect(is_array($membership->teachers) ? $membership->teachers : [])
             ->contains(fn ($t) => is_array($t) && self::teacherKey($t['teacherId'] ?? null, $t['subject'] ?? '') === $key);
 
+        $frozen = ! $membership || $membership->trashed();
+
         if (! $assigned) {
             $subject = OfferPercentages::normalise((string) ($record->teacher_subject ?? ''));
             $replaced = TeacherMembershipPayment::where('invoice_id', $invoice->id)
                 ->where('teacher_id', '!=', $record->teacher_id)
-                ->where('is_active', true)
+                // A settled membership delete deactivates every record, the
+                // replacement's included — it still holds the subject's money.
+                ->when(! $frozen, fn ($q) => $q->where('is_active', true))
                 ->get()
                 ->contains(fn ($r) => OfferPercentages::normalise((string) ($r->teacher_subject ?? '')) === $subject
                     && $this->ledgerHeldForRecord($r) > 0.01);
 
-            if (! $replaced || ! self::isRunning($invoice) || $held <= 0.01) {
+            // The replacement already holds this subject's money for the invoice, so
+            // the school paid it twice; the removed teacher gives it back. Not gated
+            // on the invoice still running: the swap happened while it ran (7502:
+            // swapped Oct 6 on an October invoice, repaired in November).
+            if (! $replaced || $held <= 0.01) {
                 return null;
             }
 
             return $this->applyLedgerRepair($record, $invoice, 'removed teacher, subject paid twice', $held, 0.0, $note, $apply);
         }
 
-        if (! $record->is_active) {
-            return null;
-        }
+        // Two commissions, and the repair never re-rates in either direction:
+        //  - the RECORD's (rate pinned at billing) — the most a shortfall is paid up to;
+        //  - the CURRENT rate's (what a re-save and Gains Mensuels show) — money
+        //    above the record's figure but within the current rate is a deliberate
+        //    rate-raise back-pay (CRC Sep 12) and is kept.
+        // Only money above the higher of the two is an over-credit.
+        $recordOwed = round((float) ($record->total_teacher_amount ?? 0), 2);
+        $rateOwed = round(round((float) ($invoice->amountPaid ?? 0), 2) * $pct / 100, 2);
 
-        // The commission stays what the record says — a repair is not a re-rating.
-        // Except where an admin deliberately back-paid a rate raise (Sep 2026,
-        // "rate-raise back-pay"): that money is kept, so the record moves to the
-        // current rate the back-pay was computed at, instead of the back-pay being
-        // clawed back as an over-credit.
-        $owed = round((float) ($record->total_teacher_amount ?? 0), 2);
-
-        $ratedRaise = TeacherWalletEntry::where('teacher_id', $record->teacher_id)
-            ->where('invoice_id', $invoice->id)
-            ->where('reason', TeacherWalletEntry::REASON_ADJUSTMENT)
-            ->where('note', 'like', 'rate-raise back-pay%')
-            ->exists();
-
-        if ($ratedRaise) {
-            $owed = round(round((float) ($invoice->amountPaid ?? 0), 2) * $pct / 100, 2);
-        }
-
+        $recordDue = $this->dueToDate($record, $invoice, $pct);
         $probe = $record->replicate();
-        $probe->total_teacher_amount = $owed;
-        $due = $this->dueToDate($probe, $invoice, $pct);
+        $probe->total_teacher_amount = max($recordOwed, $rateOwed);
+        $ceilingDue = $this->dueToDate($probe, $invoice, $pct);
 
-        if (abs($due - $held) < 0.01 && abs($owed - (float) $record->total_teacher_amount) < 0.01
-            && abs($held - (float) $record->total_paid_to_teacher) < 0.01) {
+        // A settled membership delete freezes what the teacher EARNED — never a
+        // double credit on top of it (7096, 7187) — and is never paid a shortfall.
+        if ($frozen) {
+            if ($held <= $ceilingDue + 0.01) {
+                return null;
+            }
+
+            return $this->applyLedgerRepair($record, $invoice, 'over-credit (membership deleted)', $held, $ceilingDue, $note, $apply);
+        }
+
+        // Assigned on a live membership (inactive too: left by a swap or reversal
+        // that never reprocessed — the money is still live).
+        if ($held > $ceilingDue + 0.01) {
+            return $this->applyLedgerRepair($record, $invoice, 'over-credit', $held, $ceilingDue, $note, $apply, max($recordOwed, $rateOwed));
+        }
+
+        if ($held < $recordDue - 0.01) {
+            return $this->applyLedgerRepair($record, $invoice, 'shortfall', $held, $recordDue, $note, $apply, $recordOwed);
+        }
+
+        // Money is right; make the record say so when it lags the ledger (the
+        // back-paid rate) so the nightly audit stops flagging it.
+        $owed = $held > $recordDue + 0.01 ? $rateOwed : $recordOwed;
+
+        if (abs($owed - $recordOwed) < 0.01 && abs($held - (float) $record->total_paid_to_teacher) < 0.01) {
             return null;
         }
 
-        return $this->applyLedgerRepair($record, $invoice, $due < $held ? 'over-credit' : ($due > $held ? 'shortfall' : 'record only'), $held, $due, $note, $apply, $owed);
+        return $this->applyLedgerRepair($record, $invoice, 'record only', $held, $held, $note, $apply, $owed);
     }
 
     /** @return array{record_id:int, teacher_id:int, invoice_id:int, subject:string, case:string, owed:float, held:float, due:float, delta:float} */
@@ -2746,6 +2777,23 @@ class TeacherMembershipPaymentService
     /** What the ledger holds for one payout record (0 when it holds nothing). */
     private function ledgerHeldForRecord(TeacherMembershipPayment $record): float
     {
+        // One teacher, two subjects on the same invoice: the whole-invoice fallback
+        // would hand this record its sibling subject's money. Strict slice only
+        // (subject or this record's own rows) — Nov 2026 review.
+        $siblings = TeacherMembershipPayment::where('invoice_id', $record->invoice_id)
+            ->where('teacher_id', $record->teacher_id)
+            ->count();
+
+        if ($siblings > 1) {
+            $normalised = OfferPercentages::normalise((string) ($record->teacher_subject ?? ''));
+
+            return round((float) TeacherWalletEntry::where('teacher_id', $record->teacher_id)
+                ->where('invoice_id', $record->invoice_id)
+                ->whereNotIn('reason', self::cashOutReasons())
+                ->where(fn ($q) => $q->where('teacher_subject', $normalised)->orWhere('payment_record_id', $record->id))
+                ->sum('amount'), 2);
+        }
+
         return $this->ledgerHeldForInvoice(
             (int) $record->teacher_id,
             (int) $record->invoice_id,
@@ -2793,9 +2841,22 @@ class TeacherMembershipPaymentService
             return false;
         }
 
-        $claimed = round((float) ($record->total_paid_to_teacher ?? 0), 2);
+        // The ledger must actually have seen this record's money. A pre-ledger record
+        // with no rows at all is history whatever it claims — prod CRC holds last
+        // year's records reading "paid 0, owed 85" whose money sits in the opening
+        // balance; settling them would pay it a second time.
+        $held = $this->ledgerHeldForInvoice(
+            (int) $record->teacher_id,
+            (int) $record->invoice_id,
+            $record->teacher_subject,
+            (int) $record->id
+        );
 
-        return $claimed <= $this->ledgerHeldForRecord($record) + 0.01;
+        if ($held === null) {
+            return false;
+        }
+
+        return round((float) ($record->total_paid_to_teacher ?? 0), 2) <= $held + 0.01;
     }
 
     /**
@@ -2834,18 +2895,24 @@ class TeacherMembershipPaymentService
         $includesPartial = (bool) ($invoice->includePartialMonth ?? false);
         $partialAmount = round((float) ($invoice->partialMonthAmount ?? 0), 2);
 
+        // The partial month is the billing month (the month that was current when
+        // the invoice was paid — creation appends it, TeacherEarnings keys on it),
+        // falling back to the first billed month.
+        $billMonth = $invoice->billDate ? Carbon::parse($invoice->billDate)->format('Y-m') : null;
+        $partialMonth = ($billMonth && in_array($billMonth, $selected, true)) ? $billMonth : $selected[0];
+
         // Legacy creation path: a partial-month flag with no amount released the
-        // whole commission at once (createNewRecord / processTeacherPayment).
+        // whole commission at once — but only once that month has come round,
+        // never ahead of a future-only plan (Nov 2026 review).
         if ($includesPartial && $partialAmount <= 0) {
-            return $total;
+            return $partialMonth <= $currentMonth ? $total : 0.0;
         }
 
         if ($includesPartial && $count > 1) {
-            // The partial month is the first one billed; the rest of the
-            // commission spreads evenly over the full months.
+            // The rest of the commission spreads evenly over the full months.
             $partialShare = min($total, round($partialAmount * $teacherPercentage / 100, 2));
-            $partialDue = in_array($selected[0], $dueMonths, true) ? $partialShare : 0.0;
-            $fullDue = count(array_diff($dueMonths, [$selected[0]]));
+            $partialDue = in_array($partialMonth, $dueMonths, true) ? $partialShare : 0.0;
+            $fullDue = count(array_diff($dueMonths, [$partialMonth]));
 
             return round($partialDue + ($total - $partialShare) * $fullDue / ($count - 1), 2);
         }

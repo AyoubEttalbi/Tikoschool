@@ -1143,6 +1143,14 @@ class InvoiceController extends Controller
             // --- TEACHER MEMBERSHIP PAYMENT LOGIC ---
             // The payment service now handles updates incrementally without full reversal
             $paymentService = new \App\Services\TeacherMembershipPaymentService;
+
+            // Only a save that changed money settles teacher wallets: the amount
+            // paid, the billed months or the partial month. A plain re-save moves
+            // nothing (prod CRC 7502: a no-change save paid October a second time).
+            $validated['settle'] = round((float) $validated['amountPaid'], 2) != round((float) $previousAmountPaid, 2)
+                || $newEffectiveMonths !== $currentEffectiveMonths
+                || round((float) ($validated['partialMonthAmount'] ?? 0), 2) != round((float) ($oldData['partialMonthAmount'] ?? 0), 2);
+
             $paymentResult = $paymentService->processInvoicePayment($invoice, $validated);
 
             // Log warning if payment processing has issues but don't fail the update

@@ -180,3 +180,19 @@ test('the payout audit reports a recovery debt as explained', function () {
         ->doesntExpectOutputToContain('Unexplained negative wallets')
         ->assertSuccessful();
 });
+
+test('a deleted membership keeps the commission but gives back a double credit', function () {
+    // CRC 7187 shape: membership deleted (settled), record frozen, ledger over.
+    Carbon::setTestNow('2026-09-07 10:00:00');
+    $s = PaymentScenario::make(['Math' => 20]);
+    $s->bill(months: ['2026-09'], total: 300, paid: 300, billDate: '2026-09-01');
+    oldBugCredit($s, 'Math', 10);
+    $s->record('Math')->update(['is_active' => false]);
+    $s->membership->delete();
+    expect($s->wallet('Math'))->toBe(70.0);
+
+    Carbon::setTestNow('2026-11-04 10:00:00');
+    $this->artisan('payouts:settle-to-ledger --confirm')->assertSuccessful();
+
+    expect($s->wallet('Math'))->toBe(60.0, 'The earned 60 stays, the extra 10 comes back.');
+});

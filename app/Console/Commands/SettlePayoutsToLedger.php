@@ -5,6 +5,8 @@ namespace App\Console\Commands;
 use App\Models\TeacherMembershipPayment;
 use App\Services\TeacherMembershipPaymentService;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -37,15 +39,35 @@ class SettlePayoutsToLedger extends Command
     {
         $apply = (bool) $this->option('confirm');
 
-        $rows = TeacherMembershipPayment::query()
-            ->when($this->option('invoice'), fn ($q, $id) => $q->where('invoice_id', (int) $id))
-            ->whereNotNull('invoice_id')
-            ->orderBy('invoice_id')
-            ->orderBy('id')
-            ->get()
-            ->map(fn ($record) => $service->ledgerRepair($record, $apply))
-            ->filter()
-            ->values();
+        // One run at a time: two overlapping --confirm runs would both read the
+        // same "held" and correct it twice.
+        $lock = Cache::lock('payouts:settle-to-ledger', 1800);
+
+        if (! $lock->get()) {
+            $this->error('Another payouts:settle-to-ledger run is in progress.');
+
+            return self::FAILURE;
+        }
+
+        try {
+            $ids = TeacherMembershipPayment::query()
+                ->when($this->option('invoice'), fn ($q, $id) => $q->where('invoice_id', (int) $id))
+                ->whereNotNull('invoice_id')
+                ->orderBy('invoice_id')
+                ->orderBy('id')
+                ->pluck('id');
+
+            // Each record is re-read under a row lock inside its own transaction, so
+            // what it holds is measured and corrected atomically — a monthly run or
+            // an invoice edit landing mid-repair cannot be corrected a second time.
+            $rows = $ids->map(fn ($id) => DB::transaction(function () use ($id, $service, $apply) {
+                $record = TeacherMembershipPayment::whereKey($id)->lockForUpdate()->first();
+
+                return $record ? $service->ledgerRepair($record, $apply) : null;
+            }))->filter()->values();
+        } finally {
+            $lock->release();
+        }
 
         if ($rows->isEmpty()) {
             $this->info('Every post-ledger payout record already matches the ledger.');

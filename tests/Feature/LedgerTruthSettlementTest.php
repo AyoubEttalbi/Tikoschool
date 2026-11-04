@@ -206,3 +206,75 @@ test('D: cash payouts never count as money the invoice still holds', function ()
 
     expect($s->wallet('Math'))->toBe(40.0, 'A re-save after a payout moves nothing.');
 });
+
+test('review C1: an ordinary debit on a negative wallet moves nothing (no sign flip)', function () {
+    Carbon::setTestNow('2026-11-03 10:00:00');
+    $s = PaymentScenario::make(['Math' => 60]);
+    $s->bill(months: ['2026-11'], total: 150, paid: 150, billDate: '2026-11-01');
+    payOut($s, 'Math', 90);
+    $s->editInvoice(newTotal: 150, newPaid: 110);
+    expect($s->wallet('Math'))->toBe(-24.0);
+
+    $moved = (new TeacherWalletService)->debit(
+        $s->teachers['Math'], 50, TeacherWalletEntry::REASON_ADJUSTMENT, null, null, null, 'manual'
+    );
+
+    expect($moved)->toBeFalse()
+        ->and($s->wallet('Math'))->toBe(-24.0, 'A debit must never turn a debt into a credit.')
+        ->and($s->ledgerTotal('Math'))->toBe(-24.0);
+});
+
+test('review H1: a partial flag with no amount on a future-only plan releases nothing early', function () {
+    Carbon::setTestNow('2026-11-10 10:00:00');
+    $s = PaymentScenario::make(['Math' => 30]);
+    $s->bill(
+        months: ['2026-12', '2027-01'], total: 300, paid: 300, billDate: '2026-12-01',
+        includePartialMonth: true, partialMonthAmount: 0
+    );
+
+    expect($s->wallet('Math'))->toBe(0.0, 'December has not come round.');
+
+    $s->advanceToMonth('2026-12');
+    $s->advanceToMonth('2027-01');
+
+    expect($s->wallet('Math'))->toBe(90.0, 'The plan lands on 30% of 300, once.');
+});
+
+test('review H1: a partial first month then full months settles each share once', function () {
+    Carbon::setTestNow('2026-10-15 10:00:00');
+    $s = PaymentScenario::make(['Math' => 50]);
+    // 100 for the rest of October + 2 full months at 200.
+    $s->bill(
+        months: ['2026-10', '2026-11', '2026-12'], total: 500, paid: 500, billDate: '2026-10-15',
+        includePartialMonth: true, partialMonthAmount: 100
+    );
+    expect($s->wallet('Math'))->toBe(50.0, 'Half of the 100 partial.');
+
+    $s->advanceToMonth('2026-11');
+    expect($s->wallet('Math'))->toBe(150.0);
+
+    Carbon::setTestNow('2026-11-20 10:00:00');
+    $s->editInvoice(newTotal: 500, newPaid: 500, months: ['2026-10', '2026-11', '2026-12'], includePartialMonth: true, partialMonthAmount: 100);
+    expect($s->wallet('Math'))->toBe(150.0, 'A re-save mid-plan moves nothing.');
+
+    $s->advanceToMonth('2026-12');
+    expect($s->wallet('Math'))->toBe(250.0);
+});
+
+test('review M1: two subjects of one teacher never borrow each other\'s money', function () {
+    Carbon::setTestNow('2026-10-05 10:00:00');
+    $s = PaymentScenario::make(['Math' => 40, 'Physique' => 20], teacherSubjects: ['Math']);
+    $teacher = $s->teachers['Math'];
+    $s->membership->update(['teachers' => [
+        ['teacherId' => $teacher->id, 'subject' => 'Math'],
+        ['teacherId' => $teacher->id, 'subject' => 'Physique'],
+    ]]);
+    $s->teachers['Physique'] = $teacher;
+    $s->bill(months: ['2026-10'], total: 500, paid: 500, billDate: '2026-10-01');
+    expect($s->wallet('Math'))->toBe(300.0, '200 Math + 100 Physique.');
+
+    Carbon::setTestNow('2026-10-06 10:00:00');
+    $s->editInvoice(newTotal: 500, newPaid: 250);
+
+    expect($s->wallet('Math'))->toBe(150.0, 'Each subject settles to its own half.');
+});
